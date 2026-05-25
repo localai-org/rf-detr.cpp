@@ -26,6 +26,25 @@ ggml_tensor* mha(ggml_context* ctx, ggml_tensor* x,
                  ggml_tensor* Wproj, ggml_tensor* bproj,
                  int n_heads);
 
+/* Multi-head cross-attention.
+ *
+ *   q_in ne   = (dim, N_q, 1, 1)         queries
+ *   kv_in ne  = (dim, N_kv, 1, 1)        keys/values source
+ *   Wq ne     = (dim, dim)               query projection
+ *   bq ne     = (dim,)
+ *   Wkv ne    = (dim, 2*dim)             packed K+V projection from kv_in
+ *   bkv ne    = (2*dim,)
+ *   Wo ne     = (dim, dim)               output projection
+ *   bo ne     = (dim,)
+ *
+ * Output ne = (dim, N_q, 1, 1) — same shape as queries. */
+ggml_tensor* cross_attn(ggml_context* ctx,
+                        ggml_tensor* q_in, ggml_tensor* kv_in,
+                        ggml_tensor* Wq, ggml_tensor* bq,
+                        ggml_tensor* Wkv, ggml_tensor* bkv,
+                        ggml_tensor* Wo, ggml_tensor* bo,
+                        int n_heads);
+
 /* Position-wise feed-forward network: x -> fc1 -> erf-GELU -> fc2.
  *
  *   W1 ne = (dim, ffn_dim); b1 ne = (ffn_dim,)

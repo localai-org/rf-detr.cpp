@@ -140,6 +140,45 @@ def mha(x, Wqkv, bqkv, Wproj, bproj, n_heads):
     return out
 
 
+def cross_attn(q_in, kv_in, Wq, bq, Wkv, bkv, Wo, bo, n_heads):
+    """Multi-head cross-attention.
+
+    Args:
+        q_in:   (N_q, dim)   — queries
+        kv_in:  (N_kv, dim)  — keys/values source
+        Wq:     (dim, dim)
+        bq:     (dim,)
+        Wkv:    (2*dim, dim)
+        bkv:    (2*dim,)
+        Wo:     (dim, dim)
+        bo:     (dim,)
+
+    Returns: (N_q, dim).
+    """
+    N_q, dim = q_in.shape
+    N_kv, _ = kv_in.shape
+    head_dim = dim // n_heads
+
+    q = q_in @ Wq.T + bq                          # (N_q, dim)
+    kv = kv_in @ Wkv.T + bkv                      # (N_kv, 2*dim)
+    k, v = np.split(kv, 2, axis=-1)               # each (N_kv, dim)
+
+    q = q.reshape(N_q, n_heads, head_dim).transpose(1, 0, 2)   # (h, N_q, hd)
+    k = k.reshape(N_kv, n_heads, head_dim).transpose(1, 0, 2)  # (h, N_kv, hd)
+    v = v.reshape(N_kv, n_heads, head_dim).transpose(1, 0, 2)  # (h, N_kv, hd)
+
+    scale = 1.0 / math.sqrt(head_dim)
+    logits = q @ k.transpose(0, 2, 1) * scale     # (h, N_q, N_kv)
+    logits -= logits.max(-1, keepdims=True)
+    a = np.exp(logits)
+    a = a / a.sum(-1, keepdims=True)
+
+    attn = a @ v                                  # (h, N_q, hd)
+    attn = attn.transpose(1, 0, 2).reshape(N_q, dim)  # (N_q, dim)
+    out = attn @ Wo.T + bo                        # (N_q, dim)
+    return out
+
+
 def mha_window(x, Wqkv, bqkv, Wproj, bproj, n_heads, window_size, hp, wp):
     """Windowed multi-head self-attention on patch tokens only.
 

@@ -117,6 +117,93 @@ ggml_tensor* mha(ggml_context* ctx, ggml_tensor* x,
     return out;
 }
 
+/* Multi-head cross-attention.
+ *
+ *   q  = Wq  @ q_in  + bq                shape (dim,   N_q)
+ *   kv = Wkv @ kv_in + bkv               shape (2*dim, N_kv)
+ *   split kv along axis 0 -> k, v each   shape (dim, N_kv)
+ *   reshape per-head, permute to         (head_dim, N, n_heads, 1)
+ *   attn = softmax(k^T @ q / sqrt(hd))   shape (N_kv, N_q, n_heads)
+ *   out  = v_t^T @ attn                   shape (head_dim, N_q, n_heads)
+ *   merge heads -> (dim, N_q), apply Wo + bo.
+ *
+ * Structurally identical to `mha` above; the differences are (a) separate
+ * Wq vs packed Wkv projections, and (b) Q's token count N_q may differ from
+ * KV's N_kv. */
+ggml_tensor* cross_attn(ggml_context* ctx,
+                        ggml_tensor* q_in, ggml_tensor* kv_in,
+                        ggml_tensor* Wq, ggml_tensor* bq,
+                        ggml_tensor* Wkv, ggml_tensor* bkv,
+                        ggml_tensor* Wo, ggml_tensor* bo,
+                        int n_heads) {
+    const int dim  = (int)q_in->ne[0];
+    const int N_q  = (int)q_in->ne[1];
+    const int N_kv = (int)kv_in->ne[1];
+    const int head_dim = dim / n_heads;
+
+    /* Q projection: Wq ne = (dim, dim); q_in ne = (dim, N_q);
+     * ggml_mul_mat(Wq, q_in) -> ne = (dim, N_q). */
+    ggml_tensor* q = ggml_mul_mat(ctx, Wq, q_in);
+    q = ggml_add(ctx, q, bq);
+
+    /* KV projection: Wkv ne = (dim, 2*dim); kv_in ne = (dim, N_kv);
+     * ggml_mul_mat(Wkv, kv_in) -> ne = (2*dim, N_kv). */
+    ggml_tensor* kv = ggml_mul_mat(ctx, Wkv, kv_in);
+    kv = ggml_add(ctx, kv, bkv);
+
+    /* Split along axis 0. Each view has ne = (dim, N_kv). */
+    const size_t kv_row_size = kv->nb[1];
+    const size_t kv_esz      = ggml_element_size(kv);
+    ggml_tensor* k = ggml_view_2d(ctx, kv, dim, N_kv, kv_row_size, 0 * dim * kv_esz);
+    ggml_tensor* v = ggml_view_2d(ctx, kv, dim, N_kv, kv_row_size, 1 * dim * kv_esz);
+
+    /* Materialize the views before reshape — view_2d is non-contiguous in general. */
+    k = ggml_cont(ctx, k);
+    v = ggml_cont(ctx, v);
+
+    /* Reshape per-head: (dim, N) -> (head_dim, n_heads, N). */
+    q = ggml_reshape_3d(ctx, q, head_dim, n_heads, N_q);
+    k = ggml_reshape_3d(ctx, k, head_dim, n_heads, N_kv);
+    v = ggml_reshape_3d(ctx, v, head_dim, n_heads, N_kv);
+
+    /* Permute (head_dim, n_heads, N) -> (head_dim, N, n_heads), so per-head
+     * matmul groups along the outermost ne[2] axis. */
+    q = ggml_cont(ctx, ggml_permute(ctx, q, 0, 2, 1, 3));
+    k = ggml_cont(ctx, ggml_permute(ctx, k, 0, 2, 1, 3));
+    v = ggml_cont(ctx, ggml_permute(ctx, v, 0, 2, 1, 3));
+
+    /* logits = mul_mat(k, q):
+     *   k ne = (head_dim, N_kv, n_heads), q ne = (head_dim, N_q, n_heads)
+     *   contracts head_dim -> per-head result ne = (N_kv, N_q, n_heads), where
+     *   logits[ne0=j, ne1=i] = sum_d k[ne0=d, ne1=j] * q[ne0=d, ne1=i]
+     *                        = <query i, key j>. ggml_soft_max normalizes
+     *   along ne[0] (over the key axis j). */
+    ggml_tensor* logits = ggml_mul_mat(ctx, k, q);
+    logits = ggml_scale(ctx, logits, 1.0f / std::sqrt((float)head_dim));
+    logits = ggml_soft_max(ctx, logits);
+
+    /* out[ne0=d, ne1=i] = sum_j v[ne0=d, ne1=j] * logits[ne0=j, ne1=i].
+     * Permute v so its token axis becomes ne[0]: v_t ne = (N_kv, head_dim, n_heads).
+     *   mul_mat(v_t, logits): contracts j ->
+     *     result[ne0=d, ne1=i] = sum_j v_t[ne0=j, ne1=d] * logits[ne0=j, ne1=i]
+     *                          = sum_j v[ne0=d, ne1=j]  * logits[ne0=j, ne1=i].  ✓ */
+    ggml_tensor* v_t = ggml_cont(ctx, ggml_permute(ctx, v, 1, 0, 2, 3));
+    ggml_tensor* out = ggml_mul_mat(ctx, v_t, logits);
+    /* out ne = (head_dim, N_q, n_heads, 1) */
+
+    /* Permute (head_dim, N_q, n_heads) -> (head_dim, n_heads, N_q) so the
+     * subsequent reshape concatenates heads back into the channel axis. */
+    out = ggml_cont(ctx, ggml_permute(ctx, out, 0, 2, 1, 3));
+    /* out ne = (head_dim, n_heads, N_q, 1) */
+    out = ggml_reshape_2d(ctx, out, dim, N_q);
+    /* out ne = (dim, N_q, 1, 1) */
+
+    /* Output projection: Wo ne = (dim, dim). */
+    out = ggml_mul_mat(ctx, Wo, out);
+    out = ggml_add(ctx, out, bo);
+    return out;
+}
+
 /* MLP: x -> fc1 -> GELU -> fc2.
  *
  * PyTorch's nn.GELU() default uses the erf-based exact formula, so we use
