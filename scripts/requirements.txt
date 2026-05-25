@@ -1,0 +1,8 @@
+# Pinned at last known-good version at time of writing.
+# Bump deliberately; re-run `python scripts/convert_rfdetr_to_gguf.py --dry-run`
+# to confirm the tensor name map still matches.
+torch==2.5.1
+rfdetr==1.7.0
+gguf==0.10.0
+numpy==1.26.4
+pillow==10.4.0
