@@ -24,17 +24,24 @@ struct Tol { float atol; float rtol; };
 
 /* Plan 4 switched the fixture to F32 weights, eliminating the F16
  * quantization noise floor (~4e-4 on patch_embed) that previously forced
- * loose 1e-3 tolerances. All checkpoints now share a uniform tight bound
+ * loose 1e-3 tolerances. All checkpoints share a uniform tight bound
  * that's tight enough to catch real correctness bugs and loose enough to
- * absorb ggml's F32 vs numpy's float64 order-of-operations drift. */
-const std::map<std::string, Tol> kTolerances = {
-    {"backbone.patch_embed.output",    {1e-5f, 1e-4f}},
-    {"backbone.cls_pos_embed.output",  {1e-5f, 1e-4f}},
-    {"backbone.block.0.norm1.output",  {1e-5f, 1e-4f}},
-    {"backbone.block.0.attn.output",   {1e-5f, 1e-4f}},
-    {"backbone.block.0.mlp.output",    {1e-5f, 1e-4f}},
-    {"backbone.block.0.output",        {1e-5f, 1e-4f}},
-};
+ * absorb ggml's F32 vs numpy's float64 order-of-operations drift. Built
+ * programmatically over `depth` blocks to avoid hand-listing 4*depth+2
+ * checkpoints. */
+std::map<std::string, Tol> build_tolerances(uint32_t depth) {
+    std::map<std::string, Tol> tol;
+    tol["backbone.patch_embed.output"]    = {1e-5f, 1e-4f};
+    tol["backbone.cls_pos_embed.output"]  = {1e-5f, 1e-4f};
+    for (uint32_t i = 0; i < depth; ++i) {
+        std::string p = "backbone.block." + std::to_string(i) + ".";
+        tol[p + "norm1.output"] = {1e-5f, 1e-4f};
+        tol[p + "attn.output"]  = {1e-5f, 1e-4f};
+        tol[p + "mlp.output"]   = {1e-5f, 1e-4f};
+        tol[p + "output"]       = {1e-5f, 1e-4f};
+    }
+    return tol;
+}
 
 struct Baseline {
     std::unordered_map<std::string, std::vector<float>> tensors;
@@ -172,8 +179,12 @@ int main() {
     RFDETR_ASSERT(t != nullptr);
     t = rfdetr::dinov2_add_cls_and_pos_embed(gctx, *m, t);
     RFDETR_ASSERT(t != nullptr);
-    t = rfdetr::dinov2_block(gctx, *m, t, /*block_idx*/ 0);
-    RFDETR_ASSERT(t != nullptr);
+    for (uint32_t i = 0; i < m->config.backbone.depth; ++i) {
+        t = rfdetr::dinov2_block(gctx, *m, t, (int)i);
+        RFDETR_ASSERT(t != nullptr);
+    }
+
+    auto kTolerances = build_tolerances(m->config.backbone.depth);
 
     /* Build the graph BEFORE allocating buffers — published nodes that are
      * intermediate views (e.g. permute results) must be reachable from the

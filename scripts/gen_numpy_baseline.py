@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Generate a baseline-bundle GGUF from a Plan-2 model GGUF by computing
-forward through patch_embed + backbone block 0 in numpy.
+forward through patch_embed + CLS/pos_embed + all backbone blocks in numpy.
 
 The intermediate tensors are written to a new GGUF as parity.<checkpoint>
 tensors. The C++ test_parity_block0 consumes this bundle.
@@ -166,9 +166,10 @@ def patchify_and_embed(input_img, kernel, bias):
 
 
 def forward(cfg, tensors, input_img):
-    """Run patch_embed + block 0. Returns dict of named intermediate tensors.
-    All values stored as float32, shape (N, dim) or compatible — the C++
-    side will reshape them as needed via copy_tensor_to_f32 + tensor_shape.
+    """Run patch_embed + CLS/pos_embed + all backbone blocks. Returns dict of
+    named intermediate tensors. All values stored as float32, shape (N, dim) or
+    compatible — the C++ side will reshape them as needed via
+    copy_tensor_to_f32 + tensor_shape.
     """
     out = {"preprocess.input": input_img}  # NCHW (1, 3, H, W)
 
@@ -196,27 +197,29 @@ def forward(cfg, tensors, input_img):
     x = tokens_with_cls + pos_embed                              # (N+1, dim)
     out["backbone.cls_pos_embed.output"] = x.copy()
 
-    p = "backbone.blocks.0."
+    for i in range(cfg["bb_depth"]):
+        p = f"backbone.blocks.{i}."
+        pub = f"backbone.block.{i}."
 
-    # x = x + attn(norm1(x))
-    n1 = layer_norm(x, tensors[p + "norm1.weight"], tensors[p + "norm1.bias"])
-    out["backbone.block.0.norm1.output"] = n1.copy()
-    y = mha(n1,
-            tensors[p + "attn.qkv.weight"], tensors[p + "attn.qkv.bias"],
-            tensors[p + "attn.proj.weight"], tensors[p + "attn.proj.bias"],
-            cfg["bb_heads"])
-    out["backbone.block.0.attn.output"] = y.copy()
-    x = x + y
+        # x = x + attn(norm1(x))
+        n1 = layer_norm(x, tensors[p + "norm1.weight"], tensors[p + "norm1.bias"])
+        out[pub + "norm1.output"] = n1.copy()
+        y = mha(n1,
+                tensors[p + "attn.qkv.weight"], tensors[p + "attn.qkv.bias"],
+                tensors[p + "attn.proj.weight"], tensors[p + "attn.proj.bias"],
+                cfg["bb_heads"])
+        out[pub + "attn.output"] = y.copy()
+        x = x + y
 
-    # x = x + mlp(norm2(x))
-    n2 = layer_norm(x, tensors[p + "norm2.weight"], tensors[p + "norm2.bias"])
-    z = mlp(n2,
-            tensors[p + "mlp.fc1.weight"], tensors[p + "mlp.fc1.bias"],
-            tensors[p + "mlp.fc2.weight"], tensors[p + "mlp.fc2.bias"])
-    out["backbone.block.0.mlp.output"] = z.copy()
-    x = x + z
+        # x = x + mlp(norm2(x))
+        n2 = layer_norm(x, tensors[p + "norm2.weight"], tensors[p + "norm2.bias"])
+        z = mlp(n2,
+                tensors[p + "mlp.fc1.weight"], tensors[p + "mlp.fc1.bias"],
+                tensors[p + "mlp.fc2.weight"], tensors[p + "mlp.fc2.bias"])
+        out[pub + "mlp.output"] = z.copy()
+        x = x + z
 
-    out["backbone.block.0.output"] = x.copy()
+        out[pub + "output"] = x.copy()
     return out
 
 
