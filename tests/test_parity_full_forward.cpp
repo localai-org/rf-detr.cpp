@@ -47,14 +47,17 @@ std::map<std::string, Tol> build_tolerances(const rfdetr::Config& cfg) {
         tol[p + "output"]       = {1e-5f, 1e-4f};
     }
     tol["backbone.norm.output"] = {1e-5f, 1e-4f};
-    for (size_t k = 0; k < cfg.backbone.multi_scale_layers.size(); ++k) {
+    for (size_t k = 0; k < cfg.backbone.out_feature_indices.size(); ++k) {
         tol["backbone.multiscale.level" + std::to_string(k)] = {1e-5f, 1e-4f};
     }
-    for (size_t j = 0; j < cfg.backbone.multi_scale_layers.size(); ++j) {
+    for (size_t j = 0; j < cfg.backbone.out_feature_indices.size(); ++j) {
         tol["projector.level" + std::to_string(j) + ".output"] = {1e-5f, 1e-4f};
     }
     tol["projector.concat.output"] = {1e-5f, 1e-4f};
-    for (uint32_t i = 0; i < cfg.encoder.layers; ++i) {
+    /* TODO Plan 9: v2 schema has no standalone encoder. This test will be
+     * disabled in Plan 7 Task 6 and rewritten later. Use decoder.layers as
+     * a placeholder to keep this file compiling. */
+    for (uint32_t i = 0; i < cfg.decoder.layers; ++i) {
         std::string p = "encoder.layer" + std::to_string(i) + ".";
         tol[p + "norm1.output"] = {1e-5f, 1e-4f};
         tol[p + "attn.output"]  = {1e-5f, 1e-4f};

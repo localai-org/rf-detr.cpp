@@ -59,7 +59,7 @@ ggml_tensor* decoder_layer(ggml_context* ctx, const Model& m,
 
     /* q = q + self_attn(norm1(q)) */
     ggml_tensor* y = ops::layer_norm(ctx, q, n1w, n1b);
-    y = ops::mha(ctx, y, sqkvW, sqkvB, soW, soB, (int)m.config.decoder.heads);
+    y = ops::mha(ctx, y, sqkvW, sqkvB, soW, soB, (int)m.config.decoder.self_attn_heads);
     publish(pub + "self_attn.output", y);
     q = ggml_add(ctx, q, y);
 
@@ -67,7 +67,7 @@ ggml_tensor* decoder_layer(ggml_context* ctx, const Model& m,
     y = ops::layer_norm(ctx, q, n2w, n2b);
     y = ops::cross_attn(ctx, y, encoder_out,
                         cqW, cqB, ckvW, ckvB, coW, coB,
-                        (int)m.config.decoder.heads);
+                        (int)m.config.decoder.self_attn_heads);
     publish(pub + "cross_attn.output", y);
     q = ggml_add(ctx, q, y);
 

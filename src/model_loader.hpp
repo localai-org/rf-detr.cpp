@@ -19,30 +19,51 @@ typedef struct ggml_backend* ggml_backend_t;
 namespace rfdetr {
 
 /* Configuration loaded from GGUF metadata. Plan 3's graph builder consumes
- * this; Plan 2's loader only populates it. */
+ * this; Plan 2's loader only populates it.
+ *
+ * Schema: format version "2" — see docs/conversion.md. */
 struct Config {
-    std::string variant;          // "base" / "nano" / ...
+    std::string variant;          // "base" (only supported variant for now)
     uint32_t image_size  = 0;
+    uint32_t patch_size  = 0;
     uint32_t num_queries = 0;
+    uint32_t group_detr  = 0;     // training-time groups; only group 0 used at inference
     uint32_t num_classes = 0;
     std::vector<std::string> class_names;
     float preprocess_mean[3] = {0, 0, 0};
     float preprocess_std[3]  = {1, 1, 1};
 
     struct {
-        uint32_t dim                 = 0;
-        uint32_t depth               = 0;
-        uint32_t heads               = 0;
-        uint32_t window_size         = 0;
-        std::vector<uint32_t> multi_scale_layers;
+        uint32_t dim                  = 0;
+        uint32_t depth                = 0;
+        uint32_t heads                = 0;
+        uint32_t ffn_dim              = 0;
+        uint32_t num_windows          = 0;
+        std::vector<uint32_t> global_attn_indices;
+        std::vector<uint32_t> out_feature_indices;
+        uint32_t pos_embed_train_size = 0;
     } backbone;
 
     struct {
-        uint32_t layers    = 0;
-        uint32_t model_dim = 0;
-        uint32_t ffn_dim   = 0;
-        uint32_t heads     = 0;
-    } encoder, decoder;
+        uint32_t in_dim         = 0;
+        uint32_t out_dim        = 0;
+        uint32_t bottleneck_dim = 0;
+        uint32_t n_bottlenecks  = 0;
+    } projector;
+
+    struct {
+        uint32_t layers              = 0;
+        uint32_t model_dim           = 0;
+        uint32_t ffn_dim             = 0;
+        uint32_t self_attn_heads     = 0;
+        uint32_t cross_attn_heads    = 0;
+        uint32_t cross_attn_n_levels = 0;
+        uint32_t cross_attn_n_points = 0;
+    } decoder;
+
+    struct {
+        uint32_t n_groups = 0;
+    } two_stage;
 };
 
 /* Loaded model. Plan 2 populates `config` and `tensors` (ggml_tensor

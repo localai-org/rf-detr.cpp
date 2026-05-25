@@ -18,7 +18,7 @@ namespace rfdetr {
 
 namespace {
 
-const char* kFormatVersion = "1";
+const char* kFormatVersion = "2";
 
 bool file_exists(const std::string& path) {
     std::ifstream f(path, std::ios::binary);
@@ -115,7 +115,9 @@ Model* model_load(const std::string& path, rfdetr_status* out_status) {
     auto& c = m->config;
     if (!get_str(gguf, "rfdetr.variant",     c.variant))     return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.variant missing");
     if (!get_u32(gguf, "rfdetr.image_size",  c.image_size))  return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.image_size missing");
+    if (!get_u32(gguf, "rfdetr.patch_size",  c.patch_size))  return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.patch_size missing");
     if (!get_u32(gguf, "rfdetr.num_queries", c.num_queries)) return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.num_queries missing");
+    if (!get_u32(gguf, "rfdetr.group_detr",  c.group_detr))  return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.group_detr missing");
     if (!get_u32(gguf, "rfdetr.num_classes", c.num_classes)) return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.num_classes missing");
     if (!get_str_array(gguf, "rfdetr.class_names", c.class_names))
         return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.class_names missing");
@@ -127,25 +129,35 @@ Model* model_load(const std::string& path, rfdetr_status* out_status) {
     if (!get_f32_array(gguf, "rfdetr.preprocess.std", c.preprocess_std, 3))
         return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.preprocess.std missing or wrong shape");
 
-    if (!get_u32(gguf, "rfdetr.backbone.dim",         c.backbone.dim)         ||
-        !get_u32(gguf, "rfdetr.backbone.depth",       c.backbone.depth)       ||
-        !get_u32(gguf, "rfdetr.backbone.heads",       c.backbone.heads)       ||
-        !get_u32(gguf, "rfdetr.backbone.window_size", c.backbone.window_size))
+    if (!get_u32(gguf, "rfdetr.backbone.dim",                   c.backbone.dim)         ||
+        !get_u32(gguf, "rfdetr.backbone.depth",                 c.backbone.depth)       ||
+        !get_u32(gguf, "rfdetr.backbone.heads",                 c.backbone.heads)       ||
+        !get_u32(gguf, "rfdetr.backbone.ffn_dim",               c.backbone.ffn_dim)     ||
+        !get_u32(gguf, "rfdetr.backbone.num_windows",           c.backbone.num_windows) ||
+        !get_u32(gguf, "rfdetr.backbone.pos_embed_train_size",  c.backbone.pos_embed_train_size))
         return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.backbone.* incomplete");
-    if (!get_i32_array(gguf, "rfdetr.backbone.multi_scale_layers", c.backbone.multi_scale_layers))
-        return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.backbone.multi_scale_layers missing");
+    if (!get_i32_array(gguf, "rfdetr.backbone.global_attn_indices", c.backbone.global_attn_indices))
+        return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.backbone.global_attn_indices missing");
+    if (!get_i32_array(gguf, "rfdetr.backbone.out_feature_indices", c.backbone.out_feature_indices))
+        return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.backbone.out_feature_indices missing");
 
-    if (!get_u32(gguf, "rfdetr.encoder.layers",    c.encoder.layers)    ||
-        !get_u32(gguf, "rfdetr.encoder.model_dim", c.encoder.model_dim) ||
-        !get_u32(gguf, "rfdetr.encoder.ffn_dim",   c.encoder.ffn_dim)   ||
-        !get_u32(gguf, "rfdetr.encoder.heads",     c.encoder.heads))
-        return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.encoder.* incomplete");
+    if (!get_u32(gguf, "rfdetr.projector.in_dim",         c.projector.in_dim)         ||
+        !get_u32(gguf, "rfdetr.projector.out_dim",        c.projector.out_dim)        ||
+        !get_u32(gguf, "rfdetr.projector.bottleneck_dim", c.projector.bottleneck_dim) ||
+        !get_u32(gguf, "rfdetr.projector.n_bottlenecks",  c.projector.n_bottlenecks))
+        return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.projector.* incomplete");
 
-    if (!get_u32(gguf, "rfdetr.decoder.layers",    c.decoder.layers)    ||
-        !get_u32(gguf, "rfdetr.decoder.model_dim", c.decoder.model_dim) ||
-        !get_u32(gguf, "rfdetr.decoder.ffn_dim",   c.decoder.ffn_dim)   ||
-        !get_u32(gguf, "rfdetr.decoder.heads",     c.decoder.heads))
+    if (!get_u32(gguf, "rfdetr.decoder.layers",              c.decoder.layers)              ||
+        !get_u32(gguf, "rfdetr.decoder.model_dim",           c.decoder.model_dim)           ||
+        !get_u32(gguf, "rfdetr.decoder.ffn_dim",             c.decoder.ffn_dim)             ||
+        !get_u32(gguf, "rfdetr.decoder.self_attn_heads",     c.decoder.self_attn_heads)     ||
+        !get_u32(gguf, "rfdetr.decoder.cross_attn_heads",    c.decoder.cross_attn_heads)    ||
+        !get_u32(gguf, "rfdetr.decoder.cross_attn_n_levels", c.decoder.cross_attn_n_levels) ||
+        !get_u32(gguf, "rfdetr.decoder.cross_attn_n_points", c.decoder.cross_attn_n_points))
         return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.decoder.* incomplete");
+
+    if (!get_u32(gguf, "rfdetr.two_stage.n_groups", c.two_stage.n_groups))
+        return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.two_stage.n_groups missing");
 
     // Tensor inventory (descriptors only — data not loaded)
     const int64_t n_tensors = gguf_get_n_tensors(gguf);
@@ -234,89 +246,122 @@ rfdetr_status model_realize_weights(Model& m, ggml_backend_t backend) {
 std::vector<std::string> expected_tensor_names(const Config& cfg) {
     std::vector<std::string> names;
 
-    // Backbone
+    // --- Backbone embeddings (4) ---
     names.emplace_back("backbone.patch_embed.weight");
     names.emplace_back("backbone.patch_embed.bias");
-    names.emplace_back("backbone.pos_embed");
     names.emplace_back("backbone.cls_token");
+    names.emplace_back("backbone.pos_embed");
+
+    // --- Backbone blocks (18 each) ---
     for (uint32_t i = 0; i < cfg.backbone.depth; ++i) {
         std::string p = "backbone.blocks." + std::to_string(i) + ".";
         names.emplace_back(p + "norm1.weight");
         names.emplace_back(p + "norm1.bias");
-        names.emplace_back(p + "attn.qkv.weight");
-        names.emplace_back(p + "attn.qkv.bias");
+        names.emplace_back(p + "attn.q.weight");
+        names.emplace_back(p + "attn.q.bias");
+        names.emplace_back(p + "attn.k.weight");
+        names.emplace_back(p + "attn.k.bias");
+        names.emplace_back(p + "attn.v.weight");
+        names.emplace_back(p + "attn.v.bias");
         names.emplace_back(p + "attn.proj.weight");
         names.emplace_back(p + "attn.proj.bias");
+        names.emplace_back(p + "layer_scale1");
         names.emplace_back(p + "norm2.weight");
         names.emplace_back(p + "norm2.bias");
         names.emplace_back(p + "mlp.fc1.weight");
         names.emplace_back(p + "mlp.fc1.bias");
         names.emplace_back(p + "mlp.fc2.weight");
         names.emplace_back(p + "mlp.fc2.bias");
+        names.emplace_back(p + "layer_scale2");
     }
+    // --- Backbone final norm (2) ---
     names.emplace_back("backbone.norm.weight");
     names.emplace_back("backbone.norm.bias");
 
-    // Projector
-    for (size_t j = 0; j < cfg.backbone.multi_scale_layers.size(); ++j) {
-        std::string p = "projector.level" + std::to_string(j) + ".";
-        names.emplace_back(p + "weight");
-        names.emplace_back(p + "bias");
+    // --- Projector (single P4 C2f) ---
+    names.emplace_back("projector.cv1.conv.weight");
+    names.emplace_back("projector.cv1.norm.weight");
+    names.emplace_back("projector.cv1.norm.bias");
+    names.emplace_back("projector.cv2.conv.weight");
+    names.emplace_back("projector.cv2.norm.weight");
+    names.emplace_back("projector.cv2.norm.bias");
+    for (uint32_t j = 0; j < cfg.projector.n_bottlenecks; ++j) {
+        std::string p = "projector.bottleneck." + std::to_string(j) + ".";
+        names.emplace_back(p + "cv1.conv.weight");
+        names.emplace_back(p + "cv1.norm.weight");
+        names.emplace_back(p + "cv1.norm.bias");
+        names.emplace_back(p + "cv2.conv.weight");
+        names.emplace_back(p + "cv2.norm.weight");
+        names.emplace_back(p + "cv2.norm.bias");
     }
-    names.emplace_back("projector.level_embed");
+    names.emplace_back("projector.final_norm.weight");
+    names.emplace_back("projector.final_norm.bias");
 
-    // Encoder
-    for (uint32_t i = 0; i < cfg.encoder.layers; ++i) {
-        std::string p = "encoder.layers." + std::to_string(i) + ".";
-        names.emplace_back(p + "self_attn.qkv.weight");
-        names.emplace_back(p + "self_attn.qkv.bias");
-        names.emplace_back(p + "self_attn.out.weight");
-        names.emplace_back(p + "self_attn.out.bias");
-        names.emplace_back(p + "norm1.weight");
-        names.emplace_back(p + "norm1.bias");
-        names.emplace_back(p + "ffn.fc1.weight");
-        names.emplace_back(p + "ffn.fc1.bias");
-        names.emplace_back(p + "ffn.fc2.weight");
-        names.emplace_back(p + "ffn.fc2.bias");
-        names.emplace_back(p + "norm2.weight");
-        names.emplace_back(p + "norm2.bias");
+    // --- Two-stage groups (12 each) ---
+    for (uint32_t g = 0; g < cfg.two_stage.n_groups; ++g) {
+        const std::string gi = std::to_string(g);
+        names.emplace_back("two_stage.enc_output." + gi + ".weight");
+        names.emplace_back("two_stage.enc_output." + gi + ".bias");
+        names.emplace_back("two_stage.enc_output_norm." + gi + ".weight");
+        names.emplace_back("two_stage.enc_output_norm." + gi + ".bias");
+        names.emplace_back("two_stage.enc_out_class_embed." + gi + ".weight");
+        names.emplace_back("two_stage.enc_out_class_embed." + gi + ".bias");
+        for (int j = 0; j < 3; ++j) {
+            const std::string ji = std::to_string(j);
+            names.emplace_back("two_stage.enc_out_bbox_embed." + gi + ".layers." + ji + ".weight");
+            names.emplace_back("two_stage.enc_out_bbox_embed." + gi + ".layers." + ji + ".bias");
+        }
     }
 
-    // Decoder
-    names.emplace_back("decoder.queries");
+    // --- Decoder queries (group 0 slice) ---
+    names.emplace_back("decoder.queries.feat");
+    names.emplace_back("decoder.queries.refpoints");
+
+    // --- Decoder ref_point_head (2-layer MLP) ---
+    names.emplace_back("decoder.ref_point_head.layers.0.weight");
+    names.emplace_back("decoder.ref_point_head.layers.0.bias");
+    names.emplace_back("decoder.ref_point_head.layers.1.weight");
+    names.emplace_back("decoder.ref_point_head.layers.1.bias");
+
+    // --- Decoder layers (22 each) ---
     for (uint32_t i = 0; i < cfg.decoder.layers; ++i) {
         std::string p = "decoder.layers." + std::to_string(i) + ".";
-        names.emplace_back(p + "self_attn.qkv.weight");
-        names.emplace_back(p + "self_attn.qkv.bias");
-        names.emplace_back(p + "self_attn.out.weight");
-        names.emplace_back(p + "self_attn.out.bias");
+        names.emplace_back(p + "self_attn.in_proj.weight");
+        names.emplace_back(p + "self_attn.in_proj.bias");
+        names.emplace_back(p + "self_attn.out_proj.weight");
+        names.emplace_back(p + "self_attn.out_proj.bias");
         names.emplace_back(p + "norm1.weight");
         names.emplace_back(p + "norm1.bias");
-        names.emplace_back(p + "cross_attn.q.weight");
-        names.emplace_back(p + "cross_attn.q.bias");
-        names.emplace_back(p + "cross_attn.kv.weight");
-        names.emplace_back(p + "cross_attn.kv.bias");
-        names.emplace_back(p + "cross_attn.out.weight");
-        names.emplace_back(p + "cross_attn.out.bias");
+        names.emplace_back(p + "cross_attn.sampling_offsets.weight");
+        names.emplace_back(p + "cross_attn.sampling_offsets.bias");
+        names.emplace_back(p + "cross_attn.attention_weights.weight");
+        names.emplace_back(p + "cross_attn.attention_weights.bias");
+        names.emplace_back(p + "cross_attn.value_proj.weight");
+        names.emplace_back(p + "cross_attn.value_proj.bias");
+        names.emplace_back(p + "cross_attn.output_proj.weight");
+        names.emplace_back(p + "cross_attn.output_proj.bias");
         names.emplace_back(p + "norm2.weight");
         names.emplace_back(p + "norm2.bias");
-        names.emplace_back(p + "ffn.fc1.weight");
-        names.emplace_back(p + "ffn.fc1.bias");
-        names.emplace_back(p + "ffn.fc2.weight");
-        names.emplace_back(p + "ffn.fc2.bias");
+        names.emplace_back(p + "linear1.weight");
+        names.emplace_back(p + "linear1.bias");
+        names.emplace_back(p + "linear2.weight");
+        names.emplace_back(p + "linear2.bias");
         names.emplace_back(p + "norm3.weight");
         names.emplace_back(p + "norm3.bias");
     }
 
-    // Heads
-    names.emplace_back("heads.class.fc.weight");
-    names.emplace_back("heads.class.fc.bias");
-    names.emplace_back("heads.bbox.fc1.weight");
-    names.emplace_back("heads.bbox.fc1.bias");
-    names.emplace_back("heads.bbox.fc2.weight");
-    names.emplace_back("heads.bbox.fc2.bias");
-    names.emplace_back("heads.bbox.fc3.weight");
-    names.emplace_back("heads.bbox.fc3.bias");
+    // --- Decoder final norm ---
+    names.emplace_back("decoder.norm.weight");
+    names.emplace_back("decoder.norm.bias");
+
+    // --- Heads (shared single instances) ---
+    names.emplace_back("heads.class_embed.weight");
+    names.emplace_back("heads.class_embed.bias");
+    for (int j = 0; j < 3; ++j) {
+        const std::string ji = std::to_string(j);
+        names.emplace_back("heads.bbox_embed.layers." + ji + ".weight");
+        names.emplace_back("heads.bbox_embed.layers." + ji + ".bias");
+    }
 
     return names;
 }

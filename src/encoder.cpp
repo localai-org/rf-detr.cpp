@@ -44,7 +44,9 @@ ggml_tensor* encoder_layer(ggml_context* ctx, const Model& m,
     /* x = x + attn(norm1(x)) */
     ggml_tensor* y = ops::layer_norm(ctx, x, n1w, n1b);
     publish(pub + "norm1.output", y);
-    y = ops::mha(ctx, y, qkvW, qkvB, prW, prB, (int)m.config.encoder.heads);
+    /* TODO Plan 9: rewrite encoder against v2 schema (this module is
+     * scheduled for removal — rfdetr has no standalone encoder). */
+    y = ops::mha(ctx, y, qkvW, qkvB, prW, prB, (int)m.config.decoder.self_attn_heads);
     publish(pub + "attn.output", y);
     x = ggml_add(ctx, x, y);
 
@@ -60,7 +62,10 @@ ggml_tensor* encoder_layer(ggml_context* ctx, const Model& m,
 
 ggml_tensor* encoder_forward(ggml_context* ctx, const Model& m,
                              ggml_tensor* x) {
-    for (uint32_t i = 0; i < m.config.encoder.layers; ++i) {
+    /* TODO Plan 9: rfdetr has no standalone encoder layer in v2; iteration
+     * count placeholder uses decoder.layers (also 3). Whole module is on
+     * the chopping block. */
+    for (uint32_t i = 0; i < m.config.decoder.layers; ++i) {
         x = encoder_layer(ctx, m, x, (int)i);
         if (!x) return nullptr;
     }

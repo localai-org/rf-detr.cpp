@@ -10,7 +10,9 @@ namespace rfdetr {
 
 ggml_tensor* projector_forward(ggml_context* ctx, const Model& m,
                                const BackboneOutput& bb) {
-    const int n_levels = (int)m.config.backbone.multi_scale_layers.size();
+    /* TODO Plan 10: rewrite projector against v2 schema (single-scale C2f).
+     * For now use out_feature_indices.size() — same indices, renamed field. */
+    const int n_levels = (int)m.config.backbone.out_feature_indices.size();
     if (n_levels <= 0 || n_levels > (int)bb.multi_scale.size()) {
         rfdetr_logf(RFDETR_LOG_ERROR, "projector_forward: invalid n_levels %d", n_levels);
         return nullptr;

@@ -315,7 +315,10 @@ ggml_tensor* mha_window(ggml_context* ctx, ggml_tensor* x,
 }  // namespace
 
 bool is_global_block(const Config& cfg, uint32_t i) {
-    for (uint32_t v : cfg.backbone.multi_scale_layers) {
+    /* v2 schema: global-attention indices live in their own field
+     * (global_attn_indices), which coincides with out_feature_indices for
+     * rfdetr-base but is conceptually independent. */
+    for (uint32_t v : cfg.backbone.global_attn_indices) {
         if (v == i) return true;
     }
     return false;
@@ -365,9 +368,13 @@ ggml_tensor* dinov2_block(ggml_context* ctx, const Model& m,
     } else {
         const int hp = (int)(m.config.image_size / kPatchSize);
         const int wp = (int)(m.config.image_size / kPatchSize);
+        /* TODO Plan 11: v2 backbone uses num_windows (windows-per-side, =4)
+         * rather than a window-size-in-patches field. mha_window expects a
+         * patch-window-size, so we derive it: hp / num_windows. */
+        const int win = (int)(hp / m.config.backbone.num_windows);
         y = mha_window(ctx, y, qkvW, qkvB, prW, prB,
                        (int)m.config.backbone.heads,
-                       (int)m.config.backbone.window_size, hp, wp);
+                       win, hp, wp);
     }
     publish(pub + "attn.output", y);
     x = ggml_add(ctx, x, y);
@@ -408,7 +415,9 @@ BackboneOutput dinov2_forward(ggml_context* ctx, const Model& m,
     t = dinov2_add_cls_and_pos_embed(ctx, m, t);
     if (!t) return out;
 
-    const auto& ms = m.config.backbone.multi_scale_layers;
+    /* TODO Plan 11: v2 schema renamed multi_scale_layers → out_feature_indices.
+     * Same semantics: backbone block indices tapped for projector input. */
+    const auto& ms = m.config.backbone.out_feature_indices;
     auto find_ms_level = [&](uint32_t block_i) -> int {
         for (size_t k = 0; k < ms.size(); ++k) {
             if (ms[k] == block_i) return (int)k;
