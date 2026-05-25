@@ -7,16 +7,20 @@ See `docs/superpowers/specs/2026-05-25-rfdetr-cpp-design.md` for the design.
 
 ## Status
 
-**Loader (Plan 2) complete.** The repo can convert an upstream `rfdetr-base`
-PyTorch checkpoint to GGUF, load it from C++ (variant detection, config
-parsing, tensor inventory validation), and report it via `rfdetr-cli info`.
-The flat dlopen ABI is wired through to a JSON envelope. Nine tests pass on
-a clean build. Inference (`detect`) still returns `not_implemented` —
-Plan 3 builds the forward graph and parity harness.
+**Forward-pass foundation (Plan 3) complete.** The C++ runtime now loads
+real tensor data into a ggml backend buffer, exposes a thread-local
+`trace_callback` for named intermediate tensors, implements DINOv2's
+`patch_embed` and one transformer block, and verifies parity against a
+pure-numpy reference within 1e-3 absolute tolerance. Ten tests pass on
+a clean build. `detect` still returns `not_implemented` until Plans 4–5
+land the remaining blocks, projector, encoder/decoder, and heads.
 
-Note: the Python conversion script body is deferred — see Plan 2 Task 3.
-The C++ side uses a synthesized GGUF fixture for tests, so the loader is
-fully exercised in CI without the heavy PyTorch dependency.
+The parity workflow doc is at `docs/parity.md`. Plan 6 will swap the numpy
+reference for a torch+rfdetr reference using the same baseline-bundle format.
+
+Note: the Python conversion script body is still deferred — see Plan 2 Task 3.
+The C++ side uses a synthesized GGUF fixture for tests, so the forward pass
+is fully exercised in CI without the heavy PyTorch dependency.
 
 ## Build
 
