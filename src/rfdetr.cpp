@@ -84,16 +84,16 @@ const char* rfdetr_context_variant(const rfdetr_context* ctx) {
     return (ctx && ctx->model) ? ctx->model->config.variant.c_str() : "";
 }
 uint32_t rfdetr_context_image_size(const rfdetr_context* ctx) {
-    return ctx ? ctx->model->config.image_size : 0;
+    return (ctx && ctx->model) ? ctx->model->config.image_size : 0;
 }
 uint32_t rfdetr_context_num_queries(const rfdetr_context* ctx) {
-    return ctx ? ctx->model->config.num_queries : 0;
+    return (ctx && ctx->model) ? ctx->model->config.num_queries : 0;
 }
 uint32_t rfdetr_context_num_classes(const rfdetr_context* ctx) {
-    return ctx ? ctx->model->config.num_classes : 0;
+    return (ctx && ctx->model) ? ctx->model->config.num_classes : 0;
 }
 size_t rfdetr_context_n_tensors(const rfdetr_context* ctx) {
-    return ctx ? ctx->model->tensors.size() : 0;
+    return (ctx && ctx->model) ? ctx->model->tensors.size() : 0;
 }
 
 }  // extern "C"

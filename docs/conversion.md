@@ -30,7 +30,7 @@ All under the `rfdetr.` namespace.
 | `rfdetr.backbone.depth`      | uint32    | Number of backbone blocks.                   |
 | `rfdetr.backbone.heads`      | uint32    | Backbone attention heads.                    |
 | `rfdetr.backbone.window_size`| uint32    | Windowed-attention window (0 = global only). |
-| `rfdetr.backbone.multi_scale_layers` | uint32[] | Backbone layer indices tapped for multi-scale features. |
+| `rfdetr.backbone.multi_scale_layers` | int32[]  | Backbone layer indices tapped for multi-scale features. |
 | `rfdetr.encoder.layers`      | uint32    | Encoder layer count.                         |
 | `rfdetr.encoder.model_dim`   | uint32    | Encoder/decoder hidden dim.                  |
 | `rfdetr.encoder.ffn_dim`     | uint32    | Encoder FFN hidden dim.                      |

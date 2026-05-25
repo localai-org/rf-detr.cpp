@@ -17,7 +17,7 @@ typedef enum {
     RFDETR_ERR_OUT_OF_MEMORY   = -4,
     RFDETR_ERR_DECODE          = -5,
     RFDETR_ERR_MODEL_FORMAT    = -6,   /* GGUF parse / variant detection */
-    RFDETR_ERR_MODEL_LOAD      = -7,   /* tensor binding */
+    RFDETR_ERR_MODEL_LOAD      = -7,   /* tensor binding or inventory (e.g. missing tensors) */
     RFDETR_ERR_INFERENCE       = -8,
     RFDETR_ERR_NOT_IMPLEMENTED = -99
 } rfdetr_status;
