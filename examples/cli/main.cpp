@@ -69,6 +69,28 @@ static int cmd_detect(const rfdetr_cli::DetectArgs& a) {
     return 0;
 }
 
+static int cmd_info(const rfdetr_cli::InfoArgs& a) {
+    rfdetr_params p{};
+    p.model_path = a.model.c_str();
+    p.n_threads  = 1;
+
+    rfdetr_status st;
+    rfdetr_context* ctx = rfdetr_init(&p, &st);
+    if (!ctx) {
+        std::fprintf(stderr, "rfdetr_init failed: %s\n", rfdetr_status_str(st));
+        return 2;
+    }
+
+    std::printf("variant:      %s\n", rfdetr_context_variant(ctx));
+    std::printf("image_size:   %u\n", rfdetr_context_image_size(ctx));
+    std::printf("num_classes:  %u\n", rfdetr_context_num_classes(ctx));
+    std::printf("num_queries:  %u\n", rfdetr_context_num_queries(ctx));
+    std::printf("n_tensors:    %zu\n", rfdetr_context_n_tensors(ctx));
+
+    rfdetr_free(ctx);
+    return 0;
+}
+
 int main(int argc, char** argv) {
     rfdetr_set_log_callback(default_log_cb, nullptr);
 
@@ -87,9 +109,10 @@ int main(int argc, char** argv) {
         case rfdetr_cli::Subcommand::Detect:
             return cmd_detect(r.detect);
         case rfdetr_cli::Subcommand::Info:
+            return cmd_info(r.info);
         case rfdetr_cli::Subcommand::Bench:
         case rfdetr_cli::Subcommand::Compare:
-            std::fprintf(stderr, "this subcommand is not yet implemented (see Plan 2/3)\n");
+            std::fprintf(stderr, "this subcommand is not yet implemented (see Plan 3)\n");
             return 99;
         case rfdetr_cli::Subcommand::None:
             rfdetr_cli::print_help();

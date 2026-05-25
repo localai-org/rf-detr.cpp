@@ -66,6 +66,13 @@ typedef struct {
 rfdetr_context* rfdetr_init(const rfdetr_params* params, rfdetr_status* out_status);
 void            rfdetr_free(rfdetr_context* ctx);
 
+/* Accessors for loaded context (for `info`-style introspection). */
+const char* rfdetr_context_variant(const rfdetr_context* ctx);
+uint32_t    rfdetr_context_image_size(const rfdetr_context* ctx);
+uint32_t    rfdetr_context_num_queries(const rfdetr_context* ctx);
+uint32_t    rfdetr_context_num_classes(const rfdetr_context* ctx);
+size_t      rfdetr_context_n_tensors(const rfdetr_context* ctx);
+
 /* Image I/O (IMPLEMENTED in this plan) */
 rfdetr_image* rfdetr_image_load_file(const char* path, rfdetr_status* out_status);
 rfdetr_image* rfdetr_image_load_buffer(const uint8_t* bytes, size_t len, rfdetr_status* out_status);

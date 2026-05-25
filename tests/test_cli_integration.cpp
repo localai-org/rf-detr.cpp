@@ -46,5 +46,20 @@ int main() {
     RFDETR_ASSERT(body.find("\"width\": 16")    != std::string::npos);
     RFDETR_ASSERT(body.find("\"height\": 16")   != std::string::npos);
 
+    // ---- info on synthesized model ----
+    {
+        std::string cmd2 = std::string(RFDETR_CLI_BINARY) +
+                           " info --model " + fixtures + "/model_base.gguf > " +
+                           fixtures + "/generated/info_out.txt 2>&1";
+        int rc2 = std::system(cmd2.c_str());
+        RFDETR_ASSERT_EQ_INT(WEXITSTATUS(rc2), 0);
+
+        std::string info_body = read_file(fixtures + "/generated/info_out.txt");
+        RFDETR_ASSERT(info_body.find("variant:      base")   != std::string::npos);
+        RFDETR_ASSERT(info_body.find("image_size:   56")     != std::string::npos);  // shrunken fixture
+        RFDETR_ASSERT(info_body.find("num_classes:  80")     != std::string::npos);
+        RFDETR_ASSERT(info_body.find("num_queries:  300")    != std::string::npos);
+    }
+
     return 0;
 }
