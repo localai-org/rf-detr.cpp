@@ -30,7 +30,7 @@ int main() {
     // Backbone / encoder / decoder
     RFDETR_ASSERT_EQ_INT(m->config.backbone.dim,         64);
     RFDETR_ASSERT_EQ_INT(m->config.backbone.depth,       12);
-    RFDETR_ASSERT_EQ_INT(m->config.backbone.heads,       12);
+    RFDETR_ASSERT_EQ_INT(m->config.backbone.heads,       8);
     RFDETR_ASSERT_EQ_INT(m->config.backbone.window_size, 14);
     RFDETR_ASSERT_EQ_INT(m->config.backbone.multi_scale_layers.size(), 4);
     RFDETR_ASSERT_EQ_INT(m->config.backbone.multi_scale_layers[0], 2);

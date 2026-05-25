@@ -26,7 +26,7 @@ struct VariantCfg {
     uint32_t      num_classes      = 80;
     uint32_t      bb_dim           = 64;
     uint32_t      bb_depth         = 12;
-    uint32_t      bb_heads         = 12;
+    uint32_t      bb_heads         = 8;
     uint32_t      bb_window        = 14;
     std::vector<int32_t> bb_ms_layers = {2, 5, 8, 11};
     uint32_t      enc_layers       = 3;
