@@ -67,3 +67,6 @@ add_custom_target(rfdetr_model_fixture_missing ALL DEPENDS ${RFDETR_TEST_FIXTURE
 rfdetr_add_test(test_model_loader)
 add_dependencies(test_model_loader rfdetr_model_fixture)
 add_dependencies(test_model_loader rfdetr_model_fixture_missing)
+
+rfdetr_add_test(test_capi)
+add_dependencies(test_capi rfdetr_model_fixture rfdetr_fixtures)
