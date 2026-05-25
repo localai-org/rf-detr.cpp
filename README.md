@@ -7,21 +7,15 @@ See `docs/superpowers/specs/2026-05-25-rfdetr-cpp-design.md` for the design.
 
 ## Status
 
-**Projector + encoder (Plan 6a) complete.** The forward pipeline now runs:
-DINOv2 backbone → multi-scale projector (4 levels, per-level linear + level
-embeddings, concat) → 3-layer transformer encoder. 73 parity checkpoints
-all green at 1e-5 absolute tolerance against the numpy reference. Ten tests
-pass on a clean build.
+**Decoder (Plan 6b) complete.** The forward pipeline now runs:
+DINOv2 backbone → multi-scale projector → 3-layer encoder → 3-layer decoder
+(300 learnable queries with self-attention + cross-attention against the
+encoder output + FFN). 91 parity checkpoints all green at 1e-5 absolute
+tolerance against the numpy reference. Ten tests pass on a clean build.
 
-`dinov2_forward` now returns a `BackboneOutput { final, multi_scale[4] }`
-so downstream consumers access multi-scale features directly. `layer_norm`,
-`mha`, and `mlp` moved out of `dinov2.cpp`'s anonymous namespace into a
-shared `transformer_ops` module so the encoder, decoder (Plan 6b), and
-heads (Plan 6c) can call them.
-
-Plan 6b adds the decoder (300 learnable queries + 3 layers of self-attn +
-cross-attn + FFN). Plan 6c wires the class+bbox heads and end-to-end
-detect.
+Plan 6c attaches the class+bbox heads and wires `rfdetr_detect` end-to-end
+(CLI `detect` produces real JSON detections, even if from random-weight
+nonsense scores).
 
 The Python conversion script body is still deferred (see Plan 2 Task 3).
 The C++ side uses a synthesized F32 GGUF fixture for tests.
