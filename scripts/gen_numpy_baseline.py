@@ -137,6 +137,74 @@ def mha(x, Wqkv, bqkv, Wproj, bproj, n_heads):
     return out
 
 
+def mha_window(x, Wqkv, bqkv, Wproj, bproj, n_heads, window_size, hp, wp):
+    """Windowed multi-head self-attention on patch tokens only.
+
+    Args:
+        x:           (N+1, dim) — token 0 is CLS, tokens 1..N are patches in row-major (h, w) order
+        window_size: int — window side in patches (W). Must divide both hp and wp.
+        hp, wp:      int — patch grid height and width. N = hp * wp.
+
+    Returns: (N+1, dim) tensor. CLS at index 0 passes through unchanged (no attention applied);
+             patches are window-partitioned, attended per-window, and unpartitioned.
+
+    Layout:
+        Input patches shape (hp, wp, dim) in row-major order.
+        Partition: (hp/W, W, wp/W, W, dim) -> (hp/W, wp/W, W, W, dim) ->
+                   reshape to (n_windows, W*W, dim) where n_windows = (hp/W) * (wp/W).
+        Run vanilla MHA on each window (batched along axis 0).
+        Reverse partition: (n_windows, W*W, dim) -> (hp/W, wp/W, W, W, dim) ->
+                           transpose to (hp/W, W, wp/W, W, dim) -> reshape to (hp, wp, dim) ->
+                           flatten to (N, dim).
+    """
+    N1 = x.shape[0]
+    dim = x.shape[1]
+    N = hp * wp
+    assert N1 == N + 1, f"x has {N1} tokens; expected N+1 = {N+1}"
+    assert hp % window_size == 0 and wp % window_size == 0, \
+        f"patch grid {hp}x{wp} not divisible by window_size {window_size}"
+
+    cls = x[0:1, :]                                    # (1, dim) — pass through
+    patches = x[1:, :]                                  # (N, dim)
+    grid = patches.reshape(hp, wp, dim)                 # (hp, wp, dim)
+
+    # Window-partition
+    W = window_size
+    n_hw = hp // W
+    n_ww = wp // W
+    windows = (grid
+               .reshape(n_hw, W, n_ww, W, dim)
+               .transpose(0, 2, 1, 3, 4)
+               .reshape(n_hw * n_ww, W * W, dim))      # (n_windows, W*W, dim)
+
+    # Batched MHA — reuse the per-window math from mha() but vectorized over the window axis
+    n_windows, T, _ = windows.shape
+    head_dim = dim // n_heads
+    qkv = windows @ Wqkv.T + bqkv                      # (n_windows, T, 3*dim)
+    q, k, v = np.split(qkv, 3, axis=-1)                # each (n_windows, T, dim)
+    q = q.reshape(n_windows, T, n_heads, head_dim).transpose(0, 2, 1, 3)  # (n_w, h, T, hd)
+    k = k.reshape(n_windows, T, n_heads, head_dim).transpose(0, 2, 1, 3)
+    v = v.reshape(n_windows, T, n_heads, head_dim).transpose(0, 2, 1, 3)
+    scale = 1.0 / math.sqrt(head_dim)
+    logits = q @ k.transpose(0, 1, 3, 2) * scale       # (n_w, h, T, T)
+    logits -= logits.max(-1, keepdims=True)
+    a = np.exp(logits)
+    a = a / a.sum(-1, keepdims=True)
+    attn = a @ v                                       # (n_w, h, T, hd)
+    attn = attn.transpose(0, 2, 1, 3).reshape(n_windows, T, dim)  # (n_w, T, dim)
+    out = attn @ Wproj.T + bproj                       # (n_w, T, dim)
+
+    # Reverse window-partition
+    grid_back = (out
+                 .reshape(n_hw, n_ww, W, W, dim)
+                 .transpose(0, 2, 1, 3, 4)
+                 .reshape(hp, wp, dim))                # (hp, wp, dim)
+    patches_out = grid_back.reshape(N, dim)             # (N, dim)
+
+    # Re-prepend CLS (unchanged)
+    return np.concatenate([cls, patches_out], axis=0)   # (N+1, dim)
+
+
 def mlp(x, W1, b1, W2, b2):
     """fc1 -> erf-GELU -> fc2. PyTorch shapes:
        W1 (ffn_dim, dim), W2 (dim, ffn_dim)."""
