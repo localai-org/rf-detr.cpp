@@ -58,11 +58,14 @@ ggml_tensor* encoder_layer(ggml_context* ctx, const Model& m,
     return x;
 }
 
-/* encoder_forward lands in Task 4. */
-ggml_tensor* encoder_forward(ggml_context* /*ctx*/, const Model& /*m*/,
-                             ggml_tensor* /*x*/) {
-    /* TASK 4 IMPLEMENTS THIS — stub so the link works during Task 3. */
-    return nullptr;
+ggml_tensor* encoder_forward(ggml_context* ctx, const Model& m,
+                             ggml_tensor* x) {
+    for (uint32_t i = 0; i < m.config.encoder.layers; ++i) {
+        x = encoder_layer(ctx, m, x, (int)i);
+        if (!x) return nullptr;
+    }
+    publish("encoder.output", x);
+    return x;
 }
 
 }  // namespace rfdetr

@@ -52,14 +52,14 @@ std::map<std::string, Tol> build_tolerances(const rfdetr::Config& cfg) {
         tol["projector.level" + std::to_string(j) + ".output"] = {1e-5f, 1e-4f};
     }
     tol["projector.concat.output"] = {1e-5f, 1e-4f};
-    {
-        int i = 0;
+    for (uint32_t i = 0; i < cfg.encoder.layers; ++i) {
         std::string p = "encoder.layer" + std::to_string(i) + ".";
         tol[p + "norm1.output"] = {1e-5f, 1e-4f};
         tol[p + "attn.output"]  = {1e-5f, 1e-4f};
         tol[p + "mlp.output"]   = {1e-5f, 1e-4f};
         tol[p + "output"]       = {1e-5f, 1e-4f};
     }
+    tol["encoder.output"] = {1e-5f, 1e-4f};
     return tol;
 }
 
@@ -201,7 +201,7 @@ int main() {
     ggml_tensor* projected = rfdetr::projector_forward(gctx, *m, bb);
     RFDETR_ASSERT(projected != nullptr);
 
-    ggml_tensor* enc = rfdetr::encoder_layer(gctx, *m, projected, /*layer_idx*/ 0);
+    ggml_tensor* enc = rfdetr::encoder_forward(gctx, *m, projected);
     RFDETR_ASSERT(enc != nullptr);
 
     /* The graph root must reach the encoder layer's output, the backbone's

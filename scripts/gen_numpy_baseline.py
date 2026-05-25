@@ -394,9 +394,12 @@ def forward(cfg, tensors, input_img):
     proj_out, proj_concat = projector_forward(cfg, tensors, multi_scale)
     out.update(proj_out)
 
-    # ---- Encoder layer 0 (Task 4 will loop all layers) ----
-    enc_out, x_enc = encoder_layer(cfg, tensors, proj_concat, 0)
-    out.update(enc_out)
+    # ---- Encoder (all layers) ----
+    x_enc = proj_concat
+    for i in range(cfg["enc_layers"]):
+        enc_out, x_enc = encoder_layer(cfg, tensors, x_enc, i)
+        out.update(enc_out)
+    out["encoder.output"] = x_enc.copy()
 
     return out
 
