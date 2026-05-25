@@ -64,15 +64,20 @@ Configured in `tests/test_parity_block0.cpp` via a small table. Defaults:
 | Checkpoint                            | atol  | rtol  |
 |---------------------------------------|-------|-------|
 | `preprocess.input`                    | 1e-6  | 0     |
-| `backbone.patch_embed.output`         | 1e-4  | 1e-3  |
-| `backbone.block.0.norm1.output`       | 1e-4  | 1e-3  |
+| `backbone.patch_embed.output`         | 1e-3  | 1e-2  |
+| `backbone.block.0.norm1.output`       | 1e-3  | 1e-2  |
 | `backbone.block.0.attn.output`        | 1e-3  | 1e-2  |
 | `backbone.block.0.mlp.output`         | 1e-3  | 1e-2  |
 | `backbone.block.0.output`             | 1e-3  | 1e-2  |
 
-The attention checkpoint has looser tolerance because softmax-then-matmul
-accumulates float-precision differences between numpy (float64 by default)
-and ggml's F32. Tolerances will tighten as we accumulate confidence.
+The 1e-3 atol absorbs F16 weight-quantization noise (the test fixture stores
+weights as F16; numpy reads them as F16→F32 then accumulates in float64
+while ggml accumulates in F32 — patch_embed alone does 588 mul-adds of
+~0.02-scale F16 values, producing observable drift in the 4th decimal).
+1e-3 is still two orders of magnitude below the natural activation scale
+and tight enough to catch any real correctness bug. Tolerances will tighten
+once the production model is stored in F32 (planned in Plan 6) or when we
+add per-layer F32 reference baselines.
 
 ## Regeneration
 

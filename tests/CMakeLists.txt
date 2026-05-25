@@ -97,3 +97,9 @@ add_dependencies(test_capi rfdetr_model_fixture rfdetr_fixtures)
 
 rfdetr_add_test(test_capi_flat)
 add_dependencies(test_capi_flat rfdetr_model_fixture rfdetr_fixtures)
+
+rfdetr_add_test(test_parity_block0)
+target_link_libraries(test_parity_block0 PRIVATE ggml)
+add_dependencies(test_parity_block0
+    rfdetr_model_fixture_seeded
+    rfdetr_baseline_block0)
