@@ -82,6 +82,8 @@ def read_model(path):
         "bb_heads":    _u32(reader, "rfdetr.backbone.heads"),
         "bb_window_size": _u32(reader, "rfdetr.backbone.window_size"),
         "bb_multi_scale_layers": ms_layers,
+        "enc_layers":  _u32(reader, "rfdetr.encoder.layers"),
+        "enc_heads":   _u32(reader, "rfdetr.encoder.heads"),
     }
 
     tensors = {}
@@ -251,6 +253,32 @@ def projector_forward(cfg, tensors, multi_scale):
     return out, concat
 
 
+def encoder_layer(cfg, tensors, x, i):
+    """One encoder layer. x: (N_tokens, model_dim). Returns: (out_dict, x_next)."""
+    p = f"encoder.layers.{i}."
+    pub = f"encoder.layer{i}."
+    out = {}
+
+    n1 = layer_norm(x, tensors[p + "norm1.weight"], tensors[p + "norm1.bias"])
+    out[pub + "norm1.output"] = n1.copy()
+    y = mha(n1,
+            tensors[p + "self_attn.qkv.weight"], tensors[p + "self_attn.qkv.bias"],
+            tensors[p + "self_attn.out.weight"], tensors[p + "self_attn.out.bias"],
+            cfg["enc_heads"])
+    out[pub + "attn.output"] = y.copy()
+    x = x + y
+
+    n2 = layer_norm(x, tensors[p + "norm2.weight"], tensors[p + "norm2.bias"])
+    z = mlp(n2,
+            tensors[p + "ffn.fc1.weight"], tensors[p + "ffn.fc1.bias"],
+            tensors[p + "ffn.fc2.weight"], tensors[p + "ffn.fc2.bias"])
+    out[pub + "mlp.output"] = z.copy()
+    x = x + z
+
+    out[pub + "output"] = x.copy()
+    return out, x
+
+
 def patchify_and_embed(input_img, kernel, bias):
     """Replicate Conv2d(kernel=stride=14, padding=0).
 
@@ -363,8 +391,12 @@ def forward(cfg, tensors, input_img):
     # ---- Multi-scale projector ----
     multi_scale = [out[f"backbone.multiscale.level{j}"]
                    for j in range(len(cfg["bb_multi_scale_layers"]))]
-    proj_out, _ = projector_forward(cfg, tensors, multi_scale)
+    proj_out, proj_concat = projector_forward(cfg, tensors, multi_scale)
     out.update(proj_out)
+
+    # ---- Encoder layer 0 (Task 4 will loop all layers) ----
+    enc_out, x_enc = encoder_layer(cfg, tensors, proj_concat, 0)
+    out.update(enc_out)
 
     return out
 

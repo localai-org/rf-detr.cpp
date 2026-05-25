@@ -8,6 +8,7 @@
 #include "trace.hpp"
 #include "dinov2.hpp"
 #include "projector.hpp"
+#include "encoder.hpp"
 
 #include "ggml.h"
 #include "ggml-backend.h"
@@ -51,6 +52,14 @@ std::map<std::string, Tol> build_tolerances(const rfdetr::Config& cfg) {
         tol["projector.level" + std::to_string(j) + ".output"] = {1e-5f, 1e-4f};
     }
     tol["projector.concat.output"] = {1e-5f, 1e-4f};
+    {
+        int i = 0;
+        std::string p = "encoder.layer" + std::to_string(i) + ".";
+        tol[p + "norm1.output"] = {1e-5f, 1e-4f};
+        tol[p + "attn.output"]  = {1e-5f, 1e-4f};
+        tol[p + "mlp.output"]   = {1e-5f, 1e-4f};
+        tol[p + "output"]       = {1e-5f, 1e-4f};
+    }
     return tol;
 }
 
@@ -192,9 +201,13 @@ int main() {
     ggml_tensor* projected = rfdetr::projector_forward(gctx, *m, bb);
     RFDETR_ASSERT(projected != nullptr);
 
-    /* The graph root must reach both the backbone's final output and the
-     * projector's concat output so all published tensors are kept alive. */
-    ggml_tensor* t = projected;
+    ggml_tensor* enc = rfdetr::encoder_layer(gctx, *m, projected, /*layer_idx*/ 0);
+    RFDETR_ASSERT(enc != nullptr);
+
+    /* The graph root must reach the encoder layer's output, the backbone's
+     * final output, and the projector's concat output so all published
+     * tensors are kept alive. */
+    ggml_tensor* t = enc;
 
     auto kTolerances = build_tolerances(m->config);
 
@@ -205,10 +218,14 @@ int main() {
      * ancestors of `t`, so they're included. */
     ggml_cgraph* graph = ggml_new_graph(gctx);
     ggml_build_forward_expand(graph, t);
-    /* bb.final (post-norm) is not an ancestor of the projector output (which
-     * branches off the multi-scale taps before the final norm), so expand
-     * it separately to keep `backbone.norm.output` reachable. */
+    /* bb.final (post-norm) is not an ancestor of the projector/encoder output
+     * (which branches off the multi-scale taps before the final norm), so
+     * expand it separately to keep `backbone.norm.output` reachable. */
     ggml_build_forward_expand(graph, bb.final);
+    /* `projected` is an ancestor of `enc`, but expand it explicitly anyway
+     * to make the dependency obvious — the projector's published `concat`
+     * checkpoint must remain reachable. */
+    ggml_build_forward_expand(graph, projected);
 
     /* Allocate compute buffers + set input + run. */
     ggml_backend_buffer_t buf = ggml_backend_alloc_ctx_tensors(gctx, backend);

@@ -64,6 +64,7 @@ set(RFDETR_SOURCES
     src/dinov2.cpp
     src/transformer_ops.cpp
     src/projector.cpp
+    src/encoder.cpp
 )
 
 if(RFDETR_SHARED)
