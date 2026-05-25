@@ -35,3 +35,5 @@ add_dependencies(test_image_io rfdetr_fixtures)
 rfdetr_add_test(test_postprocess)
 
 rfdetr_add_test(test_visualize)
+
+rfdetr_add_test(test_cli_smoke)
