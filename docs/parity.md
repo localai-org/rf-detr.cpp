@@ -71,6 +71,7 @@ Configured in `tests/test_parity_block0.cpp` via a small table. Defaults:
 | `backbone.block.0.attn.output`        | 1e-5  | 1e-4  |
 | `backbone.block.0.mlp.output`         | 1e-5  | 1e-4  |
 | `backbone.block.0.output`             | 1e-5  | 1e-4  |
+| `backbone.norm.output`                | 1e-5  | 1e-4  |
 
 Plan 4 switched the fixture to F32 weights (the generator now defaults to
 `--dtype f32`), eliminating the F16 quantization noise floor that

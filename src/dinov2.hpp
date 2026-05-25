@@ -48,6 +48,14 @@ ggml_tensor* dinov2_add_cls_and_pos_embed(ggml_context* ctx, const Model& m,
 ggml_tensor* dinov2_block(ggml_context* ctx, const Model& m,
                           ggml_tensor* x, int block_idx);
 
+/* Apply the final backbone LayerNorm (after the last block).
+ *
+ * Input/output: (dim, N+1, 1, 1) F32.
+ *
+ * Publishes "backbone.norm.output" via the trace callback. */
+ggml_tensor* dinov2_final_norm(ggml_context* ctx, const Model& m,
+                               ggml_tensor* x);
+
 }  // namespace rfdetr
 
 #endif

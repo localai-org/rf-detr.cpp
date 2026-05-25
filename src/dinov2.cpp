@@ -297,4 +297,20 @@ ggml_tensor* dinov2_block(ggml_context* ctx, const Model& m,
     return x;
 }
 
+ggml_tensor* dinov2_final_norm(ggml_context* ctx, const Model& m,
+                               ggml_tensor* x) {
+    auto it_w = m.tensors.find("backbone.norm.weight");
+    auto it_b = m.tensors.find("backbone.norm.bias");
+    if (it_w == m.tensors.end() || it_b == m.tensors.end()) {
+        rfdetr_logf(RFDETR_LOG_ERROR, "dinov2_final_norm: missing backbone.norm");
+        return nullptr;
+    }
+    constexpr float eps = 1e-5f;
+    ggml_tensor* y = ggml_norm(ctx, x, eps);
+    y = ggml_mul(ctx, y, it_w->second);
+    y = ggml_add(ctx, y, it_b->second);
+    publish("backbone.norm.output", y);
+    return y;
+}
+
 }  // namespace rfdetr

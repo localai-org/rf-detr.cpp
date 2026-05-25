@@ -40,6 +40,7 @@ std::map<std::string, Tol> build_tolerances(uint32_t depth) {
         tol[p + "mlp.output"]   = {1e-5f, 1e-4f};
         tol[p + "output"]       = {1e-5f, 1e-4f};
     }
+    tol["backbone.norm.output"] = {1e-5f, 1e-4f};
     return tol;
 }
 
@@ -183,6 +184,8 @@ int main() {
         t = rfdetr::dinov2_block(gctx, *m, t, (int)i);
         RFDETR_ASSERT(t != nullptr);
     }
+    t = rfdetr::dinov2_final_norm(gctx, *m, t);
+    RFDETR_ASSERT(t != nullptr);
 
     auto kTolerances = build_tolerances(m->config.backbone.depth);
 

@@ -220,6 +220,13 @@ def forward(cfg, tensors, input_img):
         x = x + z
 
         out[pub + "output"] = x.copy()
+
+    # ---- Final backbone LayerNorm ----
+    fn = layer_norm(x,
+                    tensors["backbone.norm.weight"],
+                    tensors["backbone.norm.bias"])
+    out["backbone.norm.output"] = fn.copy()
+    x = fn
     return out
 
 
