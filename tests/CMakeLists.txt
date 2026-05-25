@@ -31,3 +31,5 @@ add_custom_target(rfdetr_fixtures ALL DEPENDS ${RFDETR_TEST_FIXTURES}/cats.png)
 
 rfdetr_add_test(test_image_io)
 add_dependencies(test_image_io rfdetr_fixtures)
+
+rfdetr_add_test(test_postprocess)
