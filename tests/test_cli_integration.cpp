@@ -1,0 +1,49 @@
+#include "test_assert.hpp"
+
+#include <cstdio>
+#include <cstdlib>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <sys/stat.h>
+#include <sys/wait.h>
+
+static std::string read_file(const std::string& path) {
+    std::ifstream f(path);
+    std::stringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+
+static bool file_exists(const std::string& path) {
+    struct stat st;
+    return ::stat(path.c_str(), &st) == 0;
+}
+
+int main() {
+    const std::string fixtures = RFDETR_TEST_FIXTURES;
+    const std::string out_json = std::string(fixtures) + "/generated/cli_out.json";
+    const std::string out_png  = std::string(fixtures) + "/generated/cli_out.png";
+
+    std::system(("mkdir -p " + std::string(fixtures) + "/generated").c_str());
+    std::remove(out_json.c_str());
+    std::remove(out_png.c_str());
+
+    std::string cmd = std::string(RFDETR_CLI_BINARY) +
+                      " detect --model dummy.gguf"
+                      " --input "      + fixtures + "/cats.png"
+                      " --output "     + out_json +
+                      " --annotated "  + out_png;
+    int rc = std::system(cmd.c_str());
+    RFDETR_ASSERT_EQ_INT(WEXITSTATUS(rc), 0);
+
+    RFDETR_ASSERT(file_exists(out_json));
+    RFDETR_ASSERT(file_exists(out_png));
+
+    std::string body = read_file(out_json);
+    RFDETR_ASSERT(body.find("\"detections\": [") != std::string::npos);
+    RFDETR_ASSERT(body.find("\"width\": 16")    != std::string::npos);
+    RFDETR_ASSERT(body.find("\"height\": 16")   != std::string::npos);
+
+    return 0;
+}
