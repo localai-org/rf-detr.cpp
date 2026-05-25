@@ -19,6 +19,17 @@ namespace rfdetr {
 ggml_tensor* dinov2_patch_embed(ggml_context* ctx, const Model& m,
                                 ggml_tensor* input);
 
+/* Concatenate the learnable CLS token to the front of the patch tokens and
+ * add the positional embedding.
+ *
+ * Input:  `tokens` — (dim, N_patches, 1, 1) F32
+ * Output: a tensor of shape (dim, N_patches + 1, 1, 1) F32 with CLS at
+ *         index 0 and positional offsets added to every position.
+ *
+ * Publishes "backbone.cls_pos_embed.output" via the trace callback. */
+ggml_tensor* dinov2_add_cls_and_pos_embed(ggml_context* ctx, const Model& m,
+                                          ggml_tensor* tokens);
+
 /* Build one DINOv2 transformer block (pre-LN style):
  *
  *   x = x + attn(norm1(x))

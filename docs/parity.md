@@ -33,6 +33,7 @@ A baseline bundle is a GGUF file with:
 
 - `preprocess.input` — `(1, H, W, 3)` float32, post normalization (mean/std)
 - `backbone.patch_embed.output` — `(1, N_patches, dim)` float32
+- `backbone.cls_pos_embed.output` — `(1, N_patches + 1, dim)` float32
 - `backbone.block.0.norm1.output` — `(1, N_patches, dim)` float32
 - `backbone.block.0.attn.output` — `(1, N_patches, dim)` float32
 - `backbone.block.0.mlp.output` — `(1, N_patches, dim)` float32
@@ -65,6 +66,7 @@ Configured in `tests/test_parity_block0.cpp` via a small table. Defaults:
 |---------------------------------------|-------|-------|
 | `preprocess.input`                    | 1e-6  | 0     |
 | `backbone.patch_embed.output`         | 1e-5  | 1e-4  |
+| `backbone.cls_pos_embed.output`       | 1e-5  | 1e-4  |
 | `backbone.block.0.norm1.output`       | 1e-5  | 1e-4  |
 | `backbone.block.0.attn.output`        | 1e-5  | 1e-4  |
 | `backbone.block.0.mlp.output`         | 1e-5  | 1e-4  |

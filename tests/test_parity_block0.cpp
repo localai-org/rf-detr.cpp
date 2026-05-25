@@ -29,6 +29,7 @@ struct Tol { float atol; float rtol; };
  * absorb ggml's F32 vs numpy's float64 order-of-operations drift. */
 const std::map<std::string, Tol> kTolerances = {
     {"backbone.patch_embed.output",    {1e-5f, 1e-4f}},
+    {"backbone.cls_pos_embed.output",  {1e-5f, 1e-4f}},
     {"backbone.block.0.norm1.output",  {1e-5f, 1e-4f}},
     {"backbone.block.0.attn.output",   {1e-5f, 1e-4f}},
     {"backbone.block.0.mlp.output",    {1e-5f, 1e-4f}},
@@ -168,6 +169,8 @@ int main() {
         });
 
     ggml_tensor* t = rfdetr::dinov2_patch_embed(gctx, *m, input);
+    RFDETR_ASSERT(t != nullptr);
+    t = rfdetr::dinov2_add_cls_and_pos_embed(gctx, *m, t);
     RFDETR_ASSERT(t != nullptr);
     t = rfdetr::dinov2_block(gctx, *m, t, /*block_idx*/ 0);
     RFDETR_ASSERT(t != nullptr);

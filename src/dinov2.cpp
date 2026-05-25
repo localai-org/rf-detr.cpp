@@ -81,6 +81,32 @@ ggml_tensor* dinov2_patch_embed(ggml_context* ctx, const Model& m,
     return out;
 }
 
+ggml_tensor* dinov2_add_cls_and_pos_embed(ggml_context* ctx, const Model& m,
+                                          ggml_tensor* tokens) {
+    auto it_cls = m.tensors.find("backbone.cls_token");
+    auto it_pe  = m.tensors.find("backbone.pos_embed");
+    if (it_cls == m.tensors.end() || it_pe == m.tensors.end()) {
+        rfdetr_logf(RFDETR_LOG_ERROR,
+                    "dinov2_add_cls_and_pos_embed: missing cls_token or pos_embed");
+        return nullptr;
+    }
+    ggml_tensor* cls = it_cls->second;
+    ggml_tensor* pe  = it_pe->second;
+
+    /* cls_token in the seeded fixture is 1D (dim,). Reshape to (dim, 1) so
+     * it concats correctly along axis 1 with tokens (dim, N). */
+    ggml_tensor* cls2 = ggml_reshape_2d(ctx, cls, cls->ne[0], 1);
+
+    /* Concat along axis 1: (dim, 1) ⊕ (dim, N) → (dim, N+1) */
+    ggml_tensor* with_cls = ggml_concat(ctx, cls2, tokens, /*dim*/ 1);
+
+    /* pos_embed in the fixture is (dim, N+1) — direct add works. */
+    ggml_tensor* out = ggml_add(ctx, with_cls, pe);
+
+    publish("backbone.cls_pos_embed.output", out);
+    return out;
+}
+
 }  // namespace rfdetr
 
 namespace rfdetr {

@@ -178,7 +178,24 @@ def forward(cfg, tensors, input_img):
     tokens = patchify_and_embed(input_img, pew, peb)   # (N, dim)
     out["backbone.patch_embed.output"] = tokens.copy()
 
-    x = tokens
+    # ---- CLS token + positional embedding ----
+    # cls_token: ggml shape (dim,) -> numpy (dim,) (1D stays 1D after gguf-py reversal)
+    # pos_embed: ggml shape (dim, N+1) -> numpy (N+1, dim) (gguf-py reverses axes)
+    cls_token = tensors["backbone.cls_token"]
+    pos_embed = tensors["backbone.pos_embed"]
+
+    # tokens has shape (N, dim) from patchify_and_embed.
+    cls_flat = cls_token.reshape(1, -1)                          # (1, dim)
+    tokens_with_cls = np.concatenate([cls_flat, tokens], axis=0) # (N+1, dim)
+
+    if pos_embed.shape != tokens_with_cls.shape:
+        raise ValueError(
+            f"pos_embed shape {pos_embed.shape} != tokens+cls shape "
+            f"{tokens_with_cls.shape}; check fixture writer convention")
+
+    x = tokens_with_cls + pos_embed                              # (N+1, dim)
+    out["backbone.cls_pos_embed.output"] = x.copy()
+
     p = "backbone.blocks.0."
 
     # x = x + attn(norm1(x))
