@@ -1,4 +1,5 @@
 #include "rfdetr.h"
+#include "backend.hpp"
 #include "common.hpp"
 #include "model_loader.hpp"
 
@@ -7,7 +8,8 @@
 
 /* Opaque struct — defined here so external callers can only hold pointers. */
 struct rfdetr_context {
-    rfdetr::Model* model = nullptr;
+    rfdetr::Model* model     = nullptr;
+    ggml_backend_t backend   = nullptr;
     int            n_threads = 1;
 };
 
@@ -39,13 +41,32 @@ extern "C" rfdetr_context* rfdetr_init(const rfdetr_params* params, rfdetr_statu
         return nullptr;
     }
 
+    rfdetr_status bk_st;
+    ggml_backend_t backend = rfdetr::init_backend(
+        params->n_threads > 0 ? params->n_threads : 1, &bk_st);
+    if (!backend) {
+        rfdetr::model_free(m);
+        set(bk_st);
+        return nullptr;
+    }
+
+    rfdetr_status rw_st = rfdetr::model_realize_weights(*m, backend);
+    if (rw_st != RFDETR_OK) {
+        rfdetr::free_backend(backend);
+        rfdetr::model_free(m);
+        set(rw_st);
+        return nullptr;
+    }
+
     auto* ctx = new (std::nothrow) rfdetr_context();
     if (!ctx) {
+        rfdetr::free_backend(backend);
         rfdetr::model_free(m);
         set(RFDETR_ERR_OUT_OF_MEMORY);
         return nullptr;
     }
     ctx->model     = m;
+    ctx->backend   = backend;
     ctx->n_threads = params->n_threads > 0 ? params->n_threads : 1;
 
     rfdetr_logf(RFDETR_LOG_INFO, "rfdetr_init: loaded variant=%s, num_classes=%u, num_queries=%u",
@@ -60,6 +81,7 @@ extern "C" rfdetr_context* rfdetr_init(const rfdetr_params* params, rfdetr_statu
 extern "C" void rfdetr_free(rfdetr_context* ctx) {
     if (!ctx) return;
     rfdetr::model_free(ctx->model);
+    rfdetr::free_backend(ctx->backend);
     delete ctx;
 }
 
