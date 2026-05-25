@@ -61,6 +61,7 @@ set(RFDETR_SOURCES
     src/rfdetr_capi.cpp
     src/trace.cpp
     src/backend.cpp
+    src/dinov2.cpp
 )
 
 if(RFDETR_SHARED)
