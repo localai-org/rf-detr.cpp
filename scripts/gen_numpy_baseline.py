@@ -80,6 +80,7 @@ def read_model(path):
         "bb_dim":      _u32(reader, "rfdetr.backbone.dim"),
         "bb_depth":    _u32(reader, "rfdetr.backbone.depth"),
         "bb_heads":    _u32(reader, "rfdetr.backbone.heads"),
+        "bb_window_size": _u32(reader, "rfdetr.backbone.window_size"),
         "bb_multi_scale_layers": ms_layers,
     }
 
@@ -283,10 +284,19 @@ def forward(cfg, tensors, input_img):
         # x = x + attn(norm1(x))
         n1 = layer_norm(x, tensors[p + "norm1.weight"], tensors[p + "norm1.bias"])
         out[pub + "norm1.output"] = n1.copy()
-        y = mha(n1,
-                tensors[p + "attn.qkv.weight"], tensors[p + "attn.qkv.bias"],
-                tensors[p + "attn.proj.weight"], tensors[p + "attn.proj.bias"],
-                cfg["bb_heads"])
+        # Dispatch global vs windowed
+        if i in cfg["bb_multi_scale_layers"]:
+            y = mha(n1,
+                    tensors[p + "attn.qkv.weight"], tensors[p + "attn.qkv.bias"],
+                    tensors[p + "attn.proj.weight"], tensors[p + "attn.proj.bias"],
+                    cfg["bb_heads"])
+        else:
+            hp = wp = cfg["image_size"] // 14
+            y = mha_window(n1,
+                           tensors[p + "attn.qkv.weight"], tensors[p + "attn.qkv.bias"],
+                           tensors[p + "attn.proj.weight"], tensors[p + "attn.proj.bias"],
+                           cfg["bb_heads"],
+                           cfg["bb_window_size"], hp, wp)
         out[pub + "attn.output"] = y.copy()
         x = x + y
 

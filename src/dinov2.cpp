@@ -265,31 +265,46 @@ ggml_tensor* mha_window(ggml_context* ctx, ggml_tensor* x,
      *   grid(hp, wp, dim) -> reshape(n_hw, W, n_ww, W, dim) -> transpose(0,2,1,3,4)
      *                     -> reshape(n_hw*n_ww, W*W, dim) = (n_windows, T, dim)
      *
-     * In ggml column-major (ne[0] fastest), the equivalent layout is:
-     *   patches ne = (dim, N) where N's row-major numpy order (h, w) maps to ggml's
-     *                          column-major as (dim, wp, hp) with wp fast, hp slow.
-     *   Target: ne = (dim, T, n_windows) with windows row-major (n_hw, n_ww).
-     */
+     * Numpy semantics:
+     *   t  = h_inner * W   + w_inner    (h_inner slow, w_inner fast)
+     *   n  = h_outer * n_ww + w_outer   (h_outer slow, w_outer fast)
+     *
+     * Target ggml memory layout (fast → slow): d, w_inner, h_inner, w_outer, h_outer.
+     *
+     * Starting layout of `patches ne = (dim, N)`:
+     *   N is row-major (h, w) → view as (dim, wp, hp), memory fast→slow:
+     *     d, w_inner, w_outer, h_inner, h_outer
+     *   (swap (w_outer, h_inner) is the only thing needed). */
     ggml_tensor* grid = ggml_reshape_3d(ctx, patches, dim, wp, hp);
-    /* grid ne = (dim, wp, hp, 1) — wp axis fast, hp axis slow */
+    /* grid ne = (dim, wp, hp) */
 
-    /* Split wp into (W, n_ww) via reshape_4d. Since wp = n_ww * W and ne[0]=dim is
-     * fastest, the split puts W as the inner (fast) factor and n_ww as the outer:
-     *   ne = (dim, W, n_ww, hp) */
+    /* Split wp = n_ww * W (w_inner fast, w_outer slow within wp):
+     *   ne = (dim, W=w_inner, n_ww=w_outer, hp) */
     ggml_tensor* w1 = ggml_reshape_4d(ctx, grid, dim, W, n_ww, hp);
 
-    /* Permute so hp comes before n_ww (preparing to split hp): (dim, W, hp, n_ww) */
+    /* Permute to bring hp inboard of n_ww:
+     *   ne (dim, W, n_ww, hp) -> ne (dim, W, hp, n_ww)
+     * Memory fast→slow after cont: d, w_inner, h_inner, h_outer, w_outer. */
     ggml_tensor* w2 = ggml_cont(ctx, ggml_permute(ctx, w1, 0, 1, 3, 2));
 
-    /* Split hp = n_hw * W into (W, n_hw) on axes 2..3:
-     *   reshape (dim, W, hp, n_ww) -> (dim, W, W, n_hw * n_ww)
-     * Since hp's row-major order is (h_fast within W, h_slow across n_hw), reshape
-     * keeps the same memory layout and groups n_hw with n_ww row-major. */
-    ggml_tensor* w3 = ggml_reshape_4d(ctx, w2, dim, W, W, n_hw * n_ww);
+    /* Collapse to expose (h_outer, w_outer) as separate ne axes that we can
+     * permute. After permute, memory of w2 has (h_inner, w_inner) packed as
+     * the inner W*W*dim block, then h_outer, then w_outer:
+     *   block_layout = (d, w_inner, h_inner)  — inner W*W*dim elements per outer
+     *   outer index  = h_outer + w_outer * n_hw   (h_outer fast, w_outer slow)
+     *
+     * Reshape to (dim*W*W, n_hw, n_ww, 1) keeps memory; then permute axes 1,2
+     * to swap (h_outer, w_outer) so the new ne[2] is row-major (h_outer slow,
+     * w_outer fast) = numpy's window pack order. */
+    ggml_tensor* w3 = ggml_reshape_4d(ctx, w2, dim * W * W, n_hw, n_ww, 1);
+    ggml_tensor* w4 = ggml_cont(ctx, ggml_permute(ctx, w3, 0, 2, 1, 3));
+    /* w4 ne = (dim*W*W, n_ww, n_hw, 1). Memory fast→slow:
+     *   d, w_inner, h_inner, w_outer, h_outer. ✓ matches target. */
 
-    /* Collapse (W, W) into T: (dim, T, n_windows). T fastest, n_windows slowest. */
-    ggml_tensor* windows = ggml_reshape_3d(ctx, w3, dim, T, n_windows);
-    /* windows ne = (dim, T, n_windows, 1) — ready for batched attention. */
+    /* Collapse to (dim, T, n_windows). The inner dim*W*W block re-splits as
+     * (dim, T=W*W) with t = h_inner*W + w_inner (h_inner slow, w_inner fast). */
+    ggml_tensor* windows = ggml_reshape_3d(ctx, w4, dim, T, n_windows);
+    /* windows ne = (dim, T, n_windows, 1) — matches numpy. */
 
     /* Batched QKV projection: ggml_mul_mat broadcasts over axes 2 and 3.
      *   Wqkv ne = (dim, 3*dim); windows ne = (dim, T, n_windows)
@@ -327,18 +342,18 @@ ggml_tensor* mha_window(ggml_context* ctx, ggml_tensor* x,
     v = ggml_cont(ctx, ggml_permute(ctx, v, 0, 2, 1, 3));
 
     /* Attention via manual path (matching existing mha()'s approach).
-     *   kt = permute(k, 1, 0, 2, 3) -> ne = (T, head_dim, n_heads, n_windows)
-     *   logits = mul_mat(kt, q): kt^T @ q = (head_dim, T) @ (head_dim, T) per head
-     *     -> ne = (T, T, n_heads, n_windows) */
-    ggml_tensor* kt = ggml_cont(ctx, ggml_permute(ctx, k, 1, 0, 2, 3));
-    ggml_tensor* logits = ggml_mul_mat(ctx, kt, q);
+     * ggml_mul_mat(a, b) contracts ne[0] of BOTH operands, so for k, q both
+     * shaped (head_dim, T, n_heads, n_windows), mul_mat(k, q) contracts
+     * head_dim and yields ne = (T, T, n_heads, n_windows) where
+     *   logits[ne0=j, ne1=i] = sum_d k[d, j] * q[d, i] = <q_i, k_j>. */
+    ggml_tensor* logits = ggml_mul_mat(ctx, k, q);
     logits = ggml_scale(ctx, logits, 1.0f / std::sqrt((float)head_dim));
     logits = ggml_soft_max(ctx, logits);
 
-    /* attn = v_t @ logits:
-     *   vt ne = (T, head_dim, n_heads, n_windows); logits ne = (T, T, n_heads, n_windows)
-     *   mul_mat(vt, logits) = vt^T @ logits = (head_dim, T) @ (T, T) per head
-     *     -> ne = (head_dim, T, n_heads, n_windows)  */
+    /* out[d, i] = sum_j v[d, j] * logits[j, i]. To express with mul_mat
+     * (which contracts ne[0]), permute v so token axis becomes ne[0]:
+     *   vt = permute(v, 1, 0, 2, 3) -> ne = (T, head_dim, n_heads, n_windows)
+     *   mul_mat(vt, logits) contracts T -> ne = (head_dim, T, n_heads, n_windows). */
     ggml_tensor* vt = ggml_cont(ctx, ggml_permute(ctx, v, 1, 0, 2, 3));
     ggml_tensor* attn_out = ggml_mul_mat(ctx, vt, logits);
 
@@ -352,61 +367,36 @@ ggml_tensor* mha_window(ggml_context* ctx, ggml_tensor* x,
     attn_out = ggml_mul_mat(ctx, Wproj, attn_out);
     attn_out = ggml_add(ctx, attn_out, bproj);
 
-    /* Reverse window-partition. Inverse of forward steps:
-     *   attn_out ne = (dim, T, n_windows)
-     *   -> reshape_4d (dim, W, W, n_windows)
-     *   At this point W,W are the inner-window spatial axes and n_windows packs
-     *   (n_hw, n_ww) with n_ww fast (matching how we built it on forward).
-     *
-     *   To recover (dim, wp, hp), invert the forward sequence:
-     *   reshape (dim, W, W*n_ww, n_hw)         — split n_windows into (W*n_ww, n_hw)?
-     *
-     * Actually the inverse needs careful thought. Forward was:
-     *   (dim, wp, hp) → reshape (dim, W, n_ww, hp)
-     *                → permute (0,1,3,2) (dim, W, hp, n_ww)
-     *                → reshape (dim, W, W, n_hw * n_ww)
-     *                → reshape (dim, T, n_windows)
-     *
-     * Inverse:
-     *   (dim, T, n_windows) → reshape (dim, W, W, n_windows)             [1]
-     *                       → reshape (dim, W, W * n_ww, n_hw)            [2]   (split n_windows: n_ww fast, n_hw slow)
-     *                       → permute (0, 1, 3, 2) (dim, W, n_hw, W * n_ww)
-     *                       → reshape (dim, W, n_hw * W * n_ww)           — collapse axes 2..3? wait that doesn't help
-     *
-     * Let's recompute. After [2] we have (dim, W, W*n_ww, n_hw). Going back further:
-     *   The forward "reshape (dim, W, hp, n_ww) → (dim, W, W, n_hw * n_ww)" merges
-     *   hp and n_ww. To invert: (dim, W, W, n_hw*n_ww) → (dim, W, W * n_ww, n_hw)
-     *   keeps the same flat memory but views it as different shape. Then permute
-     *   (0, 1, 3, 2) gives (dim, W, n_hw, W * n_ww). Now we want (dim, W, n_ww, hp)
-     *   which means reshape axes 2..3 from (n_hw, W*n_ww) back to (n_ww, hp).
-     *
-     * This is getting tangled. Cleanest inverse: */
+    /* Reverse window-partition: undo each forward step in reverse order. Forward
+     * was (top→bottom):
+     *   patches (dim, N)
+     *     → reshape (dim, wp, hp)              = grid
+     *     → reshape (dim, W, n_ww, hp)         = w1
+     *     → permute (0,1,3,2) + cont           → (dim, W, hp, n_ww)  = w2
+     *     → reshape (dim*W*W, n_hw, n_ww, 1)   = w3
+     *     → permute (0,2,1,3) + cont           → (dim*W*W, n_ww, n_hw, 1) = w4
+     *     → reshape (dim, T, n_windows)        = windows  */
 
-    /* Step A: (dim, T, n_windows) -> (dim, W, W, n_windows) */
-    ggml_tensor* u1 = ggml_reshape_4d(ctx, attn_out, dim, W, W, n_windows);
+    /* Inverse step A: windows → w4-shape. */
+    ggml_tensor* u1 = ggml_reshape_4d(ctx, attn_out, dim * W * W, n_ww, n_hw, 1);
 
-    /* Step B: split n_windows back into (n_ww, n_hw) — recall on forward, the
-     * collapse was (n_hw, n_ww) row-major (numpy-style), which in ggml column-major
-     * means n_ww is fast-varying and n_hw is slow-varying within the flat n_windows.
-     * Reshape from ne[3]=n_windows to ne[3]=n_hw with ne[?]=n_ww inserted: we need
-     * 5d. ggml has no reshape_5d, so split into two steps via permute. */
+    /* Inverse step B: permute(0,2,1,3) is self-inverse → w3-shape. */
+    ggml_tensor* u2 = ggml_cont(ctx, ggml_permute(ctx, u1, 0, 2, 1, 3));
+    /* u2 ne = (dim*W*W, n_hw, n_ww, 1) */
 
-    /* Step B1: reshape (dim, W, W, n_windows) -> (dim, W, W * n_ww, n_hw)
-     * This works because total elements match and ggml flattens column-major. */
-    ggml_tensor* u2 = ggml_reshape_4d(ctx, u1, dim, W, W * n_ww, n_hw);
+    /* Inverse step C: re-split dim*W*W and merge n_hw with the hp axis →
+     * (dim, W, hp, n_ww) = w2-shape. */
+    ggml_tensor* u3 = ggml_reshape_4d(ctx, u2, dim, W, hp, n_ww);
 
-    /* Step B2: permute (0, 1, 3, 2) -> (dim, W, n_hw, W * n_ww) */
-    ggml_tensor* u3 = ggml_cont(ctx, ggml_permute(ctx, u2, 0, 1, 3, 2));
+    /* Inverse step D: permute(0,1,3,2) is self-inverse → w1-shape. */
+    ggml_tensor* u4 = ggml_cont(ctx, ggml_permute(ctx, u3, 0, 1, 3, 2));
+    /* u4 ne = (dim, W, n_ww, hp) */
 
-    /* Step C: now we have (dim, W, n_hw, W * n_ww). We want (dim, wp, hp) where
-     * wp = W * n_ww and hp = W * n_hw. Reshape (dim, W, n_hw, W * n_ww) →
-     * (dim, W * n_hw, W * n_ww) = (dim, hp, wp). */
-    ggml_tensor* u4 = ggml_reshape_3d(ctx, u3, dim, W * n_hw, W * n_ww);
-    /* u4 ne = (dim, hp, wp). But we want (dim, wp, hp): swap axes 1, 2. */
-    ggml_tensor* u5 = ggml_cont(ctx, ggml_permute(ctx, u4, 0, 2, 1, 3));
-    /* u5 ne = (dim, wp, hp, 1). */
+    /* Inverse step E: merge (W, n_ww) into wp → grid-shape (dim, wp, hp). */
+    ggml_tensor* u5 = ggml_reshape_3d(ctx, u4, dim, wp, hp);
 
-    /* Flatten to (dim, N). */
+    /* Inverse step F: flatten (wp, hp) → N. Memory layout of u5 is exactly the
+     * patches layout, so a 2d reshape (no permute) suffices. */
     ggml_tensor* patches_out = ggml_reshape_2d(ctx, u5, dim, N);
 
     /* Re-prepend CLS along axis 1: (dim, 1) ⊕ (dim, N) → (dim, N+1) */
@@ -434,6 +424,13 @@ ggml_tensor* mlp(ggml_context* ctx, ggml_tensor* x,
 }
 
 }  // namespace
+
+bool is_global_block(const Config& cfg, uint32_t i) {
+    for (uint32_t v : cfg.backbone.multi_scale_layers) {
+        if (v == i) return true;
+    }
+    return false;
+}
 
 ggml_tensor* dinov2_block(ggml_context* ctx, const Model& m,
                           ggml_tensor* x, int block_idx) {
@@ -473,7 +470,15 @@ ggml_tensor* dinov2_block(ggml_context* ctx, const Model& m,
     /* x = x + attn(norm1(x)) */
     ggml_tensor* y = layer_norm(ctx, x, n1w, n1b);
     publish(pub + "norm1.output", y);
-    y = mha(ctx, y, qkvW, qkvB, prW, prB, (int)m.config.backbone.heads);
+    if (is_global_block(m.config, (uint32_t)block_idx)) {
+        y = mha(ctx, y, qkvW, qkvB, prW, prB, (int)m.config.backbone.heads);
+    } else {
+        const int hp = (int)(m.config.image_size / 14);
+        const int wp = (int)(m.config.image_size / 14);
+        y = mha_window(ctx, y, qkvW, qkvB, prW, prB,
+                       (int)m.config.backbone.heads,
+                       (int)m.config.backbone.window_size, hp, wp);
+    }
     publish(pub + "attn.output", y);
     x = ggml_add(ctx, x, y);
 

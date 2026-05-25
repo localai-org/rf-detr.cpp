@@ -48,6 +48,16 @@ ggml_tensor* dinov2_add_cls_and_pos_embed(ggml_context* ctx, const Model& m,
 ggml_tensor* dinov2_block(ggml_context* ctx, const Model& m,
                           ggml_tensor* x, int block_idx);
 
+/* True iff block `i` uses global self-attention (vs windowed).
+ *
+ * RF-DETR / DINOv2 reuse the multi_scale_layers indices as global-attention
+ * blocks: every block whose output gets tapped for the projector also gets
+ * the full receptive field of global attention. The intermediate (windowed)
+ * blocks attend within local W×W windows only.
+ *
+ * For the default base variant: globals = {2, 5, 8, 11}, windowed = the rest. */
+bool is_global_block(const Config& cfg, uint32_t i);
+
 /* Apply the final backbone LayerNorm (after the last block).
  *
  * Input/output: (dim, N+1, 1, 1) F32.
