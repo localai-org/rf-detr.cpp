@@ -7,7 +7,10 @@ See `docs/superpowers/specs/2026-05-25-rfdetr-cpp-design.md` for the design.
 
 ## Status
 
-Foundation only. No model loading or inference yet — see plans under `docs/superpowers/plans/`.
+**Foundation (Plan 1) complete.** The repo builds, the CLI binary runs
+end-to-end on an image (without a model — emits empty detections), and
+all six tests pass. No model loading or inference yet — see Plans 2-4
+under `docs/superpowers/plans/`.
 
 ## Build
 
