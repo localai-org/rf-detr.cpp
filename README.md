@@ -7,10 +7,16 @@ See `docs/superpowers/specs/2026-05-25-rfdetr-cpp-design.md` for the design.
 
 ## Status
 
-**Foundation (Plan 1) complete.** The repo builds, the CLI binary runs
-end-to-end on an image (without a model — emits empty detections), and
-all six tests pass. No model loading or inference yet — see Plans 2-4
-under `docs/superpowers/plans/`.
+**Loader (Plan 2) complete.** The repo can convert an upstream `rfdetr-base`
+PyTorch checkpoint to GGUF, load it from C++ (variant detection, config
+parsing, tensor inventory validation), and report it via `rfdetr-cli info`.
+The flat dlopen ABI is wired through to a JSON envelope. Nine tests pass on
+a clean build. Inference (`detect`) still returns `not_implemented` —
+Plan 3 builds the forward graph and parity harness.
+
+Note: the Python conversion script body is deferred — see Plan 2 Task 3.
+The C++ side uses a synthesized GGUF fixture for tests, so the loader is
+fully exercised in CI without the heavy PyTorch dependency.
 
 ## Build
 
