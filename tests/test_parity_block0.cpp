@@ -179,28 +179,7 @@ int main() {
             traced[name] = tt;
         });
 
-    ggml_tensor* t = rfdetr::dinov2_patch_embed(gctx, *m, input);
-    RFDETR_ASSERT(t != nullptr);
-    t = rfdetr::dinov2_add_cls_and_pos_embed(gctx, *m, t);
-    RFDETR_ASSERT(t != nullptr);
-    const auto& ms_layers = m->config.backbone.multi_scale_layers;
-    auto find_ms_level = [&](uint32_t block_i) -> int {
-        for (size_t k = 0; k < ms_layers.size(); ++k) {
-            if (ms_layers[k] == block_i) return (int)k;
-        }
-        return -1;
-    };
-
-    for (uint32_t i = 0; i < m->config.backbone.depth; ++i) {
-        t = rfdetr::dinov2_block(gctx, *m, t, (int)i);
-        RFDETR_ASSERT(t != nullptr);
-        /* Multi-scale tap: publish backbone output at selected layer indices */
-        int level = find_ms_level(i);
-        if (level >= 0) {
-            rfdetr::publish("backbone.multiscale.level" + std::to_string(level), t);
-        }
-    }
-    t = rfdetr::dinov2_final_norm(gctx, *m, t);
+    ggml_tensor* t = rfdetr::dinov2_forward(gctx, *m, input);
     RFDETR_ASSERT(t != nullptr);
 
     auto kTolerances = build_tolerances(m->config);

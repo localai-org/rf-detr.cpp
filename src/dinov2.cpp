@@ -313,4 +313,33 @@ ggml_tensor* dinov2_final_norm(ggml_context* ctx, const Model& m,
     return y;
 }
 
+ggml_tensor* dinov2_forward(ggml_context* ctx, const Model& m,
+                            ggml_tensor* input) {
+    ggml_tensor* t = dinov2_patch_embed(ctx, m, input);
+    if (!t) return nullptr;
+
+    t = dinov2_add_cls_and_pos_embed(ctx, m, t);
+    if (!t) return nullptr;
+
+    const auto& ms = m.config.backbone.multi_scale_layers;
+    auto find_ms_level = [&](uint32_t block_i) -> int {
+        for (size_t k = 0; k < ms.size(); ++k) {
+            if (ms[k] == block_i) return (int)k;
+        }
+        return -1;
+    };
+
+    for (uint32_t i = 0; i < m.config.backbone.depth; ++i) {
+        t = dinov2_block(ctx, m, t, (int)i);
+        if (!t) return nullptr;
+        int level = find_ms_level(i);
+        if (level >= 0) {
+            publish("backbone.multiscale.level" + std::to_string(level), t);
+        }
+    }
+
+    t = dinov2_final_norm(ctx, m, t);
+    return t;
+}
+
 }  // namespace rfdetr

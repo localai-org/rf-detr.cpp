@@ -56,6 +56,17 @@ ggml_tensor* dinov2_block(ggml_context* ctx, const Model& m,
 ggml_tensor* dinov2_final_norm(ggml_context* ctx, const Model& m,
                                ggml_tensor* x);
 
+/* Run the full DINOv2 backbone: patch_embed → CLS+pos_embed → N blocks →
+ * final_norm. Publishes every per-block, multi-scale, and final checkpoint
+ * via the trace callback. Returns the final post-norm tensor (dim, N+1, 1, 1)
+ * F32.
+ *
+ * Multi-scale features are NOT returned explicitly. Plan 6's projector can
+ * either re-run the backbone with its own trace callback, or this API can
+ * grow a structured return type. Plan 4 keeps the API minimal. */
+ggml_tensor* dinov2_forward(ggml_context* ctx, const Model& m,
+                            ggml_tensor* input);
+
 }  // namespace rfdetr
 
 #endif
