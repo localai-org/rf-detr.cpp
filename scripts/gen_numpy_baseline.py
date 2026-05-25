@@ -62,6 +62,16 @@ def read_model(path):
     """
     reader = gguf.GGUFReader(path)
 
+    # Multi-scale taps: INT32 array in the GGUF metadata. For typed arrays,
+    # gguf-py stores each element as its own entry in `field.parts`, and
+    # `field.data` holds the list of indices into `parts` for those elements
+    # (so parts[-1] would only be the LAST element). We walk `field.data` to
+    # collect every element.
+    ms_field = reader.get_field("rfdetr.backbone.multi_scale_layers")
+    if ms_field is None:
+        raise KeyError("missing rfdetr.backbone.multi_scale_layers")
+    ms_layers = [int(ms_field.parts[idx][0]) for idx in ms_field.data]
+
     cfg = {
         "variant":     _str(reader, "rfdetr.variant"),
         "image_size":  _u32(reader, "rfdetr.image_size"),
@@ -70,6 +80,7 @@ def read_model(path):
         "bb_dim":      _u32(reader, "rfdetr.backbone.dim"),
         "bb_depth":    _u32(reader, "rfdetr.backbone.depth"),
         "bb_heads":    _u32(reader, "rfdetr.backbone.heads"),
+        "bb_multi_scale_layers": ms_layers,
     }
 
     tensors = {}
@@ -220,6 +231,12 @@ def forward(cfg, tensors, input_img):
         x = x + z
 
         out[pub + "output"] = x.copy()
+
+        # Multi-scale tap: backbone output after this block, if this i is a tap layer
+        ms = cfg["bb_multi_scale_layers"]
+        if i in ms:
+            level = ms.index(i)
+            out[f"backbone.multiscale.level{level}"] = x.copy()
 
     # ---- Final backbone LayerNorm ----
     fn = layer_norm(x,

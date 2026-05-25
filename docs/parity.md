@@ -39,8 +39,11 @@ A baseline bundle is a GGUF file with:
 - `backbone.block.0.mlp.output` — `(1, N_patches, dim)` float32
 - `backbone.block.0.output` — `(1, N_patches, dim)` float32 (full block output)
 
-Plans 4-6 add more checkpoints (block 1..11, projector levels, encoder/decoder
-layers, heads).
+Plan 4 adds CLS+pos_embed, blocks 1..11, the final backbone LayerNorm, and
+4 multi-scale taps (`backbone.multiscale.level{0..3}`) at the layer
+indices configured by `rfdetr.backbone.multi_scale_layers` ([2, 5, 8, 11]
+for the `base` variant). Plans 5-6 add projector levels, encoder/decoder
+layers, and heads.
 
 ## C++ trace callback
 
@@ -72,6 +75,10 @@ Configured in `tests/test_parity_block0.cpp` via a small table. Defaults:
 | `backbone.block.0.mlp.output`         | 1e-5  | 1e-4  |
 | `backbone.block.0.output`             | 1e-5  | 1e-4  |
 | `backbone.norm.output`                | 1e-5  | 1e-4  |
+| `backbone.multiscale.level0`          | 1e-5  | 1e-4  |
+| `backbone.multiscale.level1`          | 1e-5  | 1e-4  |
+| `backbone.multiscale.level2`          | 1e-5  | 1e-4  |
+| `backbone.multiscale.level3`          | 1e-5  | 1e-4  |
 
 Plan 4 switched the fixture to F32 weights (the generator now defaults to
 `--dtype f32`), eliminating the F16 quantization noise floor that

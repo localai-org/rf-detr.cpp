@@ -29,11 +29,11 @@ struct Tol { float atol; float rtol; };
  * absorb ggml's F32 vs numpy's float64 order-of-operations drift. Built
  * programmatically over `depth` blocks to avoid hand-listing 4*depth+2
  * checkpoints. */
-std::map<std::string, Tol> build_tolerances(uint32_t depth) {
+std::map<std::string, Tol> build_tolerances(const rfdetr::Config& cfg) {
     std::map<std::string, Tol> tol;
     tol["backbone.patch_embed.output"]    = {1e-5f, 1e-4f};
     tol["backbone.cls_pos_embed.output"]  = {1e-5f, 1e-4f};
-    for (uint32_t i = 0; i < depth; ++i) {
+    for (uint32_t i = 0; i < cfg.backbone.depth; ++i) {
         std::string p = "backbone.block." + std::to_string(i) + ".";
         tol[p + "norm1.output"] = {1e-5f, 1e-4f};
         tol[p + "attn.output"]  = {1e-5f, 1e-4f};
@@ -41,6 +41,9 @@ std::map<std::string, Tol> build_tolerances(uint32_t depth) {
         tol[p + "output"]       = {1e-5f, 1e-4f};
     }
     tol["backbone.norm.output"] = {1e-5f, 1e-4f};
+    for (size_t k = 0; k < cfg.backbone.multi_scale_layers.size(); ++k) {
+        tol["backbone.multiscale.level" + std::to_string(k)] = {1e-5f, 1e-4f};
+    }
     return tol;
 }
 
@@ -180,14 +183,27 @@ int main() {
     RFDETR_ASSERT(t != nullptr);
     t = rfdetr::dinov2_add_cls_and_pos_embed(gctx, *m, t);
     RFDETR_ASSERT(t != nullptr);
+    const auto& ms_layers = m->config.backbone.multi_scale_layers;
+    auto find_ms_level = [&](uint32_t block_i) -> int {
+        for (size_t k = 0; k < ms_layers.size(); ++k) {
+            if (ms_layers[k] == block_i) return (int)k;
+        }
+        return -1;
+    };
+
     for (uint32_t i = 0; i < m->config.backbone.depth; ++i) {
         t = rfdetr::dinov2_block(gctx, *m, t, (int)i);
         RFDETR_ASSERT(t != nullptr);
+        /* Multi-scale tap: publish backbone output at selected layer indices */
+        int level = find_ms_level(i);
+        if (level >= 0) {
+            rfdetr::publish("backbone.multiscale.level" + std::to_string(level), t);
+        }
     }
     t = rfdetr::dinov2_final_norm(gctx, *m, t);
     RFDETR_ASSERT(t != nullptr);
 
-    auto kTolerances = build_tolerances(m->config.backbone.depth);
+    auto kTolerances = build_tolerances(m->config);
 
     /* Build the graph BEFORE allocating buffers — published nodes that are
      * intermediate views (e.g. permute results) must be reachable from the
