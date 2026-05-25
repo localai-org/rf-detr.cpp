@@ -34,11 +34,6 @@ if(RFDETR_GGML_HIPBLAS)
     set(GGML_HIP     ON CACHE BOOL "" FORCE)
 endif()
 
-# Common compile flags
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)
-endif()
-
 # Output directories
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
@@ -74,8 +69,12 @@ target_include_directories(rfdetr
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(rfdetr PRIVATE rfdetr_stb ggml)
 
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(rfdetr PRIVATE -Wall -Wextra -Wpedantic -Wno-unused-parameter)
+endif()
+
 # CLI
-if(RFDETR_BUILD_CLI)
+if(RFDETR_BUILD_CLI AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/examples/cli/CMakeLists.txt)
     add_subdirectory(examples/cli)
 endif()
 
