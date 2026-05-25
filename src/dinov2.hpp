@@ -43,7 +43,7 @@ ggml_tensor* dinov2_add_cls_and_pos_embed(ggml_context* ctx, const Model& m,
  *   "backbone.block.{idx}.mlp.output"
  *   "backbone.block.{idx}.output"
  *
- * Plan 3 uses global self-attention (window_size ignored). Plan 4 adds
+ * Plan 4 keeps global self-attention (window_size ignored). Plan 5 adds
  * window-attention switching. */
 ggml_tensor* dinov2_block(ggml_context* ctx, const Model& m,
                           ggml_tensor* x, int block_idx);

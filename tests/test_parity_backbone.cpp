@@ -1,4 +1,6 @@
-/* C++ forward pass through patch_embed + backbone block 0 vs numpy baseline. */
+/* C++ forward pass through the full DINOv2 backbone (patch_embed +
+ * CLS/pos_embed + 12 blocks + final norm + multi-scale taps) vs numpy
+ * baseline. */
 #include "test_assert.hpp"
 #include "rfdetr.h"
 #include "model_loader.hpp"

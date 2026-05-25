@@ -143,8 +143,8 @@ ggml_tensor* layer_norm(ggml_context* ctx, ggml_tensor* x,
  *
  * Uses the manual attention path (mul_mat / scale / soft_max / mul_mat).
  * ggml_flash_attn_ext exists with the expected signature but the manual path
- * is sufficient for Plan 3 (one block only) and easier to debug against the
- * numpy parity baseline. */
+ * is sufficient and easier to debug per-block against the numpy parity
+ * baseline. */
 ggml_tensor* mha(ggml_context* ctx, ggml_tensor* x,
                  ggml_tensor* Wqkv, ggml_tensor* bqkv,
                  ggml_tensor* Wproj, ggml_tensor* bproj,
