@@ -64,6 +64,15 @@ add_custom_command(
 )
 add_custom_target(rfdetr_model_fixture_missing ALL DEPENDS ${RFDETR_TEST_FIXTURES}/model_base_missing.gguf)
 
+add_custom_command(
+    OUTPUT  ${RFDETR_TEST_FIXTURES}/model_base_seeded.gguf
+    COMMAND gen_model_gguf ${RFDETR_TEST_FIXTURES}/model_base_seeded.gguf --seed 42
+    DEPENDS gen_model_gguf
+    VERBATIM
+)
+add_custom_target(rfdetr_model_fixture_seeded ALL
+    DEPENDS ${RFDETR_TEST_FIXTURES}/model_base_seeded.gguf)
+
 rfdetr_add_test(test_model_loader)
 add_dependencies(test_model_loader rfdetr_model_fixture)
 add_dependencies(test_model_loader rfdetr_model_fixture_missing)

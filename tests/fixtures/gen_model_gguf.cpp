@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -166,9 +167,14 @@ int main(int argc, char** argv) {
     }
     const char* out_path = argv[1];
     const char* skip_name = nullptr;
+    unsigned seed = 0;
+    bool seeded = false;
     for (int i = 2; i + 1 < argc; ++i) {
         if (std::strcmp(argv[i], "--missing") == 0) {
             skip_name = argv[i + 1];
+        } else if (std::strcmp(argv[i], "--seed") == 0) {
+            seed = (unsigned)std::strtoul(argv[i + 1], nullptr, 10);
+            seeded = true;
         }
     }
     VariantCfg v;
@@ -190,9 +196,32 @@ int main(int argc, char** argv) {
         tensors.erase(it, tensors.end());
     }
 
-    // Zero-init every tensor's data so the GGUF writer reads valid bytes
-    for (auto* t : tensors) {
-        std::memset(t->data, 0, ggml_nbytes(t));
+    // Initialize tensor data. With --seed N, fill with N(0, 0.02) (PyTorch
+    // default init scale); otherwise zero-fill so the GGUF writer reads
+    // valid bytes.
+    if (seeded) {
+        std::mt19937 rng(seed);
+        std::normal_distribution<float> dist(0.0f, 0.02f);
+        for (auto* t : tensors) {
+            size_t nelem = ggml_nelements(t);
+            if (t->type == GGML_TYPE_F32) {
+                float* p = (float*)t->data;
+                for (size_t i = 0; i < nelem; ++i) p[i] = dist(rng);
+            } else if (t->type == GGML_TYPE_F16) {
+                ggml_fp16_t* p = (ggml_fp16_t*)t->data;
+                for (size_t i = 0; i < nelem; ++i) {
+                    p[i] = ggml_fp32_to_fp16(dist(rng));
+                }
+            } else {
+                std::fprintf(stderr, "gen_model_gguf: unsupported type for tensor %s\n",
+                             ggml_get_name(t));
+                return 4;
+            }
+        }
+    } else {
+        for (auto* t : tensors) {
+            std::memset(t->data, 0, ggml_nbytes(t));
+        }
     }
 
     gguf_context* gguf = gguf_init_empty();
