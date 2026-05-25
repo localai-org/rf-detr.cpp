@@ -164,13 +164,111 @@ void model_free(Model* m) {
     delete m;
 }
 
-/* Stubs — Task 6 implements these for real. */
-rfdetr_status model_validate_tensors(const Model& /*m*/) {
-    return RFDETR_OK;
+std::vector<std::string> expected_tensor_names(const Config& cfg) {
+    std::vector<std::string> names;
+
+    // Backbone
+    names.emplace_back("backbone.patch_embed.weight");
+    names.emplace_back("backbone.patch_embed.bias");
+    names.emplace_back("backbone.pos_embed");
+    names.emplace_back("backbone.cls_token");
+    for (uint32_t i = 0; i < cfg.backbone.depth; ++i) {
+        std::string p = "backbone.blocks." + std::to_string(i) + ".";
+        names.emplace_back(p + "norm1.weight");
+        names.emplace_back(p + "norm1.bias");
+        names.emplace_back(p + "attn.qkv.weight");
+        names.emplace_back(p + "attn.qkv.bias");
+        names.emplace_back(p + "attn.proj.weight");
+        names.emplace_back(p + "attn.proj.bias");
+        names.emplace_back(p + "norm2.weight");
+        names.emplace_back(p + "norm2.bias");
+        names.emplace_back(p + "mlp.fc1.weight");
+        names.emplace_back(p + "mlp.fc1.bias");
+        names.emplace_back(p + "mlp.fc2.weight");
+        names.emplace_back(p + "mlp.fc2.bias");
+    }
+    names.emplace_back("backbone.norm.weight");
+    names.emplace_back("backbone.norm.bias");
+
+    // Projector
+    for (size_t j = 0; j < cfg.backbone.multi_scale_layers.size(); ++j) {
+        std::string p = "projector.level" + std::to_string(j) + ".";
+        names.emplace_back(p + "weight");
+        names.emplace_back(p + "bias");
+    }
+    names.emplace_back("projector.level_embed");
+
+    // Encoder
+    for (uint32_t i = 0; i < cfg.encoder.layers; ++i) {
+        std::string p = "encoder.layers." + std::to_string(i) + ".";
+        names.emplace_back(p + "self_attn.qkv.weight");
+        names.emplace_back(p + "self_attn.qkv.bias");
+        names.emplace_back(p + "self_attn.out.weight");
+        names.emplace_back(p + "self_attn.out.bias");
+        names.emplace_back(p + "norm1.weight");
+        names.emplace_back(p + "norm1.bias");
+        names.emplace_back(p + "ffn.fc1.weight");
+        names.emplace_back(p + "ffn.fc1.bias");
+        names.emplace_back(p + "ffn.fc2.weight");
+        names.emplace_back(p + "ffn.fc2.bias");
+        names.emplace_back(p + "norm2.weight");
+        names.emplace_back(p + "norm2.bias");
+    }
+
+    // Decoder
+    names.emplace_back("decoder.queries");
+    for (uint32_t i = 0; i < cfg.decoder.layers; ++i) {
+        std::string p = "decoder.layers." + std::to_string(i) + ".";
+        names.emplace_back(p + "self_attn.qkv.weight");
+        names.emplace_back(p + "self_attn.qkv.bias");
+        names.emplace_back(p + "self_attn.out.weight");
+        names.emplace_back(p + "self_attn.out.bias");
+        names.emplace_back(p + "norm1.weight");
+        names.emplace_back(p + "norm1.bias");
+        names.emplace_back(p + "cross_attn.q.weight");
+        names.emplace_back(p + "cross_attn.q.bias");
+        names.emplace_back(p + "cross_attn.kv.weight");
+        names.emplace_back(p + "cross_attn.kv.bias");
+        names.emplace_back(p + "cross_attn.out.weight");
+        names.emplace_back(p + "cross_attn.out.bias");
+        names.emplace_back(p + "norm2.weight");
+        names.emplace_back(p + "norm2.bias");
+        names.emplace_back(p + "ffn.fc1.weight");
+        names.emplace_back(p + "ffn.fc1.bias");
+        names.emplace_back(p + "ffn.fc2.weight");
+        names.emplace_back(p + "ffn.fc2.bias");
+        names.emplace_back(p + "norm3.weight");
+        names.emplace_back(p + "norm3.bias");
+    }
+
+    // Heads
+    names.emplace_back("heads.class.fc.weight");
+    names.emplace_back("heads.class.fc.bias");
+    names.emplace_back("heads.bbox.fc1.weight");
+    names.emplace_back("heads.bbox.fc1.bias");
+    names.emplace_back("heads.bbox.fc2.weight");
+    names.emplace_back("heads.bbox.fc2.bias");
+    names.emplace_back("heads.bbox.fc3.weight");
+    names.emplace_back("heads.bbox.fc3.bias");
+
+    return names;
 }
 
-std::vector<std::string> expected_tensor_names(const Config& /*cfg*/) {
-    return {};
+rfdetr_status model_validate_tensors(const Model& m) {
+    const auto expected = expected_tensor_names(m.config);
+    std::vector<std::string> missing;
+    for (const auto& n : expected) {
+        if (m.tensors.find(n) == m.tensors.end()) {
+            missing.push_back(n);
+        }
+    }
+    if (!missing.empty()) {
+        rfdetr_logf(RFDETR_LOG_ERROR,
+                    "model_validate_tensors: %zu missing tensor(s); first: '%s'",
+                    missing.size(), missing.front().c_str());
+        return RFDETR_ERR_MODEL_LOAD;
+    }
+    return RFDETR_OK;
 }
 
 }  // namespace rfdetr

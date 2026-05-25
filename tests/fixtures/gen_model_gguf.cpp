@@ -165,6 +165,12 @@ int main(int argc, char** argv) {
         return 1;
     }
     const char* out_path = argv[1];
+    const char* skip_name = nullptr;
+    for (int i = 2; i + 1 < argc; ++i) {
+        if (std::strcmp(argv[i], "--missing") == 0) {
+            skip_name = argv[i + 1];
+        }
+    }
     VariantCfg v;
 
     ggml_init_params iparams{};
@@ -177,6 +183,12 @@ int main(int argc, char** argv) {
     std::vector<ggml_tensor*> tensors;
     tensors.reserve(600);
     add_all_tensors(ctx, tensors, v);
+
+    if (skip_name) {
+        auto it = std::remove_if(tensors.begin(), tensors.end(),
+            [&](ggml_tensor* t) { return std::string(ggml_get_name(t)) == skip_name; });
+        tensors.erase(it, tensors.end());
+    }
 
     // Zero-init every tensor's data so the GGUF writer reads valid bytes
     for (auto* t : tensors) {

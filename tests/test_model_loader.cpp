@@ -2,6 +2,7 @@
 #include "model_loader.hpp"
 #include "rfdetr.h"
 #include <string>
+#include <vector>
 
 int main() {
     const std::string fixtures = RFDETR_TEST_FIXTURES;
@@ -55,5 +56,33 @@ int main() {
     RFDETR_ASSERT(st2 == RFDETR_ERR_FILE_NOT_FOUND || st2 == RFDETR_ERR_MODEL_FORMAT);
 
     rfdetr::model_free(m);
+
+    // ---- Missing tensor -> validation fails ----
+    {
+        std::string bad_path = fixtures + "/model_base_missing.gguf";
+        rfdetr_status st_;
+        rfdetr::Model* bm = rfdetr::model_load(bad_path, &st_);
+        RFDETR_ASSERT(bm != nullptr);
+        RFDETR_ASSERT_EQ_INT(st_, RFDETR_OK);
+
+        rfdetr_status v = rfdetr::model_validate_tensors(*bm);
+        RFDETR_ASSERT_EQ_INT(v, RFDETR_ERR_MODEL_LOAD);
+
+        rfdetr::model_free(bm);
+    }
+
+    // ---- expected_tensor_names produces the right count for base ----
+    {
+        rfdetr_status st_;
+        rfdetr::Model* good = rfdetr::model_load(path, &st_);
+        std::vector<std::string> expected = rfdetr::expected_tensor_names(good->config);
+        // Loader counted all tensor names; expected list should match.
+        RFDETR_ASSERT_EQ_INT(expected.size(), good->tensors.size());
+        for (const auto& n : expected) {
+            RFDETR_ASSERT(good->tensors.count(n) == 1);
+        }
+        rfdetr::model_free(good);
+    }
+
     return 0;
 }
