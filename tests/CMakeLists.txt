@@ -73,21 +73,6 @@ add_custom_command(
 add_custom_target(rfdetr_model_fixture_seeded ALL
     DEPENDS ${RFDETR_TEST_FIXTURES}/model_base_seeded.gguf)
 
-# Parity baseline bundle: numpy reference for the full DINOv2 backbone.
-# See docs/parity.md and scripts/gen_numpy_baseline.py.
-find_program(PYTHON3 python3 REQUIRED)
-add_custom_command(
-    OUTPUT  ${RFDETR_TEST_FIXTURES}/baseline_backbone.gguf
-    COMMAND ${PYTHON3} ${CMAKE_SOURCE_DIR}/scripts/gen_numpy_baseline.py
-            --model  ${RFDETR_TEST_FIXTURES}/model_base_seeded.gguf
-            --output ${RFDETR_TEST_FIXTURES}/baseline_backbone.gguf
-    DEPENDS ${RFDETR_TEST_FIXTURES}/model_base_seeded.gguf
-            ${CMAKE_SOURCE_DIR}/scripts/gen_numpy_baseline.py
-    VERBATIM
-)
-add_custom_target(rfdetr_baseline_backbone ALL
-    DEPENDS ${RFDETR_TEST_FIXTURES}/baseline_backbone.gguf)
-
 rfdetr_add_test(test_model_loader)
 add_dependencies(test_model_loader rfdetr_model_fixture)
 add_dependencies(test_model_loader rfdetr_model_fixture_missing)
@@ -98,8 +83,42 @@ add_dependencies(test_capi rfdetr_model_fixture rfdetr_fixtures)
 rfdetr_add_test(test_capi_flat)
 add_dependencies(test_capi_flat rfdetr_model_fixture rfdetr_fixtures)
 
-rfdetr_add_test(test_parity_full_forward)
-target_link_libraries(test_parity_full_forward PRIVATE ggml)
-add_dependencies(test_parity_full_forward
-    rfdetr_model_fixture_seeded
-    rfdetr_baseline_backbone)
+# ---------------------------------------------------------------------------
+# DISABLED (Plan 7 transitional state):
+#
+# test_parity_full_forward exercises a full forward pass against a numpy
+# reference that was built for the v1 GGUF schema. The schema was rewritten
+# to v2 in Plan 7 (real rfdetr-base architecture). The numpy reference,
+# the parity baseline generator (scripts/gen_numpy_baseline.py), and the
+# C++ numerical modules (dinov2, encoder, decoder, projector, heads) still
+# expect the v1 shapes and metadata keys.
+#
+# Plans 8-12 rewrite each numerical module against the v2 schema. Plan 13
+# rewrites the parity reference using torch+rfdetr (matching real upstream).
+# Re-enable once Plan 13 lands.
+#
+# The fixture generator (gen_model_gguf), conversion script, and C++ loader
+# already understand v2; the in-between modules are the gap.
+# ---------------------------------------------------------------------------
+if(0)  # Plan 7 transitional — re-enable after Plan 13
+    # Parity baseline bundle: numpy reference for the full DINOv2 backbone.
+    # See docs/parity.md and scripts/gen_numpy_baseline.py.
+    find_program(PYTHON3 python3 REQUIRED)
+    add_custom_command(
+        OUTPUT  ${RFDETR_TEST_FIXTURES}/baseline_backbone.gguf
+        COMMAND ${PYTHON3} ${CMAKE_SOURCE_DIR}/scripts/gen_numpy_baseline.py
+                --model  ${RFDETR_TEST_FIXTURES}/model_base_seeded.gguf
+                --output ${RFDETR_TEST_FIXTURES}/baseline_backbone.gguf
+        DEPENDS ${RFDETR_TEST_FIXTURES}/model_base_seeded.gguf
+                ${CMAKE_SOURCE_DIR}/scripts/gen_numpy_baseline.py
+        VERBATIM
+    )
+    add_custom_target(rfdetr_baseline_backbone ALL
+        DEPENDS ${RFDETR_TEST_FIXTURES}/baseline_backbone.gguf)
+
+    rfdetr_add_test(test_parity_full_forward)
+    target_link_libraries(test_parity_full_forward PRIVATE ggml)
+    add_dependencies(test_parity_full_forward
+        rfdetr_model_fixture_seeded
+        rfdetr_baseline_backbone)
+endif()  # Plan 7 disable

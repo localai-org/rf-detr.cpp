@@ -7,24 +7,39 @@ See `docs/superpowers/specs/2026-05-25-rfdetr-cpp-design.md` for the design.
 
 ## Status
 
-**End-to-end detection (Plan 6c) complete.** `rfdetr-cli detect` now runs
-the full RF-DETR forward pipeline — image preprocessing (resize + ImageNet
-normalize), DINOv2 backbone (windowed + global attention), multi-scale
-projector, 3-layer encoder, 3-layer decoder (300 queries), class + bbox
-heads — and emits real JSON detections via Plan 1's postprocess. With the
-synthesized random-weight fixture, detection scores rarely exceed the 0.5
-threshold (output is typically empty), but the C++ pipeline is fully
-exercised end-to-end. 97 parity checkpoints all green at 1e-5 absolute
-tolerance against the numpy reference. Ten tests pass on a clean build.
+**Plan 7 schema rewrite landed; Plans 8-12 in progress (transitional).**
 
-The Python conversion script body (`scripts/convert_rfdetr_to_gguf.py`) is
-still deferred — see Plan 2 Task 3. Once a real upstream `rfdetr-base`
-checkpoint is converted to GGUF, `rfdetr-cli detect` will produce
-meaningful detections.
+This project is currently in the middle of an architectural pivot to
+exactly match rfdetr 1.7.0 (real upstream). What works today:
 
-Plan 7 swaps the numpy reference for a torch+rfdetr baseline (verifying
-against the real model). Plan 8 adds Q8_0 quantization. Plan 9 adds the
-nano/small/medium/large variants.
+- GGUF schema (format version 2) matches real rfdetr-base
+- `scripts/convert_rfdetr_to_gguf.py` produces a real
+  `models/rfdetr-base-f32.gguf` from the upstream PyTorch checkpoint
+- `rfdetr-cli info models/rfdetr-base-f32.gguf` loads and introspects
+  the real model (486 tensors, 91 classes, 300 queries, image_size 560)
+- Fixture generator, loader, and C-API init/free path are all on the
+  new schema
+
+What's red:
+
+- Numerical modules (`dinov2`, `encoder`, `decoder`, `projector`, `heads`)
+  still implement the v1 (aspirational) architecture and don't run against
+  v2 weights. `rfdetr_detect` returns `RFDETR_ERR_INFERENCE` until Plans
+  8-12 rewrite them.
+- `test_parity_full_forward` and its numpy reference are disabled until
+  Plan 13 swaps in a torch baseline matching real upstream.
+- `rfdetr-cli detect` runs the loader successfully but fails at inference.
+
+Roadmap:
+
+- **Plan 8**: backbone redesign (separate Q/K/V, layer-scale, DINOv2-small)
+- **Plan 9**: delete standalone encoder; two-stage init
+- **Plan 10**: conv-based projector (C2f)
+- **Plan 11**: deformable cross-attention (the biggest single change)
+- **Plan 12**: heads redesign + 91 classes
+- **Plan 13**: torch parity baseline (replaces numpy reference)
+- **Plan 14**: Q8_0 quantization
+- **Plan 15**: real E2E demo on a COCO image
 
 ## Build
 
