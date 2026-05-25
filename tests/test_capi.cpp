@@ -36,7 +36,7 @@ int main() {
     // rfdetr_free(nullptr) must not crash
     rfdetr_free(nullptr);
 
-    // rfdetr_detect still returns NOT_IMPLEMENTED (Plan 3 wires inference)
+    // rfdetr_detect runs the full forward + postprocess pipeline (Plan 6c)
     rfdetr_context* ctx4 = rfdetr_init(&p, &st);
     rfdetr_image*   img  = rfdetr_image_load_file((fixtures + "/cats.png").c_str(), nullptr);
     RFDETR_ASSERT(ctx4 && img);
@@ -45,9 +45,14 @@ int main() {
     rfdetr_detection* dets = nullptr;
     size_t n = 0;
     rfdetr_status det_st = rfdetr_detect(ctx4, img, &dp, &dets, &n);
-    RFDETR_ASSERT_EQ_INT(det_st, RFDETR_ERR_NOT_IMPLEMENTED);
-    RFDETR_ASSERT_EQ_INT(n, 0);
-    RFDETR_ASSERT(dets == nullptr);
+    RFDETR_ASSERT_EQ_INT(det_st, RFDETR_OK);
+    /* Random-weight fixture produces nonsense scores; threshold filtering means
+     * typically zero detections. The CALL must succeed regardless. */
+    /* If n > 0, the array must be valid and freeable. */
+    if (n > 0) {
+        RFDETR_ASSERT(dets != nullptr);
+        rfdetr_detections_free(dets, n);
+    }
 
     rfdetr_image_free(img);
     rfdetr_free(ctx4);
