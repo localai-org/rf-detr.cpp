@@ -113,3 +113,20 @@ or the source GGUF fixture changes.
 
 A failing checkpoint earlier in the graph causes all later checkpoints to
 fail. Always fix from the earliest divergence forward.
+
+## Window vs global attention
+
+Backbone blocks dispatch between two attention paths based on `is_global_block(cfg, i)`:
+- **Global** (`i` ∈ `multi_scale_layers` = `[2, 5, 8, 11]` for base): standard MHA over all N+1 tokens (CLS + patches)
+- **Windowed** (otherwise): CLS bypasses; patches are W×W-window-partitioned, attended per window, unpartitioned, then re-concatenated with CLS
+
+Both paths share the same `backbone.block.{i}.attn.output` parity checkpoint;
+the test verifies windowed blocks' values match the numpy reference at the
+same 1e-5 tolerance as global blocks. The two paths produce numerically
+distinct values (windowed blocks see only `window_size`² tokens per
+attention; global blocks see all N+1), but on the fixture both ride at
+~1e-8 max_abs against the numpy reference.
+
+Convention: CLS bypasses windowed blocks (most common ViT-window
+implementation). Real-rfdetr convention will be verified in Plan 7 (torch
+baseline).
