@@ -192,6 +192,8 @@ rfdetr_status model_realize_weights(Model& m, ggml_backend_t backend) {
     FILE* fp = std::fopen(m.path.c_str(), "rb");
     if (!fp) {
         rfdetr_logf(RFDETR_LOG_ERROR, "model_realize_weights: open failed: %s", m.path.c_str());
+        ggml_backend_buffer_free(m.weights);
+        m.weights = nullptr;
         return RFDETR_ERR_MODEL_LOAD;
     }
 
@@ -206,6 +208,8 @@ rfdetr_status model_realize_weights(Model& m, ggml_backend_t backend) {
         if (!t) {
             rfdetr_logf(RFDETR_LOG_ERROR, "model_realize_weights: tensor '%s' missing in ctx", name);
             std::fclose(fp);
+            ggml_backend_buffer_free(m.weights);
+            m.weights = nullptr;
             return RFDETR_ERR_MODEL_LOAD;
         }
         const size_t nbytes = ggml_nbytes(t);
@@ -215,6 +219,8 @@ rfdetr_status model_realize_weights(Model& m, ggml_backend_t backend) {
             std::fread(buf.data(), 1, nbytes, fp) != nbytes) {
             rfdetr_logf(RFDETR_LOG_ERROR, "model_realize_weights: read failed for '%s'", name);
             std::fclose(fp);
+            ggml_backend_buffer_free(m.weights);
+            m.weights = nullptr;
             return RFDETR_ERR_MODEL_LOAD;
         }
 

@@ -107,5 +107,18 @@ int main() {
         rfdetr::free_backend(backend);
     }
 
+    // ---- realize_weights error paths ----
+    {
+        rfdetr_status st_;
+        rfdetr::Model* mm = rfdetr::model_load(path, &st_);
+        RFDETR_ASSERT(mm != nullptr);
+
+        // Null backend → INVALID_ARG
+        RFDETR_ASSERT_EQ_INT(rfdetr::model_realize_weights(*mm, nullptr),
+                             RFDETR_ERR_INVALID_ARG);
+
+        rfdetr::model_free(mm);
+    }
+
     return 0;
 }

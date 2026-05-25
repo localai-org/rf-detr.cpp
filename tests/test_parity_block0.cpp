@@ -29,11 +29,11 @@ struct Tol { float atol; float rtol; };
  * scale of these activations (O(1)) and tight enough to catch any real
  * correctness bug. */
 const std::map<std::string, Tol> kTolerances = {
-    {"backbone.patch_embed.output",    {1e-3f, 1e-2f}},
-    {"backbone.block.0.norm1.output",  {1e-3f, 1e-2f}},
-    {"backbone.block.0.attn.output",   {1e-3f, 1e-2f}},
-    {"backbone.block.0.mlp.output",    {1e-3f, 1e-2f}},
-    {"backbone.block.0.output",        {1e-3f, 1e-2f}},
+    {"backbone.patch_embed.output",    {1e-3f, 1e-2f}},  // F16 weight quantization noise
+    {"backbone.block.0.norm1.output",  {1e-4f, 1e-3f}},
+    {"backbone.block.0.attn.output",   {1e-5f, 1e-4f}},
+    {"backbone.block.0.mlp.output",    {1e-5f, 1e-4f}},
+    {"backbone.block.0.output",        {1e-3f, 1e-2f}},  // carries patch_embed noise via residual
 };
 
 struct Baseline {

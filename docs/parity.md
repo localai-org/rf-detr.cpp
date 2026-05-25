@@ -26,8 +26,8 @@ A baseline bundle is a GGUF file with:
   `parity.backbone.block.0.norm1.output`, `parity.backbone.block.0.output`.
 - Metadata `parity.format.version = "1"`.
 - Metadata `parity.reference = "numpy" | "torch"`.
-- Metadata `parity.input_shape = uint32[4]` describing the input the
-  reference consumed (NHWC: 1 × H × W × 3).
+- Metadata `parity.input_shape = int32[4]` describing the input the
+  reference consumed (NCHW: 1 × 3 × H × W).
 
 ## Named checkpoints captured by Plan 3
 
@@ -65,19 +65,23 @@ Configured in `tests/test_parity_block0.cpp` via a small table. Defaults:
 |---------------------------------------|-------|-------|
 | `preprocess.input`                    | 1e-6  | 0     |
 | `backbone.patch_embed.output`         | 1e-3  | 1e-2  |
-| `backbone.block.0.norm1.output`       | 1e-3  | 1e-2  |
-| `backbone.block.0.attn.output`        | 1e-3  | 1e-2  |
-| `backbone.block.0.mlp.output`         | 1e-3  | 1e-2  |
+| `backbone.block.0.norm1.output`       | 1e-4  | 1e-3  |
+| `backbone.block.0.attn.output`        | 1e-5  | 1e-4  |
+| `backbone.block.0.mlp.output`         | 1e-5  | 1e-4  |
 | `backbone.block.0.output`             | 1e-3  | 1e-2  |
 
-The 1e-3 atol absorbs F16 weight-quantization noise (the test fixture stores
-weights as F16; numpy reads them as F16→F32 then accumulates in float64
-while ggml accumulates in F32 — patch_embed alone does 588 mul-adds of
-~0.02-scale F16 values, producing observable drift in the 4th decimal).
-1e-3 is still two orders of magnitude below the natural activation scale
-and tight enough to catch any real correctness bug. Tolerances will tighten
-once the production model is stored in F32 (planned in Plan 6) or when we
-add per-layer F32 reference baselines.
+Tolerances are tightened to match actual measured deltas. The two
+F16-noise-bound checkpoints (`patch_embed.output` and the full
+`block.0.output`, which carries patch_embed noise through the residual)
+keep `1e-3 atol`: the test fixture stores weights as F16; numpy reads them
+as F16→F32 then accumulates in float64 while ggml accumulates in F32 —
+patch_embed alone does 588 mul-adds of ~0.02-scale F16 values, producing
+observable drift in the 4th decimal. Norm1 / attn / mlp run on the
+already-noisy patch_embed output but don't add further F16 quantization,
+so their deltas stay in the 1e-5..1e-4 range and the tolerances are
+correspondingly tight. Tolerances across the board will drop once the
+production model is stored in F32 (planned in Plan 6) or when we add
+per-layer F32 reference baselines.
 
 ## Regeneration
 
