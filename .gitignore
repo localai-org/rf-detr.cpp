@@ -37,4 +37,5 @@ Thumbs.db
 
 # Test artifacts
 tests/fixtures/generated/
+tests/fixtures/*.png
 tests/parity/bundles/

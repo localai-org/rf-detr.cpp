@@ -15,3 +15,19 @@ function(rfdetr_add_test name)
 endfunction()
 
 rfdetr_add_test(test_common)
+
+# Build the fixture generator
+add_executable(gen_fixture fixtures/gen_fixture.cpp)
+target_link_libraries(gen_fixture PRIVATE rfdetr_stb)
+
+# Run it at build time to produce tests/fixtures/cats.png
+add_custom_command(
+    OUTPUT  ${RFDETR_TEST_FIXTURES}/cats.png
+    COMMAND gen_fixture ${RFDETR_TEST_FIXTURES}
+    DEPENDS gen_fixture
+    VERBATIM
+)
+add_custom_target(rfdetr_fixtures ALL DEPENDS ${RFDETR_TEST_FIXTURES}/cats.png)
+
+rfdetr_add_test(test_image_io)
+add_dependencies(test_image_io rfdetr_fixtures)
