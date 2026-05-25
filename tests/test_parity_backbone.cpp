@@ -9,6 +9,7 @@
 #include "dinov2.hpp"
 #include "projector.hpp"
 #include "encoder.hpp"
+#include "decoder.hpp"
 
 #include "ggml.h"
 #include "ggml-backend.h"
@@ -60,6 +61,15 @@ std::map<std::string, Tol> build_tolerances(const rfdetr::Config& cfg) {
         tol[p + "output"]       = {1e-5f, 1e-4f};
     }
     tol["encoder.output"] = {1e-5f, 1e-4f};
+    tol["decoder.queries"] = {1e-5f, 1e-4f};
+    {
+        int i = 0;
+        std::string p = "decoder.layer" + std::to_string(i) + ".";
+        tol[p + "self_attn.output"]  = {1e-5f, 1e-4f};
+        tol[p + "cross_attn.output"] = {1e-5f, 1e-4f};
+        tol[p + "mlp.output"]        = {1e-5f, 1e-4f};
+        tol[p + "output"]            = {1e-5f, 1e-4f};
+    }
     return tol;
 }
 
@@ -204,10 +214,19 @@ int main() {
     ggml_tensor* enc = rfdetr::encoder_forward(gctx, *m, projected);
     RFDETR_ASSERT(enc != nullptr);
 
-    /* The graph root must reach the encoder layer's output, the backbone's
-     * final output, and the projector's concat output so all published
-     * tensors are kept alive. */
-    ggml_tensor* t = enc;
+    /* Decoder queries: load the learnable embedding tensor and use as layer 0 input */
+    auto it_q = m->tensors.find("decoder.queries");
+    RFDETR_ASSERT(it_q != m->tensors.end());
+    ggml_tensor* queries = it_q->second;
+    rfdetr::publish("decoder.queries", queries);  /* publish for parity */
+
+    ggml_tensor* dec = rfdetr::decoder_layer(gctx, *m, queries, enc, /*layer_idx*/ 0);
+    RFDETR_ASSERT(dec != nullptr);
+
+    /* The graph root must reach the decoder layer's output, the encoder's
+     * output, the backbone's final output, and the projector's concat output
+     * so all published tensors are kept alive. */
+    ggml_tensor* t = dec;
 
     auto kTolerances = build_tolerances(m->config);
 
@@ -226,6 +245,9 @@ int main() {
      * to make the dependency obvious — the projector's published `concat`
      * checkpoint must remain reachable. */
     ggml_build_forward_expand(graph, projected);
+    /* `enc` is an ancestor of `dec`, but expand it explicitly so the
+     * encoder's published `output` checkpoint is reachable. */
+    ggml_build_forward_expand(graph, enc);
 
     /* Allocate compute buffers + set input + run. */
     ggml_backend_buffer_t buf = ggml_backend_alloc_ctx_tensors(gctx, backend);

@@ -65,6 +65,7 @@ set(RFDETR_SOURCES
     src/transformer_ops.cpp
     src/projector.cpp
     src/encoder.cpp
+    src/decoder.cpp
 )
 
 if(RFDETR_SHARED)

@@ -97,6 +97,11 @@ Configured in `tests/test_parity_backbone.cpp` via a small table. Defaults:
 | `encoder.layer2.mlp.output`           | 1e-5  | 1e-4  |
 | `encoder.layer2.output`               | 1e-5  | 1e-4  |
 | `encoder.output`                      | 1e-5  | 1e-4  |
+| `decoder.queries`                     | 1e-5  | 1e-4  |
+| `decoder.layer0.self_attn.output`     | 1e-5  | 1e-4  |
+| `decoder.layer0.cross_attn.output`    | 1e-5  | 1e-4  |
+| `decoder.layer0.mlp.output`           | 1e-5  | 1e-4  |
+| `decoder.layer0.output`               | 1e-5  | 1e-4  |
 
 Plan 4 switched the fixture to F32 weights (the generator now defaults to
 `--dtype f32`), eliminating the F16 quantization noise floor that

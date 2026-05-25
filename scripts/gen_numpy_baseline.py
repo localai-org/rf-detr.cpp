@@ -84,6 +84,8 @@ def read_model(path):
         "bb_multi_scale_layers": ms_layers,
         "enc_layers":  _u32(reader, "rfdetr.encoder.layers"),
         "enc_heads":   _u32(reader, "rfdetr.encoder.heads"),
+        "dec_layers":  _u32(reader, "rfdetr.decoder.layers"),
+        "dec_heads":   _u32(reader, "rfdetr.decoder.heads"),
     }
 
     tensors = {}
@@ -318,6 +320,50 @@ def encoder_layer(cfg, tensors, x, i):
     return out, x
 
 
+def decoder_layer(cfg, tensors, q, encoder_out, i):
+    """One decoder layer.
+
+    Args:
+        q:           (num_queries, model_dim)
+        encoder_out: (n_enc_tokens, model_dim)
+
+    Returns: (out_dict, q_next).
+    """
+    p = f"decoder.layers.{i}."
+    pub = f"decoder.layer{i}."
+    out = {}
+
+    # Self-attention
+    y = layer_norm(q, tensors[p + "norm1.weight"], tensors[p + "norm1.bias"])
+    y = mha(y,
+            tensors[p + "self_attn.qkv.weight"], tensors[p + "self_attn.qkv.bias"],
+            tensors[p + "self_attn.out.weight"], tensors[p + "self_attn.out.bias"],
+            cfg["dec_heads"])
+    out[pub + "self_attn.output"] = y.copy()
+    q = q + y
+
+    # Cross-attention
+    y = layer_norm(q, tensors[p + "norm2.weight"], tensors[p + "norm2.bias"])
+    y = cross_attn(y, encoder_out,
+                   tensors[p + "cross_attn.q.weight"],  tensors[p + "cross_attn.q.bias"],
+                   tensors[p + "cross_attn.kv.weight"], tensors[p + "cross_attn.kv.bias"],
+                   tensors[p + "cross_attn.out.weight"],tensors[p + "cross_attn.out.bias"],
+                   cfg["dec_heads"])
+    out[pub + "cross_attn.output"] = y.copy()
+    q = q + y
+
+    # MLP
+    y = layer_norm(q, tensors[p + "norm3.weight"], tensors[p + "norm3.bias"])
+    z = mlp(y,
+            tensors[p + "ffn.fc1.weight"], tensors[p + "ffn.fc1.bias"],
+            tensors[p + "ffn.fc2.weight"], tensors[p + "ffn.fc2.bias"])
+    out[pub + "mlp.output"] = z.copy()
+    q = q + z
+
+    out[pub + "output"] = q.copy()
+    return out, q
+
+
 def patchify_and_embed(input_img, kernel, bias):
     """Replicate Conv2d(kernel=stride=14, padding=0).
 
@@ -439,6 +485,15 @@ def forward(cfg, tensors, input_img):
         enc_out, x_enc = encoder_layer(cfg, tensors, x_enc, i)
         out.update(enc_out)
     out["encoder.output"] = x_enc.copy()
+
+    # ---- Decoder (layer 0 — Task 3 will loop all layers) ----
+    # Decoder queries: stored as (num_queries, model_dim) in numpy
+    # (gguf-py reverses ggml's (model_dim, num_queries) layout)
+    queries = tensors["decoder.queries"]
+    out["decoder.queries"] = queries.copy()
+
+    dec_out, q = decoder_layer(cfg, tensors, queries, x_enc, 0)
+    out.update(dec_out)
 
     return out
 
