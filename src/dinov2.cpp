@@ -224,6 +224,196 @@ ggml_tensor* mha(ggml_context* ctx, ggml_tensor* x,
     return out;
 }
 
+/* Windowed multi-head self-attention on patch tokens only.
+ *
+ * Layout: x ne = (dim, N+1, 1, 1) — token 0 is CLS, tokens 1..N are patches
+ * in row-major (h, w) order. hp * wp must equal N. window_size must divide
+ * both hp and wp. CLS passes through unchanged; patches are
+ * window-partitioned, attended per window via vanilla MHA, then
+ * unpartitioned and re-concatenated with CLS.
+ *
+ * Output: same shape as input.
+ *
+ * Numpy reference for the partition layout is in scripts/gen_numpy_baseline.py
+ * mha_window() — it's the source of truth for the choreography. */
+ggml_tensor* mha_window(ggml_context* ctx, ggml_tensor* x,
+                        ggml_tensor* Wqkv, ggml_tensor* bqkv,
+                        ggml_tensor* Wproj, ggml_tensor* bproj,
+                        int n_heads, int window_size, int hp, int wp) {
+    const int dim = (int)x->ne[0];
+    const int N   = hp * wp;
+    const int W   = window_size;
+    const int n_hw = hp / W;
+    const int n_ww = wp / W;
+    const int n_windows = n_hw * n_ww;
+    const int T   = W * W;          /* tokens per window */
+    const int head_dim = dim / n_heads;
+
+    /* Split off CLS (axis 1, position 0) and patches (axis 1, positions 1..N). */
+    ggml_tensor* cls = ggml_view_2d(ctx, x, dim, 1,
+                                    x->nb[1],
+                                    /* offset bytes */ 0);
+    ggml_tensor* patches = ggml_view_2d(ctx, x, dim, N,
+                                        x->nb[1],
+                                        /* offset bytes */ x->nb[1]);
+    /* CLS and patches share x's storage; ggml_cont allocates fresh contiguous copies. */
+    cls = ggml_cont(ctx, cls);
+    patches = ggml_cont(ctx, patches);
+    /* patches ne = (dim, N, 1, 1) */
+
+    /* Window-partition: numpy does
+     *   grid(hp, wp, dim) -> reshape(n_hw, W, n_ww, W, dim) -> transpose(0,2,1,3,4)
+     *                     -> reshape(n_hw*n_ww, W*W, dim) = (n_windows, T, dim)
+     *
+     * In ggml column-major (ne[0] fastest), the equivalent layout is:
+     *   patches ne = (dim, N) where N's row-major numpy order (h, w) maps to ggml's
+     *                          column-major as (dim, wp, hp) with wp fast, hp slow.
+     *   Target: ne = (dim, T, n_windows) with windows row-major (n_hw, n_ww).
+     */
+    ggml_tensor* grid = ggml_reshape_3d(ctx, patches, dim, wp, hp);
+    /* grid ne = (dim, wp, hp, 1) — wp axis fast, hp axis slow */
+
+    /* Split wp into (W, n_ww) via reshape_4d. Since wp = n_ww * W and ne[0]=dim is
+     * fastest, the split puts W as the inner (fast) factor and n_ww as the outer:
+     *   ne = (dim, W, n_ww, hp) */
+    ggml_tensor* w1 = ggml_reshape_4d(ctx, grid, dim, W, n_ww, hp);
+
+    /* Permute so hp comes before n_ww (preparing to split hp): (dim, W, hp, n_ww) */
+    ggml_tensor* w2 = ggml_cont(ctx, ggml_permute(ctx, w1, 0, 1, 3, 2));
+
+    /* Split hp = n_hw * W into (W, n_hw) on axes 2..3:
+     *   reshape (dim, W, hp, n_ww) -> (dim, W, W, n_hw * n_ww)
+     * Since hp's row-major order is (h_fast within W, h_slow across n_hw), reshape
+     * keeps the same memory layout and groups n_hw with n_ww row-major. */
+    ggml_tensor* w3 = ggml_reshape_4d(ctx, w2, dim, W, W, n_hw * n_ww);
+
+    /* Collapse (W, W) into T: (dim, T, n_windows). T fastest, n_windows slowest. */
+    ggml_tensor* windows = ggml_reshape_3d(ctx, w3, dim, T, n_windows);
+    /* windows ne = (dim, T, n_windows, 1) — ready for batched attention. */
+
+    /* Batched QKV projection: ggml_mul_mat broadcasts over axes 2 and 3.
+     *   Wqkv ne = (dim, 3*dim); windows ne = (dim, T, n_windows)
+     *   result ne = (3*dim, T, n_windows)
+     */
+    ggml_tensor* qkv = ggml_mul_mat(ctx, Wqkv, windows);
+    qkv = ggml_add(ctx, qkv, bqkv);
+
+    /* Split qkv into q, k, v on axis 0 (each takes `dim` slots).
+     * ggml_view_3d signature: (ctx, src, ne0, ne1, ne2, nb1, nb2, offset_bytes) */
+    const size_t row_stride = qkv->nb[1];   /* bytes per (T) row */
+    const size_t mat_stride = qkv->nb[2];   /* bytes per (n_windows) matrix */
+    ggml_tensor* q = ggml_view_3d(ctx, qkv, dim, T, n_windows,
+                                  row_stride, mat_stride,
+                                  /* offset */ 0 * dim * sizeof(float));
+    ggml_tensor* k = ggml_view_3d(ctx, qkv, dim, T, n_windows,
+                                  row_stride, mat_stride,
+                                  1 * dim * sizeof(float));
+    ggml_tensor* v = ggml_view_3d(ctx, qkv, dim, T, n_windows,
+                                  row_stride, mat_stride,
+                                  2 * dim * sizeof(float));
+    q = ggml_cont(ctx, q);
+    k = ggml_cont(ctx, k);
+    v = ggml_cont(ctx, v);
+
+    /* Reshape each (dim, T, n_windows) -> (head_dim, n_heads, T, n_windows) */
+    q = ggml_reshape_4d(ctx, q, head_dim, n_heads, T, n_windows);
+    k = ggml_reshape_4d(ctx, k, head_dim, n_heads, T, n_windows);
+    v = ggml_reshape_4d(ctx, v, head_dim, n_heads, T, n_windows);
+
+    /* Permute to (head_dim, T, n_heads, n_windows): per-head attention groups along
+     * axis 2; per-window batching on axis 3. */
+    q = ggml_cont(ctx, ggml_permute(ctx, q, 0, 2, 1, 3));
+    k = ggml_cont(ctx, ggml_permute(ctx, k, 0, 2, 1, 3));
+    v = ggml_cont(ctx, ggml_permute(ctx, v, 0, 2, 1, 3));
+
+    /* Attention via manual path (matching existing mha()'s approach).
+     *   kt = permute(k, 1, 0, 2, 3) -> ne = (T, head_dim, n_heads, n_windows)
+     *   logits = mul_mat(kt, q): kt^T @ q = (head_dim, T) @ (head_dim, T) per head
+     *     -> ne = (T, T, n_heads, n_windows) */
+    ggml_tensor* kt = ggml_cont(ctx, ggml_permute(ctx, k, 1, 0, 2, 3));
+    ggml_tensor* logits = ggml_mul_mat(ctx, kt, q);
+    logits = ggml_scale(ctx, logits, 1.0f / std::sqrt((float)head_dim));
+    logits = ggml_soft_max(ctx, logits);
+
+    /* attn = v_t @ logits:
+     *   vt ne = (T, head_dim, n_heads, n_windows); logits ne = (T, T, n_heads, n_windows)
+     *   mul_mat(vt, logits) = vt^T @ logits = (head_dim, T) @ (T, T) per head
+     *     -> ne = (head_dim, T, n_heads, n_windows)  */
+    ggml_tensor* vt = ggml_cont(ctx, ggml_permute(ctx, v, 1, 0, 2, 3));
+    ggml_tensor* attn_out = ggml_mul_mat(ctx, vt, logits);
+
+    /* Merge heads: (head_dim, T, n_heads, n_windows) -> permute (0, 2, 1, 3)
+     *   -> (head_dim, n_heads, T, n_windows) -> reshape -> (dim, T, n_windows) */
+    attn_out = ggml_cont(ctx, ggml_permute(ctx, attn_out, 0, 2, 1, 3));
+    attn_out = ggml_reshape_3d(ctx, attn_out, dim, T, n_windows);
+
+    /* Output projection: Wproj ne = (dim, dim); attn_out ne = (dim, T, n_windows)
+     *   result ne = (dim, T, n_windows) */
+    attn_out = ggml_mul_mat(ctx, Wproj, attn_out);
+    attn_out = ggml_add(ctx, attn_out, bproj);
+
+    /* Reverse window-partition. Inverse of forward steps:
+     *   attn_out ne = (dim, T, n_windows)
+     *   -> reshape_4d (dim, W, W, n_windows)
+     *   At this point W,W are the inner-window spatial axes and n_windows packs
+     *   (n_hw, n_ww) with n_ww fast (matching how we built it on forward).
+     *
+     *   To recover (dim, wp, hp), invert the forward sequence:
+     *   reshape (dim, W, W*n_ww, n_hw)         — split n_windows into (W*n_ww, n_hw)?
+     *
+     * Actually the inverse needs careful thought. Forward was:
+     *   (dim, wp, hp) → reshape (dim, W, n_ww, hp)
+     *                → permute (0,1,3,2) (dim, W, hp, n_ww)
+     *                → reshape (dim, W, W, n_hw * n_ww)
+     *                → reshape (dim, T, n_windows)
+     *
+     * Inverse:
+     *   (dim, T, n_windows) → reshape (dim, W, W, n_windows)             [1]
+     *                       → reshape (dim, W, W * n_ww, n_hw)            [2]   (split n_windows: n_ww fast, n_hw slow)
+     *                       → permute (0, 1, 3, 2) (dim, W, n_hw, W * n_ww)
+     *                       → reshape (dim, W, n_hw * W * n_ww)           — collapse axes 2..3? wait that doesn't help
+     *
+     * Let's recompute. After [2] we have (dim, W, W*n_ww, n_hw). Going back further:
+     *   The forward "reshape (dim, W, hp, n_ww) → (dim, W, W, n_hw * n_ww)" merges
+     *   hp and n_ww. To invert: (dim, W, W, n_hw*n_ww) → (dim, W, W * n_ww, n_hw)
+     *   keeps the same flat memory but views it as different shape. Then permute
+     *   (0, 1, 3, 2) gives (dim, W, n_hw, W * n_ww). Now we want (dim, W, n_ww, hp)
+     *   which means reshape axes 2..3 from (n_hw, W*n_ww) back to (n_ww, hp).
+     *
+     * This is getting tangled. Cleanest inverse: */
+
+    /* Step A: (dim, T, n_windows) -> (dim, W, W, n_windows) */
+    ggml_tensor* u1 = ggml_reshape_4d(ctx, attn_out, dim, W, W, n_windows);
+
+    /* Step B: split n_windows back into (n_ww, n_hw) — recall on forward, the
+     * collapse was (n_hw, n_ww) row-major (numpy-style), which in ggml column-major
+     * means n_ww is fast-varying and n_hw is slow-varying within the flat n_windows.
+     * Reshape from ne[3]=n_windows to ne[3]=n_hw with ne[?]=n_ww inserted: we need
+     * 5d. ggml has no reshape_5d, so split into two steps via permute. */
+
+    /* Step B1: reshape (dim, W, W, n_windows) -> (dim, W, W * n_ww, n_hw)
+     * This works because total elements match and ggml flattens column-major. */
+    ggml_tensor* u2 = ggml_reshape_4d(ctx, u1, dim, W, W * n_ww, n_hw);
+
+    /* Step B2: permute (0, 1, 3, 2) -> (dim, W, n_hw, W * n_ww) */
+    ggml_tensor* u3 = ggml_cont(ctx, ggml_permute(ctx, u2, 0, 1, 3, 2));
+
+    /* Step C: now we have (dim, W, n_hw, W * n_ww). We want (dim, wp, hp) where
+     * wp = W * n_ww and hp = W * n_hw. Reshape (dim, W, n_hw, W * n_ww) →
+     * (dim, W * n_hw, W * n_ww) = (dim, hp, wp). */
+    ggml_tensor* u4 = ggml_reshape_3d(ctx, u3, dim, W * n_hw, W * n_ww);
+    /* u4 ne = (dim, hp, wp). But we want (dim, wp, hp): swap axes 1, 2. */
+    ggml_tensor* u5 = ggml_cont(ctx, ggml_permute(ctx, u4, 0, 2, 1, 3));
+    /* u5 ne = (dim, wp, hp, 1). */
+
+    /* Flatten to (dim, N). */
+    ggml_tensor* patches_out = ggml_reshape_2d(ctx, u5, dim, N);
+
+    /* Re-prepend CLS along axis 1: (dim, 1) ⊕ (dim, N) → (dim, N+1) */
+    ggml_tensor* full = ggml_concat(ctx, cls, patches_out, /*dim*/ 1);
+    return full;
+}
+
 /* MLP: x -> fc1 -> GELU -> fc2.
  *
  * PyTorch's nn.GELU() default uses the erf-based exact formula, so we use
