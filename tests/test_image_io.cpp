@@ -75,5 +75,34 @@ int main() {
         rfdetr_image_free(img2);
     }
 
+    /* Preprocess test: load cats.png (16x16), resize to 56x56, normalize, verify shape */
+    {
+        rfdetr_status st;
+        rfdetr_image* img = rfdetr_image_load_file((fixtures + "/cats.png").c_str(), &st);
+        RFDETR_ASSERT(img != nullptr);
+        RFDETR_ASSERT_EQ_INT(st, RFDETR_OK);
+
+        const float mean[3] = {0.485f, 0.456f, 0.406f};
+        const float std_[3] = {0.229f, 0.224f, 0.225f};
+
+        float* data = nullptr;
+        int w = 0, h = 0;
+        rfdetr_status pp_st = rfdetr_preprocess(img, 56, 56, mean, std_, &data, &w, &h);
+        RFDETR_ASSERT_EQ_INT(pp_st, RFDETR_OK);
+        RFDETR_ASSERT_EQ_INT(w, 56);
+        RFDETR_ASSERT_EQ_INT(h, 56);
+        RFDETR_ASSERT(data != nullptr);
+
+        /* Sanity: not all zeros (preprocessing shouldn't kill the signal) */
+        bool all_zero = true;
+        for (int i = 0; i < 56 * 56 * 3 && all_zero; ++i) {
+            if (data[i] != 0.0f) all_zero = false;
+        }
+        RFDETR_ASSERT(!all_zero);
+
+        std::free(data);
+        rfdetr_image_free(img);
+    }
+
     return 0;
 }

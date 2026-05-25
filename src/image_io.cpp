@@ -6,8 +6,16 @@
 #include "stb_image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
+#define STB_IMAGE_RESIZE_IMPLEMENTATION
+/* The vendored stb_image_resize2.h (renamed to stb_image_resize.h to match
+ * the rest of the stb single-headers in third_party/stb/) self-includes its
+ * own filename for re-entry from generated coder sections. Point it at the
+ * actual filename so those internal includes resolve. */
+#define STBIR__HEADER_FILENAME "stb_image_resize.h"
+#include "stb_image_resize.h"
 
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <new>
@@ -103,5 +111,57 @@ extern "C" rfdetr_status rfdetr_render(const rfdetr_image* img,
         rfdetr_logf(RFDETR_LOG_ERROR, "stbi_write_png failed for '%s'", out_path);
         return RFDETR_ERR_IO;
     }
+    return RFDETR_OK;
+}
+
+extern "C" rfdetr_status rfdetr_preprocess(const rfdetr_image* img,
+                                           int target_w, int target_h,
+                                           const float mean[3], const float std_[3],
+                                           float** out_data, int* out_w, int* out_h) {
+    if (!img || !out_data || !out_w || !out_h || !mean || !std_) {
+        return RFDETR_ERR_INVALID_ARG;
+    }
+    if (target_w <= 0 || target_h <= 0) return RFDETR_ERR_INVALID_ARG;
+    if (img->width <= 0 || img->height <= 0 || img->rgb.empty()) {
+        return RFDETR_ERR_INVALID_ARG;
+    }
+
+    /* 1. Resize via stb_image_resize2 (linear-space bilinear). Input is uint8 RGB packed HWC. */
+    std::vector<uint8_t> resized;
+    try {
+        resized.assign((size_t)target_w * (size_t)target_h * 3, 0);
+    } catch (const std::bad_alloc&) {
+        return RFDETR_ERR_OUT_OF_MEMORY;
+    }
+    if (!stbir_resize_uint8_linear(img->rgb.data(), img->width, img->height, 0,
+                                   resized.data(), target_w, target_h, 0,
+                                   STBIR_RGB)) {
+        rfdetr_logf(RFDETR_LOG_ERROR, "rfdetr_preprocess: stbir_resize_uint8_linear failed");
+        return RFDETR_ERR_IO;
+    }
+
+    /* 2-3. Allocate output F32 buffer and write NCHW row-major.
+     *
+     * ggml ne = (W, H, 3, 1): ne[0]=W fastest-varying. Memory order:
+     *   offset(c, h, w) = c*H*W + h*W + w
+     * That's NCHW row-major where w is fastest. */
+    const size_t n_elems = (size_t)target_w * (size_t)target_h * 3;
+    float* buf = (float*)std::malloc(n_elems * sizeof(float));
+    if (!buf) return RFDETR_ERR_OUT_OF_MEMORY;
+
+    for (int c = 0; c < 3; ++c) {
+        for (int h = 0; h < target_h; ++h) {
+            for (int w = 0; w < target_w; ++w) {
+                uint8_t px = resized[(size_t)(h * target_w + w) * 3 + c];
+                float v = (float)px / 255.0f;
+                v = (v - mean[c]) / std_[c];
+                buf[(size_t)c * target_h * target_w + (size_t)h * target_w + w] = v;
+            }
+        }
+    }
+
+    *out_data = buf;
+    *out_w = target_w;
+    *out_h = target_h;
     return RFDETR_OK;
 }
