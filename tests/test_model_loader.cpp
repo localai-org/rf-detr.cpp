@@ -1,5 +1,6 @@
 #include "test_assert.hpp"
 #include "model_loader.hpp"
+#include "backend.hpp"
 #include "rfdetr.h"
 #include <string>
 #include <vector>
@@ -82,6 +83,28 @@ int main() {
             RFDETR_ASSERT(good->tensors.count(n) == 1);
         }
         rfdetr::model_free(good);
+    }
+
+    // ---- Realize weights into a backend buffer ----
+    {
+        rfdetr_status st_;
+        rfdetr::Model* mm = rfdetr::model_load(path, &st_);
+        RFDETR_ASSERT(mm != nullptr);
+
+        ggml_backend_t backend = rfdetr::init_backend(1, &st_);
+        RFDETR_ASSERT(backend != nullptr);
+        RFDETR_ASSERT_EQ_INT(st_, RFDETR_OK);
+
+        rfdetr_status rs = rfdetr::model_realize_weights(*mm, backend);
+        RFDETR_ASSERT_EQ_INT(rs, RFDETR_OK);
+        RFDETR_ASSERT(mm->weights != nullptr);
+
+        /* Idempotent: a second call is OK */
+        rfdetr_status rs2 = rfdetr::model_realize_weights(*mm, backend);
+        RFDETR_ASSERT_EQ_INT(rs2, RFDETR_OK);
+
+        rfdetr::model_free(mm);
+        rfdetr::free_backend(backend);
     }
 
     return 0;

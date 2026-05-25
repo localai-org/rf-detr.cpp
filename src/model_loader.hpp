@@ -11,6 +11,10 @@
 struct ggml_context;
 struct ggml_tensor;
 struct gguf_context;
+struct ggml_backend_buffer;
+typedef struct ggml_backend_buffer* ggml_backend_buffer_t;
+struct ggml_backend;
+typedef struct ggml_backend* ggml_backend_t;
 
 namespace rfdetr {
 
@@ -49,6 +53,13 @@ struct Model {
     ::gguf_context* gguf  = nullptr;
     ::ggml_context* meta  = nullptr;  // ggml_context produced by gguf_init_from_file
     std::unordered_map<std::string, ::ggml_tensor*> tensors;
+
+    /* Stashed during model_load so model_realize_weights can re-open the file
+     * for streaming tensor data. */
+    std::string path;
+
+    /* Populated by model_realize_weights. nullptr until then. */
+    ::ggml_backend_buffer_t weights = nullptr;
 };
 
 /* Load a model from a GGUF file at `path`. Returns nullptr on error and sets
@@ -64,6 +75,14 @@ void model_free(Model* m);
  * in `m->tensors`. Returns RFDETR_OK if all expected tensors are present,
  * RFDETR_ERR_MODEL_LOAD with a logged error otherwise. */
 rfdetr_status model_validate_tensors(const Model& m);
+
+/* Allocate a backend buffer for the model's tensors and copy data from the
+ * GGUF file into it. After this call, every tensor descriptor in
+ * `m.tensors` is backed by real data on the supplied backend.
+ *
+ * Idempotent: if `m.weights` is already non-null, returns RFDETR_OK without
+ * doing anything. Returns RFDETR_ERR_MODEL_LOAD on failure (logged). */
+rfdetr_status model_realize_weights(Model& m, ::ggml_backend_t backend);
 
 /* Build the list of *expected* tensor names for a given variant config. Used
  * by both `model_validate_tensors` and the test-fixture generator. */

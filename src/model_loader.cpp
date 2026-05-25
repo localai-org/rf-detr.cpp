@@ -3,8 +3,11 @@
 #include "rfdetr.h"
 
 #include "ggml.h"
+#include "ggml-alloc.h"
+#include "ggml-backend.h"
 #include "gguf.h"
 
+#include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <new>
@@ -107,6 +110,7 @@ Model* model_load(const std::string& path, rfdetr_status* out_status) {
 
     m->gguf = gguf;
     m->meta = gctx;
+    m->path = path;
 
     auto& c = m->config;
     if (!get_str(gguf, "rfdetr.variant",     c.variant))     return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.variant missing");
@@ -159,9 +163,66 @@ Model* model_load(const std::string& path, rfdetr_status* out_status) {
 
 void model_free(Model* m) {
     if (!m) return;
+    if (m->weights) ggml_backend_buffer_free(m->weights);
     if (m->gguf) gguf_free(m->gguf);
     if (m->meta) ggml_free(m->meta);
     delete m;
+}
+
+rfdetr_status model_realize_weights(Model& m, ggml_backend_t backend) {
+    if (m.weights) return RFDETR_OK;
+
+    if (!backend) {
+        rfdetr_logf(RFDETR_LOG_ERROR, "model_realize_weights: null backend");
+        return RFDETR_ERR_INVALID_ARG;
+    }
+    if (m.path.empty()) {
+        rfdetr_logf(RFDETR_LOG_ERROR, "model_realize_weights: model has no stashed path");
+        return RFDETR_ERR_MODEL_LOAD;
+    }
+
+    /* Allocate a buffer big enough for every tensor in m.meta, on the
+     * supplied backend. */
+    m.weights = ggml_backend_alloc_ctx_tensors(m.meta, backend);
+    if (!m.weights) {
+        rfdetr_logf(RFDETR_LOG_ERROR, "model_realize_weights: backend alloc failed");
+        return RFDETR_ERR_MODEL_LOAD;
+    }
+
+    FILE* fp = std::fopen(m.path.c_str(), "rb");
+    if (!fp) {
+        rfdetr_logf(RFDETR_LOG_ERROR, "model_realize_weights: open failed: %s", m.path.c_str());
+        return RFDETR_ERR_MODEL_LOAD;
+    }
+
+    const int64_t n_tensors = gguf_get_n_tensors(m.gguf);
+    const size_t data_offset = gguf_get_data_offset(m.gguf);
+    std::vector<uint8_t> buf;
+
+    for (int64_t i = 0; i < n_tensors; ++i) {
+        const char* name = gguf_get_tensor_name(m.gguf, i);
+        const size_t offset = data_offset + gguf_get_tensor_offset(m.gguf, i);
+        ggml_tensor* t = ggml_get_tensor(m.meta, name);
+        if (!t) {
+            rfdetr_logf(RFDETR_LOG_ERROR, "model_realize_weights: tensor '%s' missing in ctx", name);
+            std::fclose(fp);
+            return RFDETR_ERR_MODEL_LOAD;
+        }
+        const size_t nbytes = ggml_nbytes(t);
+        buf.resize(nbytes);
+
+        if (std::fseek(fp, (long)offset, SEEK_SET) != 0 ||
+            std::fread(buf.data(), 1, nbytes, fp) != nbytes) {
+            rfdetr_logf(RFDETR_LOG_ERROR, "model_realize_weights: read failed for '%s'", name);
+            std::fclose(fp);
+            return RFDETR_ERR_MODEL_LOAD;
+        }
+
+        ggml_backend_tensor_set(t, buf.data(), 0, nbytes);
+    }
+
+    std::fclose(fp);
+    return RFDETR_OK;
 }
 
 std::vector<std::string> expected_tensor_names(const Config& cfg) {
