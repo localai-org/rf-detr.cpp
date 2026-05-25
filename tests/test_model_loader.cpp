@@ -14,7 +14,7 @@ int main() {
 
     // Config
     RFDETR_ASSERT_STR_EQ(m->config.variant.c_str(), "base");
-    RFDETR_ASSERT_EQ_INT(m->config.image_size,  560);
+    RFDETR_ASSERT_EQ_INT(m->config.image_size,  56);
     RFDETR_ASSERT_EQ_INT(m->config.num_queries, 300);
     RFDETR_ASSERT_EQ_INT(m->config.num_classes, 80);
     RFDETR_ASSERT_EQ_INT(m->config.class_names.size(), 80);
@@ -26,7 +26,7 @@ int main() {
     RFDETR_ASSERT_NEAR(m->config.preprocess_std[2],  0.225f, 1e-4);
 
     // Backbone / encoder / decoder
-    RFDETR_ASSERT_EQ_INT(m->config.backbone.dim,         768);
+    RFDETR_ASSERT_EQ_INT(m->config.backbone.dim,         64);
     RFDETR_ASSERT_EQ_INT(m->config.backbone.depth,       12);
     RFDETR_ASSERT_EQ_INT(m->config.backbone.heads,       12);
     RFDETR_ASSERT_EQ_INT(m->config.backbone.window_size, 14);
@@ -34,7 +34,7 @@ int main() {
     RFDETR_ASSERT_EQ_INT(m->config.backbone.multi_scale_layers[0], 2);
     RFDETR_ASSERT_EQ_INT(m->config.backbone.multi_scale_layers[3], 11);
     RFDETR_ASSERT_EQ_INT(m->config.encoder.layers,    3);
-    RFDETR_ASSERT_EQ_INT(m->config.encoder.model_dim, 256);
+    RFDETR_ASSERT_EQ_INT(m->config.encoder.model_dim, 64);
     RFDETR_ASSERT_EQ_INT(m->config.decoder.heads,     8);
 
     // Tensors present (sample a few)

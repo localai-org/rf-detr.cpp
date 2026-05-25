@@ -1,7 +1,9 @@
 /* Synthesizes a minimal rfdetr-base GGUF for unit tests. No PyTorch needed.
  * Writes all metadata keys the loader will read, plus the full expected
- * tensor set (zero-initialized F16 tensors of the right shapes). Result is
- * a few MB. */
+ * tensor set (zero-initialized F16 tensors of the right shapes). Per-tensor
+ * dimensions are shrunk (image_size=56, dims=64, ffn=128) so the output is
+ * only a few MB while preserving the full schema (264 tensors, 12 backbone
+ * blocks, 3 encoder/decoder layers, 80 classes, 300 queries). */
 
 #include "ggml.h"
 #include "gguf.h"
@@ -18,21 +20,21 @@ namespace {
 
 struct VariantCfg {
     const char*   name             = "base";
-    uint32_t      image_size       = 560;
+    uint32_t      image_size       = 56;
     uint32_t      num_queries      = 300;
     uint32_t      num_classes      = 80;
-    uint32_t      bb_dim           = 768;
+    uint32_t      bb_dim           = 64;
     uint32_t      bb_depth         = 12;
     uint32_t      bb_heads         = 12;
     uint32_t      bb_window        = 14;
     std::vector<int32_t> bb_ms_layers = {2, 5, 8, 11};
     uint32_t      enc_layers       = 3;
-    uint32_t      enc_model_dim    = 256;
-    uint32_t      enc_ffn_dim      = 2048;
+    uint32_t      enc_model_dim    = 64;
+    uint32_t      enc_ffn_dim      = 128;
     uint32_t      enc_heads        = 8;
     uint32_t      dec_layers       = 3;
-    uint32_t      dec_model_dim    = 256;
-    uint32_t      dec_ffn_dim      = 2048;
+    uint32_t      dec_model_dim    = 64;
+    uint32_t      dec_ffn_dim      = 128;
     uint32_t      dec_heads        = 8;
 };
 
