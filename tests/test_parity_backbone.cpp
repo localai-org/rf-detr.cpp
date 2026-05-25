@@ -11,6 +11,7 @@
 #include "encoder.hpp"
 #include "decoder.hpp"
 #include "heads.hpp"
+#include "rfdetr_model.hpp"
 
 #include "ggml.h"
 #include "ggml-backend.h"
@@ -76,6 +77,8 @@ std::map<std::string, Tol> build_tolerances(const rfdetr::Config& cfg) {
     tol["heads.bbox.fc2.output"] = {1e-5f, 1e-4f};
     tol["heads.bbox.fc3.output"] = {1e-5f, 1e-4f};
     tol["heads.bbox.pred"]       = {1e-5f, 1e-4f};
+    tol["model.class_logits"]    = {1e-5f, 1e-4f};
+    tol["model.bbox_pred"]       = {1e-5f, 1e-4f};
     return tol;
 }
 
@@ -211,52 +214,26 @@ int main() {
             traced[name] = tt;
         });
 
-    rfdetr::BackboneOutput bb = rfdetr::dinov2_forward(gctx, *m, input);
-    RFDETR_ASSERT(bb.final != nullptr);
-
-    ggml_tensor* projected = rfdetr::projector_forward(gctx, *m, bb);
-    RFDETR_ASSERT(projected != nullptr);
-
-    ggml_tensor* enc = rfdetr::encoder_forward(gctx, *m, projected);
-    RFDETR_ASSERT(enc != nullptr);
-
-    ggml_tensor* dec = rfdetr::decoder_forward(gctx, *m, enc);
-    RFDETR_ASSERT(dec != nullptr);
-
-    ggml_tensor* class_logits = rfdetr::class_head_forward(gctx, *m, dec);
-    RFDETR_ASSERT(class_logits != nullptr);
-    ggml_tensor* bbox_pred = rfdetr::bbox_head_forward(gctx, *m, dec);
-    RFDETR_ASSERT(bbox_pred != nullptr);
-
-    /* The graph root must reach the decoder layer's output, the encoder's
-     * output, the backbone's final output, and the projector's concat output
-     * so all published tensors are kept alive. */
-    ggml_tensor* t = dec;
+    rfdetr::ForwardOutput fwd = rfdetr::rfdetr_model_forward(gctx, *m, input);
+    RFDETR_ASSERT(fwd.class_logits != nullptr);
+    RFDETR_ASSERT(fwd.bbox_pred    != nullptr);
 
     auto kTolerances = build_tolerances(m->config);
 
-    /* Build the graph BEFORE allocating buffers — published nodes that are
-     * intermediate views (e.g. permute results) must be reachable from the
-     * graph or they'd be optimized away. ggml_build_forward_expand walks
-     * back from `t` and pulls in everything; the published tensors are all
-     * ancestors of `t`, so they're included. */
+    /* Build the graph from the two leaf outputs. ggml_build_forward_expand
+     * walks back and pulls in all ancestors; the two heads transitively
+     * reach decoder → encoder → projector → multi-scale taps, which covers
+     * almost every checkpoint. The one exception is backbone.norm.output —
+     * a dead branch of the production pipeline (only the multi-scale taps,
+     * which precede the final norm, feed the projector) that is published
+     * purely for parity validation. Add every traced tensor explicitly so
+     * any future published-but-not-consumed checkpoint stays computed. */
     ggml_cgraph* graph = ggml_new_graph(gctx);
-    ggml_build_forward_expand(graph, t);
-    /* bb.final (post-norm) is not an ancestor of the projector/encoder output
-     * (which branches off the multi-scale taps before the final norm), so
-     * expand it separately to keep `backbone.norm.output` reachable. */
-    ggml_build_forward_expand(graph, bb.final);
-    /* `projected` is an ancestor of `enc`, but expand it explicitly anyway
-     * to make the dependency obvious — the projector's published `concat`
-     * checkpoint must remain reachable. */
-    ggml_build_forward_expand(graph, projected);
-    /* `enc` is an ancestor of `dec`, but expand it explicitly so the
-     * encoder's published `output` checkpoint is reachable. */
-    ggml_build_forward_expand(graph, enc);
-    /* Heads branch off decoder.output — expand each head leaf so their
-     * published checkpoints stay reachable from the graph. */
-    ggml_build_forward_expand(graph, class_logits);
-    ggml_build_forward_expand(graph, bbox_pred);
+    ggml_build_forward_expand(graph, fwd.class_logits);
+    ggml_build_forward_expand(graph, fwd.bbox_pred);
+    for (const auto& [_, tt] : traced) {
+        ggml_build_forward_expand(graph, const_cast<ggml_tensor*>(tt));
+    }
 
     /* Allocate compute buffers + set input + run. */
     ggml_backend_buffer_t buf = ggml_backend_alloc_ctx_tensors(gctx, backend);

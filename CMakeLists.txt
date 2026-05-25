@@ -67,6 +67,7 @@ set(RFDETR_SOURCES
     src/encoder.cpp
     src/decoder.cpp
     src/heads.cpp
+    src/rfdetr_model.cpp
 )
 
 if(RFDETR_SHARED)

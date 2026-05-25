@@ -530,10 +530,17 @@ def forward(cfg, tensors, input_img):
     out["decoder.output"] = q.copy()
 
     # ---- Class + Bbox heads ----
-    cls_out, _class_logits = class_head_forward(cfg, tensors, q)
+    cls_out, class_logits = class_head_forward(cfg, tensors, q)
     out.update(cls_out)
-    bbox_out, _bbox_pred = bbox_head_forward(cfg, tensors, q)
+    bbox_out, bbox_pred = bbox_head_forward(cfg, tensors, q)
     out.update(bbox_out)
+
+    # ---- Full-pipeline wrapper checkpoints ----
+    # Same values as heads.class.logits / heads.bbox.pred, but published
+    # under the final-pipeline names so downstream callers have a stable
+    # name regardless of which head produced them.
+    out["model.class_logits"] = class_logits.copy()
+    out["model.bbox_pred"]    = bbox_pred.copy()
 
     return out
 

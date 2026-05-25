@@ -116,6 +116,8 @@ Configured in `tests/test_parity_backbone.cpp` via a small table. Defaults:
 | `heads.bbox.fc2.output`               | 1e-5  | 1e-4  |
 | `heads.bbox.fc3.output`               | 1e-5  | 1e-4  |
 | `heads.bbox.pred`                     | 1e-5  | 1e-4  |
+| `model.class_logits`                  | 1e-5  | 1e-4  |
+| `model.bbox_pred`                     | 1e-5  | 1e-4  |
 
 Plan 4 switched the fixture to F32 weights (the generator now defaults to
 `--dtype f32`), eliminating the F16 quantization noise floor that
