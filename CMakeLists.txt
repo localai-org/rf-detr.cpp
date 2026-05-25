@@ -62,6 +62,7 @@ set(RFDETR_SOURCES
     src/trace.cpp
     src/backend.cpp
     src/dinov2.cpp
+    src/transformer_ops.cpp
 )
 
 if(RFDETR_SHARED)

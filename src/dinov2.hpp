@@ -3,11 +3,24 @@
 
 #include "model_loader.hpp"
 
+#include <array>
+
 struct ggml_context;
 struct ggml_tensor;
 struct ggml_cgraph;
 
 namespace rfdetr {
+
+/* Outputs of the DINOv2 backbone.
+ *
+ * - `final`: post-norm tensor ne=(dim, N+1) where N+1 is patches+CLS.
+ * - `multi_scale`: 4 tap features at the indices in backbone.multi_scale_layers.
+ *   Each tap is the block output BEFORE the final norm — ne=(dim, N+1).
+ *   The projector strips CLS and projects to encoder.model_dim. */
+struct BackboneOutput {
+    ggml_tensor* final = nullptr;
+    std::array<ggml_tensor*, 4> multi_scale{nullptr, nullptr, nullptr, nullptr};
+};
 
 /* Build the patch_embed forward graph node.
  *
@@ -68,14 +81,12 @@ ggml_tensor* dinov2_final_norm(ggml_context* ctx, const Model& m,
 
 /* Run the full DINOv2 backbone: patch_embed → CLS+pos_embed → N blocks →
  * final_norm. Publishes every per-block, multi-scale, and final checkpoint
- * via the trace callback. Returns the final post-norm tensor (dim, N+1, 1, 1)
- * F32.
+ * via the trace callback.
  *
- * Multi-scale features are NOT returned explicitly. Plan 6's projector can
- * either re-run the backbone with its own trace callback, or this API can
- * grow a structured return type. Plan 4 keeps the API minimal. */
-ggml_tensor* dinov2_forward(ggml_context* ctx, const Model& m,
-                            ggml_tensor* input);
+ * Returns `BackboneOutput` exposing both the final post-norm tensor and the
+ * 4 multi-scale tap features. The projector (Plan 6a) consumes both. */
+BackboneOutput dinov2_forward(ggml_context* ctx, const Model& m,
+                              ggml_tensor* input);
 
 }  // namespace rfdetr
 

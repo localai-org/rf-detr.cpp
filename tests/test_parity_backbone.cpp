@@ -181,8 +181,9 @@ int main() {
             traced[name] = tt;
         });
 
-    ggml_tensor* t = rfdetr::dinov2_forward(gctx, *m, input);
-    RFDETR_ASSERT(t != nullptr);
+    rfdetr::BackboneOutput bb = rfdetr::dinov2_forward(gctx, *m, input);
+    RFDETR_ASSERT(bb.final != nullptr);
+    ggml_tensor* t = bb.final;
 
     auto kTolerances = build_tolerances(m->config);
 
