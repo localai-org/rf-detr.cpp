@@ -70,3 +70,6 @@ add_dependencies(test_model_loader rfdetr_model_fixture_missing)
 
 rfdetr_add_test(test_capi)
 add_dependencies(test_capi rfdetr_model_fixture rfdetr_fixtures)
+
+rfdetr_add_test(test_capi_flat)
+add_dependencies(test_capi_flat rfdetr_model_fixture rfdetr_fixtures)
