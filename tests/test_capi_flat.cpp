@@ -14,13 +14,14 @@ int main() {
     RFDETR_ASSERT_EQ_INT(rc, 0);
     RFDETR_ASSERT(h != 0);
 
-    // Detect — returns JSON envelope, even with empty detections (NOT_IMPLEMENTED
-    // inference path). The flat ABI must convert the C-side status to a JSON
-    // response: status field plus the empty detections array.
+    // Detect — returns JSON envelope. With the synthesized random-weight fixture,
+    // scores rarely exceed the 0.5 threshold so detections is typically empty,
+    // but the flat ABI's response shape (status + image + detections) is the
+    // same either way.
     char* json = nullptr;
     int dr = rfdetr_capi_detect_path(h, (fixtures + "/cats.png").c_str(),
                                      0.5f, 300, &json);
-    RFDETR_ASSERT_EQ_INT(dr, 0);   /* 0 = handled (even if NOT_IMPLEMENTED internally) */
+    RFDETR_ASSERT_EQ_INT(dr, 0);   /* 0 = handled */
     RFDETR_ASSERT(json != nullptr);
     std::string body(json);
     rfdetr_capi_free_string(json);

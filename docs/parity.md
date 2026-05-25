@@ -63,7 +63,7 @@ the publish call is a hash-map lookup + early return.
 
 ## Per-checkpoint tolerances
 
-Configured in `tests/test_parity_backbone.cpp` via a small table. Defaults:
+Configured in `tests/test_parity_full_forward.cpp` via a small table. Defaults:
 
 | Checkpoint                            | atol  | rtol  |
 |---------------------------------------|-------|-------|
@@ -142,7 +142,7 @@ or the source GGUF fixture changes.
 
 ## Diagnosing a parity failure
 
-`test_parity_backbone` prints, for each failing checkpoint:
+`test_parity_full_forward` prints, for each failing checkpoint:
 
 - Checkpoint name
 - Tensor shape

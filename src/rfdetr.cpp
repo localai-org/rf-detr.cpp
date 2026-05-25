@@ -98,7 +98,7 @@ extern "C" rfdetr_status rfdetr_detect(rfdetr_context* ctx,
                                        size_t* out_n) {
     if (out_detections) *out_detections = nullptr;
     if (out_n)          *out_n = 0;
-    if (!ctx || !img || !params) return RFDETR_ERR_INVALID_ARG;
+    if (!ctx || !img || !params || !out_detections || !out_n) return RFDETR_ERR_INVALID_ARG;
     if (!ctx->model || !ctx->backend) return RFDETR_ERR_INVALID_ARG;
 
     const rfdetr::Config& cfg = ctx->model->config;
