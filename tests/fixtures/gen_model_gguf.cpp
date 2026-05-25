@@ -1,9 +1,12 @@
 /* Synthesizes a minimal rfdetr-base GGUF for unit tests. No PyTorch needed.
  * Writes all metadata keys the loader will read, plus the full expected
- * tensor set (zero-initialized F16 tensors of the right shapes). Per-tensor
+ * tensor set (zero-initialized tensors of the right shapes). Per-tensor
  * dimensions are shrunk (image_size=56, dims=64, ffn=128) so the output is
  * only a few MB while preserving the full schema (264 tensors, 12 backbone
- * blocks, 3 encoder/decoder layers, 80 classes, 300 queries). */
+ * blocks, 3 encoder/decoder layers, 80 classes, 300 queries).
+ *
+ * Tensor dtype defaults to F32; pass --dtype f16 to emit F16 (used to test
+ * forward-compat with quantized weights). */
 
 #include "ggml.h"
 #include "gguf.h"
@@ -67,8 +70,8 @@ ggml_tensor* make_tensor(ggml_context* ctx, const char* name,
 }
 
 void add_all_tensors(ggml_context* ctx, std::vector<ggml_tensor*>& out,
-                     const VariantCfg& v) {
-    const ggml_type F = GGML_TYPE_F16;
+                     const VariantCfg& v, ggml_type tensor_dtype) {
+    const ggml_type F = tensor_dtype;
 
     // Backbone
     out.push_back(make_tensor(ctx, "backbone.patch_embed.weight", F, 14, 14, 3, v.bb_dim));
@@ -169,12 +172,21 @@ int main(int argc, char** argv) {
     const char* skip_name = nullptr;
     unsigned seed = 0;
     bool seeded = false;
+    ggml_type tensor_dtype = GGML_TYPE_F32;
     for (int i = 2; i + 1 < argc; ++i) {
         if (std::strcmp(argv[i], "--missing") == 0) {
             skip_name = argv[i + 1];
         } else if (std::strcmp(argv[i], "--seed") == 0) {
             seed = (unsigned)std::strtoul(argv[i + 1], nullptr, 10);
             seeded = true;
+        } else if (std::strcmp(argv[i], "--dtype") == 0) {
+            std::string val = argv[i + 1];
+            if      (val == "f16") tensor_dtype = GGML_TYPE_F16;
+            else if (val == "f32") tensor_dtype = GGML_TYPE_F32;
+            else {
+                std::fprintf(stderr, "unknown --dtype: %s\n", val.c_str());
+                return 5;
+            }
         }
     }
     VariantCfg v;
@@ -188,7 +200,7 @@ int main(int argc, char** argv) {
 
     std::vector<ggml_tensor*> tensors;
     tensors.reserve(600);
-    add_all_tensors(ctx, tensors, v);
+    add_all_tensors(ctx, tensors, v, tensor_dtype);
 
     if (skip_name) {
         auto it = std::remove_if(tensors.begin(), tensors.end(),

@@ -9,21 +9,6 @@
 
 namespace rfdetr {
 
-namespace {
-
-/* Ensure a tensor is F32. ggml's element-wise ops (ggml_add / ggml_mul /
- * ggml_norm) require matching dtypes between operands, and our intermediates
- * are F32 (e.g. ggml_conv_2d's result, ggml_mul_mat's result on F32 input).
- * Weights stored as F16 in the GGUF must be cast before participating in
- * those ops. ggml_mul_mat itself accepts mixed F16 weight × F32 input, so
- * we don't cast there. */
-ggml_tensor* to_f32(ggml_context* ctx, ggml_tensor* t) {
-    if (t->type == GGML_TYPE_F32) return t;
-    return ggml_cast(ctx, t, GGML_TYPE_F32);
-}
-
-}  // namespace
-
 ggml_tensor* dinov2_patch_embed(ggml_context* ctx, const Model& m,
                                 ggml_tensor* input) {
     /* DINOv2 patch embedding is a Conv2d with kernel=stride=14.
@@ -58,8 +43,7 @@ ggml_tensor* dinov2_patch_embed(ggml_context* ctx, const Model& m,
         return nullptr;
     }
     ggml_tensor* W = it_w->second;
-    /* Bias is added element-wise so it must match the F32 conv2d result. */
-    ggml_tensor* b = to_f32(ctx, it_b->second);
+    ggml_tensor* b = it_b->second;
 
     ggml_tensor* conv = ggml_conv_2d(ctx, W, input,
                                      /*s0*/ 14, /*s1*/ 14,
@@ -265,15 +249,6 @@ ggml_tensor* dinov2_block(ggml_context* ctx, const Model& m,
         !n2w || !n2b || !f1W || !f1B || !f2W || !f2B) {
         return nullptr;
     }
-
-    /* Cast every tensor that flows into an element-wise op (ggml_add /
-     * ggml_mul / ggml_norm) to F32 so it matches the F32 intermediates.
-     * ggml_mul_mat accepts F16 weight × F32 activation natively, so qkvW,
-     * prW, f1W, f2W are intentionally NOT cast here. */
-    n1w = to_f32(ctx, n1w); n1b = to_f32(ctx, n1b);
-    qkvB = to_f32(ctx, qkvB); prB = to_f32(ctx, prB);
-    n2w = to_f32(ctx, n2w); n2b = to_f32(ctx, n2b);
-    f1B = to_f32(ctx, f1B); f2B = to_f32(ctx, f2B);
 
     /* Publish names use "block.N" (singular) to match docs/parity.md and the
      * numpy reference. */

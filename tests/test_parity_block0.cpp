@@ -22,18 +22,17 @@ namespace {
 
 struct Tol { float atol; float rtol; };
 
-/* Tolerances absorb the F16 weight-quantization noise (the fixture model stores
- * weights as F16; the numpy reference reads them as F16-then-cast-to-F32, so
- * the C++ vs numpy delta is dominated by F32 ops on the same F16 values plus
- * ggml's order-of-operations vs numpy's). 1e-3 atol is well below the natural
- * scale of these activations (O(1)) and tight enough to catch any real
- * correctness bug. */
+/* Plan 4 switched the fixture to F32 weights, eliminating the F16
+ * quantization noise floor (~4e-4 on patch_embed) that previously forced
+ * loose 1e-3 tolerances. All checkpoints now share a uniform tight bound
+ * that's tight enough to catch real correctness bugs and loose enough to
+ * absorb ggml's F32 vs numpy's float64 order-of-operations drift. */
 const std::map<std::string, Tol> kTolerances = {
-    {"backbone.patch_embed.output",    {1e-3f, 1e-2f}},  // F16 weight quantization noise
-    {"backbone.block.0.norm1.output",  {1e-4f, 1e-3f}},
+    {"backbone.patch_embed.output",    {1e-5f, 1e-4f}},
+    {"backbone.block.0.norm1.output",  {1e-5f, 1e-4f}},
     {"backbone.block.0.attn.output",   {1e-5f, 1e-4f}},
     {"backbone.block.0.mlp.output",    {1e-5f, 1e-4f}},
-    {"backbone.block.0.output",        {1e-3f, 1e-2f}},  // carries patch_embed noise via residual
+    {"backbone.block.0.output",        {1e-5f, 1e-4f}},
 };
 
 struct Baseline {
