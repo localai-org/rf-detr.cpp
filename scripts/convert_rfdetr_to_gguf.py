@@ -80,15 +80,25 @@ def main() -> int:
         return 2
 
     print(f"Loading rfdetr-{args.variant} ...", file=sys.stderr)
-    # Task 3 fills in:
+    # Conversion body deferred. To complete, see Plan 2 Task 3 in
+    # docs/superpowers/plans/2026-05-25-rfdetr-cpp-loader.md. Steps:
     # - load model (handles --checkpoint vs auto-download)
     # - enumerate state_dict
     # - build the tensor name map
     # - validate (no missing / no unmapped)
     # - if --dry-run: print diff and return
     # - else: open GGUF writer, write metadata + tensors, close
+    #
+    # The C++ loader (src/model_loader.cpp) is exercised by a synthesized
+    # GGUF fixture (tests/fixtures/gen_model_gguf.cpp), so this script is not
+    # on the critical path for the C++ test suite. Completing it requires
+    # installing rfdetr + torch (~GBs) and probing the upstream state_dict
+    # to reconcile the spec against the actual rfdetr 1.x tensor names.
 
-    raise NotImplementedError("Task 3 fills in the conversion body")
+    print("error: conversion body not yet implemented (deferred from Plan 2 Task 3).",
+          file=sys.stderr)
+    print("       See docs/superpowers/plans/2026-05-25-rfdetr-cpp-loader.md", file=sys.stderr)
+    return 99
 
 
 if __name__ == "__main__":
