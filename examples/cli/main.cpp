@@ -18,54 +18,91 @@ static void default_log_cb(rfdetr_log_level lvl, const char* msg, void* /*ud*/) 
 }
 
 static int cmd_detect(const rfdetr_cli::DetectArgs& a) {
-    rfdetr_status st;
-    rfdetr_image* img = rfdetr_image_load_file(a.input.c_str(), &st);
-    if (!img) {
-        std::fprintf(stderr, "failed to load image '%s': %s\n", a.input.c_str(), rfdetr_status_str(st));
+    /* 1. Initialize model context */
+    rfdetr_params params{};
+    params.model_path = a.model.c_str();
+    params.n_threads  = 1;  /* default; CLI doesn't expose --threads yet */
+
+    rfdetr_status init_st;
+    rfdetr_context* ctx = rfdetr_init(&params, &init_st);
+    if (!ctx) {
+        std::fprintf(stderr, "rfdetr_init failed: %s\n",
+                     rfdetr_status_str(init_st));
         return 2;
     }
 
-    /* Model loading lives in Plan 2/3. For now we emit zero detections,
-     * proving the I/O + output pipeline works end-to-end. */
+    /* 2. Load input image */
+    rfdetr_status load_st;
+    rfdetr_image* img = rfdetr_image_load_file(a.input.c_str(), &load_st);
+    if (!img) {
+        std::fprintf(stderr, "failed to load image '%s': %s\n",
+                     a.input.c_str(), rfdetr_status_str(load_st));
+        rfdetr_free(ctx);
+        return 3;
+    }
+
+    /* 3. Build detect params from CLI args */
+    rfdetr_detect_params dp{};
+    dp.threshold        = a.threshold;
+    dp.top_k            = a.top_k;
+    dp.class_filter     = a.classes.empty() ? nullptr : a.classes.data();
+    dp.class_filter_len = a.classes.size();
+
+    /* 4. Run detection */
     rfdetr_detection* dets = nullptr;
     size_t n = 0;
+    rfdetr_status det_st = rfdetr_detect(ctx, img, &dp, &dets, &n);
+    if (det_st != RFDETR_OK) {
+        std::fprintf(stderr, "rfdetr_detect failed: %s\n",
+                     rfdetr_status_str(det_st));
+        rfdetr_image_free(img);
+        rfdetr_free(ctx);
+        return 4;
+    }
 
-    /* Write JSON */
+    /* 5. Write JSON output */
     std::ofstream out(a.output);
     if (!out.is_open()) {
         std::fprintf(stderr, "failed to open '%s' for writing\n", a.output.c_str());
+        rfdetr_detections_free(dets, n);
         rfdetr_image_free(img);
-        return 3;
+        rfdetr_free(ctx);
+        return 5;
     }
-    out << "{\n  \"image\": {\"width\": " << rfdetr_image_width(img)
-        << ", \"height\": " << rfdetr_image_height(img) << "},\n"
-        << "  \"detections\": [";
+    out << "{\n";
+    out << "  \"image\": {\"width\": " << rfdetr_image_width(img)
+        << ", \"height\": " << rfdetr_image_height(img) << "},\n";
+    out << "  \"detections\": [";
     for (size_t i = 0; i < n; ++i) {
-        if (i) out << ",";
-        out << "\n    {"
+        out << (i ? ",\n    " : "\n    ");
+        out << "{"
             << "\"class_id\": " << dets[i].class_id
+            << ", \"class_name\": \""
+            << (dets[i].class_name ? dets[i].class_name : "")
+            << "\""
             << ", \"score\": " << dets[i].score
-            << ", \"x1\": " << dets[i].x1
-            << ", \"y1\": " << dets[i].y1
-            << ", \"x2\": " << dets[i].x2
-            << ", \"y2\": " << dets[i].y2
-            << "}";
+            << ", \"bbox\": ["
+            << dets[i].x1 << ", " << dets[i].y1 << ", "
+            << dets[i].x2 << ", " << dets[i].y2
+            << "]}";
     }
-    out << "\n  ]\n}\n";
+    if (n > 0) out << "\n  ";
+    out << "]\n}\n";
+    out.close();
 
-    /* Optional annotated PNG */
+    /* 6. Optional annotated PNG */
     if (!a.annotated.empty()) {
-        rfdetr_status r = rfdetr_render(img, dets, n, a.annotated.c_str());
-        if (r != RFDETR_OK) {
-            std::fprintf(stderr, "render failed: %s\n", rfdetr_status_str(r));
-            rfdetr_detections_free(dets, n);
-            rfdetr_image_free(img);
-            return 4;
+        rfdetr_status render_st = rfdetr_render(img, dets, n, a.annotated.c_str());
+        if (render_st != RFDETR_OK) {
+            std::fprintf(stderr, "rfdetr_render failed: %s\n",
+                         rfdetr_status_str(render_st));
         }
     }
 
+    /* 7. Cleanup */
     rfdetr_detections_free(dets, n);
     rfdetr_image_free(img);
+    rfdetr_free(ctx);
     return 0;
 }
 

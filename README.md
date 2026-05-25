@@ -7,18 +7,24 @@ See `docs/superpowers/specs/2026-05-25-rfdetr-cpp-design.md` for the design.
 
 ## Status
 
-**Decoder (Plan 6b) complete.** The forward pipeline now runs:
-DINOv2 backbone → multi-scale projector → 3-layer encoder → 3-layer decoder
-(300 learnable queries with self-attention + cross-attention against the
-encoder output + FFN). 91 parity checkpoints all green at 1e-5 absolute
+**End-to-end detection (Plan 6c) complete.** `rfdetr-cli detect` now runs
+the full RF-DETR forward pipeline — image preprocessing (resize + ImageNet
+normalize), DINOv2 backbone (windowed + global attention), multi-scale
+projector, 3-layer encoder, 3-layer decoder (300 queries), class + bbox
+heads — and emits real JSON detections via Plan 1's postprocess. With the
+synthesized random-weight fixture, detection scores rarely exceed the 0.5
+threshold (output is typically empty), but the C++ pipeline is fully
+exercised end-to-end. 97 parity checkpoints all green at 1e-5 absolute
 tolerance against the numpy reference. Ten tests pass on a clean build.
 
-Plan 6c attaches the class+bbox heads and wires `rfdetr_detect` end-to-end
-(CLI `detect` produces real JSON detections, even if from random-weight
-nonsense scores).
+The Python conversion script body (`scripts/convert_rfdetr_to_gguf.py`) is
+still deferred — see Plan 2 Task 3. Once a real upstream `rfdetr-base`
+checkpoint is converted to GGUF, `rfdetr-cli detect` will produce
+meaningful detections.
 
-The Python conversion script body is still deferred (see Plan 2 Task 3).
-The C++ side uses a synthesized F32 GGUF fixture for tests.
+Plan 7 swaps the numpy reference for a torch+rfdetr baseline (verifying
+against the real model). Plan 8 adds Q8_0 quantization. Plan 9 adds the
+nano/small/medium/large variants.
 
 ## Build
 

@@ -1,6 +1,5 @@
-/* C++ forward pass through the full DINOv2 backbone (patch_embed +
- * CLS/pos_embed + 12 blocks + final norm + multi-scale taps) vs numpy
- * baseline. */
+/* C++ full forward pass (backbone + projector + encoder + decoder + heads) vs
+ * numpy baseline. 97 parity checkpoints across the pipeline. */
 #include "test_assert.hpp"
 #include "rfdetr.h"
 #include "model_loader.hpp"

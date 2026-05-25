@@ -31,7 +31,7 @@ int main() {
     std::remove(out_png.c_str());
 
     std::string cmd = std::string(RFDETR_CLI_BINARY) +
-                      " detect --model dummy.gguf"
+                      " detect --model " + fixtures + "/model_base.gguf"
                       " --input "      + fixtures + "/cats.png"
                       " --output "     + out_json +
                       " --annotated "  + out_png;
