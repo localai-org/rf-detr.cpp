@@ -62,14 +62,14 @@ std::map<std::string, Tol> build_tolerances(const rfdetr::Config& cfg) {
     }
     tol["encoder.output"] = {1e-5f, 1e-4f};
     tol["decoder.queries"] = {1e-5f, 1e-4f};
-    {
-        int i = 0;
+    for (uint32_t i = 0; i < cfg.decoder.layers; ++i) {
         std::string p = "decoder.layer" + std::to_string(i) + ".";
         tol[p + "self_attn.output"]  = {1e-5f, 1e-4f};
         tol[p + "cross_attn.output"] = {1e-5f, 1e-4f};
         tol[p + "mlp.output"]        = {1e-5f, 1e-4f};
         tol[p + "output"]            = {1e-5f, 1e-4f};
     }
+    tol["decoder.output"] = {1e-5f, 1e-4f};
     return tol;
 }
 
@@ -214,13 +214,7 @@ int main() {
     ggml_tensor* enc = rfdetr::encoder_forward(gctx, *m, projected);
     RFDETR_ASSERT(enc != nullptr);
 
-    /* Decoder queries: load the learnable embedding tensor and use as layer 0 input */
-    auto it_q = m->tensors.find("decoder.queries");
-    RFDETR_ASSERT(it_q != m->tensors.end());
-    ggml_tensor* queries = it_q->second;
-    rfdetr::publish("decoder.queries", queries);  /* publish for parity */
-
-    ggml_tensor* dec = rfdetr::decoder_layer(gctx, *m, queries, enc, /*layer_idx*/ 0);
+    ggml_tensor* dec = rfdetr::decoder_forward(gctx, *m, enc);
     RFDETR_ASSERT(dec != nullptr);
 
     /* The graph root must reach the decoder layer's output, the encoder's

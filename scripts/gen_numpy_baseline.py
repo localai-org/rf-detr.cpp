@@ -486,14 +486,16 @@ def forward(cfg, tensors, input_img):
         out.update(enc_out)
     out["encoder.output"] = x_enc.copy()
 
-    # ---- Decoder (layer 0 — Task 3 will loop all layers) ----
+    # ---- Decoder ----
     # Decoder queries: stored as (num_queries, model_dim) in numpy
     # (gguf-py reverses ggml's (model_dim, num_queries) layout)
     queries = tensors["decoder.queries"]
     out["decoder.queries"] = queries.copy()
-
-    dec_out, q = decoder_layer(cfg, tensors, queries, x_enc, 0)
-    out.update(dec_out)
+    q = queries
+    for i in range(cfg["dec_layers"]):
+        dec_out, q = decoder_layer(cfg, tensors, q, x_enc, i)
+        out.update(dec_out)
+    out["decoder.output"] = q.copy()
 
     return out
 

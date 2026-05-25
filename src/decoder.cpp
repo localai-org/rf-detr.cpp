@@ -81,10 +81,22 @@ ggml_tensor* decoder_layer(ggml_context* ctx, const Model& m,
     return q;
 }
 
-/* Stub — Task 3 implements. */
-ggml_tensor* decoder_forward(ggml_context* /*ctx*/, const Model& /*m*/,
-                             ggml_tensor* /*encoder_out*/) {
-    return nullptr;
+ggml_tensor* decoder_forward(ggml_context* ctx, const Model& m,
+                             ggml_tensor* encoder_out) {
+    auto it_q = m.tensors.find("decoder.queries");
+    if (it_q == m.tensors.end()) {
+        rfdetr_logf(RFDETR_LOG_ERROR, "decoder_forward: missing decoder.queries");
+        return nullptr;
+    }
+    ggml_tensor* q = it_q->second;
+    publish("decoder.queries", q);
+
+    for (uint32_t i = 0; i < m.config.decoder.layers; ++i) {
+        q = decoder_layer(ctx, m, q, encoder_out, (int)i);
+        if (!q) return nullptr;
+    }
+    publish("decoder.output", q);
+    return q;
 }
 
 }  // namespace rfdetr

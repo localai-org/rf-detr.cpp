@@ -102,6 +102,15 @@ Configured in `tests/test_parity_backbone.cpp` via a small table. Defaults:
 | `decoder.layer0.cross_attn.output`    | 1e-5  | 1e-4  |
 | `decoder.layer0.mlp.output`           | 1e-5  | 1e-4  |
 | `decoder.layer0.output`               | 1e-5  | 1e-4  |
+| `decoder.layer1.self_attn.output`     | 1e-5  | 1e-4  |
+| `decoder.layer1.cross_attn.output`    | 1e-5  | 1e-4  |
+| `decoder.layer1.mlp.output`           | 1e-5  | 1e-4  |
+| `decoder.layer1.output`               | 1e-5  | 1e-4  |
+| `decoder.layer2.self_attn.output`     | 1e-5  | 1e-4  |
+| `decoder.layer2.cross_attn.output`    | 1e-5  | 1e-4  |
+| `decoder.layer2.mlp.output`           | 1e-5  | 1e-4  |
+| `decoder.layer2.output`               | 1e-5  | 1e-4  |
+| `decoder.output`                      | 1e-5  | 1e-4  |
 
 Plan 4 switched the fixture to F32 weights (the generator now defaults to
 `--dtype f32`), eliminating the F16 quantization noise floor that
