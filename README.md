@@ -7,16 +7,20 @@ See `docs/superpowers/specs/2026-05-25-rfdetr-cpp-design.md` for the design.
 
 ## Status
 
-**Window attention (Plan 5) complete.** The DINOv2 backbone now dispatches
-between global and windowed self-attention per block — the four
-`multi_scale_layers` indices `[2, 5, 8, 11]` use global attention; the other
-eight blocks window the patch tokens into 2×2 partitions and attend within
-each window. All 55 parity checkpoints still pass at 1e-5 absolute
-tolerance against the numpy reference; windowed-block max_abs values
-(~7e-9) are indistinguishable from global-block values (~4e-9). Ten tests
+**Projector + encoder (Plan 6a) complete.** The forward pipeline now runs:
+DINOv2 backbone → multi-scale projector (4 levels, per-level linear + level
+embeddings, concat) → 3-layer transformer encoder. 73 parity checkpoints
+all green at 1e-5 absolute tolerance against the numpy reference. Ten tests
 pass on a clean build.
 
-Plan 6 wires the projector, encoder, decoder, heads, and end-to-end
+`dinov2_forward` now returns a `BackboneOutput { final, multi_scale[4] }`
+so downstream consumers access multi-scale features directly. `layer_norm`,
+`mha`, and `mlp` moved out of `dinov2.cpp`'s anonymous namespace into a
+shared `transformer_ops` module so the encoder, decoder (Plan 6b), and
+heads (Plan 6c) can call them.
+
+Plan 6b adds the decoder (300 learnable queries + 3 layers of self-attn +
+cross-attn + FFN). Plan 6c wires the class+bbox heads and end-to-end
 detect.
 
 The Python conversion script body is still deferred (see Plan 2 Task 3).
