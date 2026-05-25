@@ -1,0 +1,176 @@
+#include "model_loader.hpp"
+#include "common.hpp"
+#include "rfdetr.h"
+
+#include "ggml.h"
+#include "gguf.h"
+
+#include <cstring>
+#include <fstream>
+#include <new>
+#include <string>
+#include <vector>
+
+namespace rfdetr {
+
+namespace {
+
+const char* kFormatVersion = "1";
+
+bool file_exists(const std::string& path) {
+    std::ifstream f(path, std::ios::binary);
+    return f.is_open();
+}
+
+template <typename T>
+bool get_u32(gguf_context* g, const char* key, T& out) {
+    const int64_t kid = gguf_find_key(g, key);
+    if (kid < 0) return false;
+    out = (T)gguf_get_val_u32(g, kid);
+    return true;
+}
+
+bool get_str(gguf_context* g, const char* key, std::string& out) {
+    const int64_t kid = gguf_find_key(g, key);
+    if (kid < 0) return false;
+    out = gguf_get_val_str(g, kid);
+    return true;
+}
+
+bool get_f32_array(gguf_context* g, const char* key, float* out, size_t n) {
+    const int64_t kid = gguf_find_key(g, key);
+    if (kid < 0) return false;
+    if ((size_t)gguf_get_arr_n(g, kid) != n) return false;
+    const float* data = (const float*)gguf_get_arr_data(g, kid);
+    std::memcpy(out, data, n * sizeof(float));
+    return true;
+}
+
+bool get_i32_array(gguf_context* g, const char* key, std::vector<uint32_t>& out) {
+    const int64_t kid = gguf_find_key(g, key);
+    if (kid < 0) return false;
+    size_t n = gguf_get_arr_n(g, kid);
+    const int32_t* data = (const int32_t*)gguf_get_arr_data(g, kid);
+    out.resize(n);
+    for (size_t i = 0; i < n; ++i) out[i] = (uint32_t)data[i];
+    return true;
+}
+
+bool get_str_array(gguf_context* g, const char* key, std::vector<std::string>& out) {
+    const int64_t kid = gguf_find_key(g, key);
+    if (kid < 0) return false;
+    size_t n = gguf_get_arr_n(g, kid);
+    out.clear();
+    out.reserve(n);
+    for (size_t i = 0; i < n; ++i) {
+        out.emplace_back(gguf_get_arr_str(g, kid, i));
+    }
+    return true;
+}
+
+}  // namespace
+
+Model* model_load(const std::string& path, rfdetr_status* out_status) {
+    auto set = [&](rfdetr_status s) { if (out_status) *out_status = s; };
+
+    if (!file_exists(path)) {
+        rfdetr_logf(RFDETR_LOG_ERROR, "model_load: file not found '%s'", path.c_str());
+        set(RFDETR_ERR_FILE_NOT_FOUND);
+        return nullptr;
+    }
+
+    ggml_context* gctx = nullptr;
+    gguf_init_params init_params{ /* no_alloc */ true, /* ctx */ &gctx };
+    gguf_context* gguf = gguf_init_from_file(path.c_str(), init_params);
+    if (!gguf) {
+        rfdetr_logf(RFDETR_LOG_ERROR, "model_load: gguf_init_from_file failed for '%s'", path.c_str());
+        set(RFDETR_ERR_MODEL_FORMAT);
+        return nullptr;
+    }
+
+    auto fail = [&](rfdetr_status s, const char* msg) -> Model* {
+        rfdetr_logf(RFDETR_LOG_ERROR, "model_load: %s", msg);
+        gguf_free(gguf);
+        if (gctx) ggml_free(gctx);
+        set(s);
+        return nullptr;
+    };
+
+    // Format version
+    std::string fmt;
+    if (!get_str(gguf, "rfdetr.format.version", fmt) || fmt != kFormatVersion) {
+        return fail(RFDETR_ERR_MODEL_FORMAT, "unsupported rfdetr.format.version");
+    }
+
+    Model* m = new (std::nothrow) Model();
+    if (!m) return fail(RFDETR_ERR_OUT_OF_MEMORY, "alloc Model");
+
+    m->gguf = gguf;
+    m->meta = gctx;
+
+    auto& c = m->config;
+    if (!get_str(gguf, "rfdetr.variant",     c.variant))     return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.variant missing");
+    if (!get_u32(gguf, "rfdetr.image_size",  c.image_size))  return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.image_size missing");
+    if (!get_u32(gguf, "rfdetr.num_queries", c.num_queries)) return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.num_queries missing");
+    if (!get_u32(gguf, "rfdetr.num_classes", c.num_classes)) return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.num_classes missing");
+    if (!get_str_array(gguf, "rfdetr.class_names", c.class_names))
+        return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.class_names missing");
+    if (c.class_names.size() != c.num_classes)
+        return fail(RFDETR_ERR_MODEL_FORMAT, "class_names length != num_classes");
+
+    if (!get_f32_array(gguf, "rfdetr.preprocess.mean", c.preprocess_mean, 3))
+        return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.preprocess.mean missing or wrong shape");
+    if (!get_f32_array(gguf, "rfdetr.preprocess.std", c.preprocess_std, 3))
+        return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.preprocess.std missing or wrong shape");
+
+    if (!get_u32(gguf, "rfdetr.backbone.dim",         c.backbone.dim)         ||
+        !get_u32(gguf, "rfdetr.backbone.depth",       c.backbone.depth)       ||
+        !get_u32(gguf, "rfdetr.backbone.heads",       c.backbone.heads)       ||
+        !get_u32(gguf, "rfdetr.backbone.window_size", c.backbone.window_size))
+        return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.backbone.* incomplete");
+    if (!get_i32_array(gguf, "rfdetr.backbone.multi_scale_layers", c.backbone.multi_scale_layers))
+        return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.backbone.multi_scale_layers missing");
+
+    if (!get_u32(gguf, "rfdetr.encoder.layers",    c.encoder.layers)    ||
+        !get_u32(gguf, "rfdetr.encoder.model_dim", c.encoder.model_dim) ||
+        !get_u32(gguf, "rfdetr.encoder.ffn_dim",   c.encoder.ffn_dim)   ||
+        !get_u32(gguf, "rfdetr.encoder.heads",     c.encoder.heads))
+        return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.encoder.* incomplete");
+
+    if (!get_u32(gguf, "rfdetr.decoder.layers",    c.decoder.layers)    ||
+        !get_u32(gguf, "rfdetr.decoder.model_dim", c.decoder.model_dim) ||
+        !get_u32(gguf, "rfdetr.decoder.ffn_dim",   c.decoder.ffn_dim)   ||
+        !get_u32(gguf, "rfdetr.decoder.heads",     c.decoder.heads))
+        return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.decoder.* incomplete");
+
+    // Tensor inventory (descriptors only — data not loaded)
+    const int64_t n_tensors = gguf_get_n_tensors(gguf);
+    m->tensors.reserve(n_tensors);
+    for (int64_t i = 0; i < n_tensors; ++i) {
+        const char* name = gguf_get_tensor_name(gguf, i);
+        ggml_tensor* t = ggml_get_tensor(gctx, name);
+        if (!t) return fail(RFDETR_ERR_MODEL_LOAD, "ggml_get_tensor failed");
+        m->tensors.emplace(name, t);
+    }
+
+    set(RFDETR_OK);
+    return m;
+}
+
+void model_free(Model* m) {
+    if (!m) return;
+    if (m->gguf) gguf_free(m->gguf);
+    if (m->meta) ggml_free(m->meta);
+    delete m;
+}
+
+/* Stubs — Task 6 implements these for real. */
+rfdetr_status model_validate_tensors(const Model& /*m*/) {
+    return RFDETR_OK;
+}
+
+std::vector<std::string> expected_tensor_names(const Config& /*cfg*/) {
+    return {};
+}
+
+}  // namespace rfdetr

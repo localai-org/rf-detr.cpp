@@ -44,3 +44,17 @@ if(TARGET rfdetr-cli)
         RFDETR_CLI_BINARY="$<TARGET_FILE:rfdetr-cli>")
     add_dependencies(test_cli_integration rfdetr-cli)
 endif()
+
+# Synthesized model GGUF for tests (no PyTorch needed)
+add_executable(gen_model_gguf fixtures/gen_model_gguf.cpp)
+target_link_libraries(gen_model_gguf PRIVATE ggml)
+add_custom_command(
+    OUTPUT  ${RFDETR_TEST_FIXTURES}/model_base.gguf
+    COMMAND gen_model_gguf ${RFDETR_TEST_FIXTURES}/model_base.gguf
+    DEPENDS gen_model_gguf
+    VERBATIM
+)
+add_custom_target(rfdetr_model_fixture ALL DEPENDS ${RFDETR_TEST_FIXTURES}/model_base.gguf)
+
+rfdetr_add_test(test_model_loader)
+add_dependencies(test_model_loader rfdetr_model_fixture)
