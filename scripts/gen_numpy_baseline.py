@@ -152,13 +152,16 @@ def patchify_and_embed(input_img, kernel, bias):
     assert C == 3, "expected NCHW input with 3 channels"
     Hp = H // 14
     Wp = W // 14
-    # Reorder to NHWC then unfold
-    img_hwc = input_img.transpose(0, 2, 3, 1)[0]   # (H, W, 3)
-    img_blk = img_hwc.reshape(Hp, 14, Wp, 14, 3)    # (Hp, 14, Wp, 14, 3)
-    # Move the two patch-pixel axes adjacent (Hp, Wp, 14, 14, 3)
-    img_blk = img_blk.transpose(0, 2, 1, 3, 4)
-    patches = img_blk.reshape(Hp * Wp, 14 * 14 * 3) # (N, 588)
-    K = kernel.reshape(kernel.shape[0], -1)         # (dim, 588)
+    # Stay in NCHW, unfold into (N_patches, C, 14, 14) so that the inner
+    # 588 axis goes (channel, row, col) — same order as the PyTorch-shape
+    # kernel (dim, 3, 14, 14) when flattened to (dim, 588). This is what
+    # PyTorch's nn.Conv2d effectively contracts over.
+    img = input_img[0]                              # (C, H, W)
+    img = img.reshape(C, Hp, 14, Wp, 14)             # (C, Hp, 14, Wp, 14)
+    # Move (Hp, Wp) to the front: (Hp, Wp, C, 14, 14)
+    img = img.transpose(1, 3, 0, 2, 4)
+    patches = img.reshape(Hp * Wp, C * 14 * 14)     # (N, C*14*14)
+    K = kernel.reshape(kernel.shape[0], -1)         # (dim, C*14*14)
     return patches @ K.T + bias                     # (N, dim)
 
 
