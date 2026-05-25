@@ -1,74 +1,29 @@
 #!/usr/bin/env python3
-"""Convert an upstream rfdetr PyTorch checkpoint to GGUF.
+"""Convert an upstream rfdetr PyTorch checkpoint to GGUF (format v2).
 
 Usage:
     python scripts/convert_rfdetr_to_gguf.py --variant base \
         --output rfdetr-base-f16.gguf [--dtype f16|f32] [--dry-run]
 
-Format version: "1" (see docs/conversion.md).
+Format version: "2" (see docs/conversion.md).
 
-Status
-------
-**BLOCKED** at the upstream-architecture probe step. The actual rfdetr-base
-state_dict (rfdetr 1.7.0) does not match the schema this project's C++ runtime
-was designed against. The conversion cannot be completed without redesigning
-the C++ runtime to match the real model. See `BLOCKED` section below for the
-diff between expected and actual.
+What this script does
+---------------------
+1. Loads `RFDETRBase()` (downloads ~355 MB to ~/.roboflow on first run).
+2. Extracts the underlying nn.Module via `m.model.model` (LWDETR).
+3. Builds a {gguf_tensor_name -> source_state_dict_key} map from the live
+   state_dict, slicing the multi-group query tensors down to group 0 and
+   skipping training-only entries (mask_token).
+4. Validates that every expected v2 tensor has a source.
+5. Writes the GGUF with metadata matching docs/conversion.md.
 
-What this script does today
----------------------------
-* Loads `RFDETRBase()` (downloads ~355 MB to ~/.roboflow on first run).
-* Extracts the underlying nn.Module via `m.model.model` (type `LWDETR`).
-* Probes its state_dict (487 entries) and prints a structural mismatch report
-  against the C++ runtime's expected tensor set.
-* Returns exit code 90 (blocked, architectural mismatch).
-* `--dry-run` is honored: it prints the same report and returns 90.
-
-To complete the conversion, the project needs to either:
-
-  (A) Re-implement the C++ runtime (`src/dinov2.cpp`, `src/encoder.cpp`,
-      `src/decoder.cpp`, `src/projector.cpp`, `src/heads.cpp`,
-      `src/model_loader.cpp`, `tests/fixtures/gen_model_gguf.cpp`,
-      `docs/conversion.md`) to match the real rfdetr architecture, then
-      finish this script's `build_tensor_name_map` and `write_gguf`.
-
-  (B) Adopt a different upstream that DOES match the current C++ runtime
-      schema (would need to find one — the schema seems aspirational rather
-      than tied to a specific public release).
-
-The first ~30 lines of `build_tensor_name_map` below capture what *can* be
-mapped (a handful of backbone names) for reference when (A) is pursued.
-
-BLOCKED — structural diffs at a glance
---------------------------------------
-| concept                  | runtime expects                              | rfdetr-base actual                                      |
-| ------------------------ | -------------------------------------------- | ------------------------------------------------------- |
-| backbone dim             | 768                                          | 384 (DINOv2-small, `dinov2_windowed_small`)             |
-| backbone FFN             | (4*dim = 3072 implied)                       | 1536                                                    |
-| backbone attn            | packed `attn.qkv.{w,b}` [3*dim, dim]         | separate `attention.attention.{query,key,value}.{w,b}`  |
-| layer scale              | none                                         | `layer_scale1.lambda1`, `layer_scale2.lambda1` per blk  |
-| cls_token shape          | [1, 1, dim]                                  | [1, 1, 384]                                             |
-| pos_embed shape          | [1, n_tokens, dim]                           | [1, 1370, 384]                                          |
-| backbone.norm            | `backbone.norm.{w,b}`                        | `backbone.0.encoder.encoder.layernorm.{w,b}`            |
-| projector                | 4 linear levels + level_embed                | 1 `MultiScaleProjector` (conv blocks + BN, P4 only)     |
-| encoder                  | 3-layer transformer (qkv + ffn + 2 norms)    | none — replaced by `enc_output` ModuleList of 13 linears + 13 LayerNorms (two-stage init) |
-| decoder self_attn        | packed `qkv.{w,b}` + `out.{w,b}`             | `in_proj_weight/bias` + `out_proj.{w,b}` (PyTorch MHA)  |
-| decoder cross_attn       | standard MHA: `q + kv + out`                 | **deformable**: `sampling_offsets`, `attention_weights`, `value_proj`, `output_proj` |
-| heads.class              | `heads.class.fc.{w,b}`, [num_classes, model] | `class_embed.{w,b}` (Linear) + 13 `enc_out_class_embed` |
-| heads.bbox               | `heads.bbox.fc1/fc2/fc3.{w,b}`               | `bbox_embed.layers.{0,1,2}.{w,b}` (MLP)                 |
-| num_classes              | 80 (COCO)                                    | 91 (COCO + background) per `class_embed.weight = (91,256)` |
-| num_queries              | 300                                          | 300 (active), but `refpoint_embed.weight = (3900, 4)` (`num_queries * group_detr=13`) |
-
-Of the ~264 tensor names produced by `expected_tensor_names(cfg)` in
-`src/model_loader.cpp`, at minimum:
-  - 36 encoder tensors (3 layers x 12) have NO source — encoder doesn't exist
-  - ~12 projector tensors have NO source with matching shape
-  - 18 decoder cross_attn tensors have NO source — algorithm differs
-  - 8 head tensors have NO source with matching shape (num_classes 80 vs 91,
-    head names completely different)
-
-Total: ~74 structurally-unbridgeable expected tensors. This vastly exceeds
-the 50-missing threshold in the task brief's BLOCKED criteria.
+PyTorch -> GGUF shape conventions
+---------------------------------
+- Linear weight (out, in) -> ne (in, out)              (numpy as-is, gguf reverses)
+- Conv2d weight (out, in, kh, kw) -> ne (kw, kh, in, out)
+- cls_token (1, 1, dim) -> squeezed to (dim,)
+- pos_embed (1, n_tokens, dim) -> squeezed to (n_tokens, dim) -> ne (dim, n_tokens)
+- 1D LayerNorm/bias -> (dim,)
 """
 
 import argparse
@@ -76,43 +31,78 @@ import sys
 from pathlib import Path
 
 
-FORMAT_VERSION = "1"
+FORMAT_VERSION = "2"
 
 # Per-variant config that gets stamped into GGUF metadata.
-# Pulled into the script so we don't depend on the rfdetr package exposing it
-# (it might be private). Verified against the pinned rfdetr version.
 VARIANTS = {
     "base": {
-        "image_size":      560,
-        "num_queries":     300,
-        "num_classes":     80,
+        "image_size":             560,
+        "patch_size":             14,
+        "num_queries":            300,
+        "group_detr":             13,
+        "num_classes":            91,
         "backbone": {
-            "dim":               768,
-            "depth":             12,
-            "heads":             12,
-            "window_size":       14,
-            "multi_scale_layers": [2, 5, 8, 11],
+            "dim":                384,
+            "depth":              12,
+            "heads":              6,
+            "ffn_dim":            1536,
+            "num_windows":        4,
+            "global_attn_indices": [2, 5, 8, 11],
+            "out_feature_indices": [2, 5, 8, 11],
+            "pos_embed_train_size": 37,
         },
-        "encoder": {"layers": 3, "model_dim": 256, "ffn_dim": 2048, "heads": 8},
-        "decoder": {"layers": 3, "model_dim": 256, "ffn_dim": 2048, "heads": 8},
+        "projector": {
+            "in_dim":             1536,
+            "out_dim":            256,
+            "bottleneck_dim":     128,
+            "n_bottlenecks":      3,
+        },
+        "decoder": {
+            "layers":             3,
+            "model_dim":          256,
+            "ffn_dim":            2048,
+            "self_attn_heads":    8,
+            "cross_attn_heads":   16,
+            "cross_attn_n_levels": 1,
+            "cross_attn_n_points": 2,
+        },
+        "two_stage": {
+            "n_groups":           13,
+        },
     },
-    # nano / small / medium / large added in Plan 4
+    # nano / small / medium / large added in a later plan
 }
 
-# COCO 80-class names; rfdetr ships with COCO pretraining.
-COCO_CLASSES = [
-    "person","bicycle","car","motorcycle","airplane","bus","train","truck",
-    "boat","traffic light","fire hydrant","stop sign","parking meter","bench",
-    "bird","cat","dog","horse","sheep","cow","elephant","bear","zebra","giraffe",
-    "backpack","umbrella","handbag","tie","suitcase","frisbee","skis","snowboard",
-    "sports ball","kite","baseball bat","baseball glove","skateboard","surfboard",
-    "tennis racket","bottle","wine glass","cup","fork","knife","spoon","bowl",
-    "banana","apple","sandwich","orange","broccoli","carrot","hot dog","pizza",
-    "donut","cake","chair","couch","potted plant","bed","dining table","toilet",
-    "tv","laptop","mouse","remote","keyboard","cell phone","microwave","oven",
-    "toaster","sink","refrigerator","book","clock","vase","scissors","teddy bear",
-    "hair drier","toothbrush",
+# 91-slot COCO logit table for the `class_embed` head. The 80 COCO names sit
+# at their canonical 1..90 index positions; reserved IDs are "" placeholders.
+# (Slot 0 is conventionally "background" in COCO but rfdetr keeps it in the
+# 91-wide logit set; left empty for clarity.)
+COCO_CLASS_NAMES = [""] * 91
+_COCO_91 = [
+    (1, "person"), (2, "bicycle"), (3, "car"), (4, "motorcycle"),
+    (5, "airplane"), (6, "bus"), (7, "train"), (8, "truck"), (9, "boat"),
+    (10, "traffic light"), (11, "fire hydrant"), (13, "stop sign"),
+    (14, "parking meter"), (15, "bench"), (16, "bird"), (17, "cat"),
+    (18, "dog"), (19, "horse"), (20, "sheep"), (21, "cow"), (22, "elephant"),
+    (23, "bear"), (24, "zebra"), (25, "giraffe"), (27, "backpack"),
+    (28, "umbrella"), (31, "handbag"), (32, "tie"), (33, "suitcase"),
+    (34, "frisbee"), (35, "skis"), (36, "snowboard"), (37, "sports ball"),
+    (38, "kite"), (39, "baseball bat"), (40, "baseball glove"),
+    (41, "skateboard"), (42, "surfboard"), (43, "tennis racket"),
+    (44, "bottle"), (46, "wine glass"), (47, "cup"), (48, "fork"),
+    (49, "knife"), (50, "spoon"), (51, "bowl"), (52, "banana"),
+    (53, "apple"), (54, "sandwich"), (55, "orange"), (56, "broccoli"),
+    (57, "carrot"), (58, "hot dog"), (59, "pizza"), (60, "donut"),
+    (61, "cake"), (62, "chair"), (63, "couch"), (64, "potted plant"),
+    (65, "bed"), (67, "dining table"), (70, "toilet"), (72, "tv"),
+    (73, "laptop"), (74, "mouse"), (75, "remote"), (76, "keyboard"),
+    (77, "cell phone"), (78, "microwave"), (79, "oven"), (80, "toaster"),
+    (81, "sink"), (82, "refrigerator"), (84, "book"), (85, "clock"),
+    (86, "vase"), (87, "scissors"), (88, "teddy bear"), (89, "hair drier"),
+    (90, "toothbrush"),
 ]
+for _idx, _name in _COCO_91:
+    COCO_CLASS_NAMES[_idx] = _name
 
 
 def parse_args():
@@ -124,46 +114,262 @@ def parse_args():
     p.add_argument("--checkpoint",
                    help="Optional path to a local rfdetr .pth. Default: download via rfdetr pkg.")
     p.add_argument("--dry-run", action="store_true",
-                   help="Load model + print tensor diff, but do not write GGUF.")
+                   help="Load model + validate name map, but do not write GGUF.")
     return p.parse_args()
 
 
-# Subset of the expected tensor names this script CAN currently map back to
-# rfdetr-base's state_dict (with renames or concatenation). Listed in case
-# someone redesigns the runtime later and wants a head start.
+# ----------------------------------------------------------------------------
+# Tensor name map: GGUF name -> (source_state_dict_key, transform)
 #
-# Format: GGUF_NAME -> ("rename"|"concat3", source_key(s), reshape_or_None)
-#
-# This is NOT used by main() at the moment — it just documents the partial map.
-PARTIAL_BACKBONE_MAP = {
-    # patch_embed: rename only (shape matches, but only when bb_dim=384)
-    "backbone.patch_embed.weight":
-        ("rename", "backbone.0.encoder.encoder.embeddings.patch_embeddings.projection.weight", None),
-    "backbone.patch_embed.bias":
-        ("rename", "backbone.0.encoder.encoder.embeddings.patch_embeddings.projection.bias", None),
-    "backbone.cls_token":
-        # source is (1, 1, 384); spec stores (1, 1, dim) — fine if dim=384
-        ("rename", "backbone.0.encoder.encoder.embeddings.cls_token", None),
-    "backbone.pos_embed":
-        # source (1, 1370, 384); spec expects (1, n_tokens, dim).
-        # n_tokens for 560/14 = 40^2 + 1 cls = 1601. 1370 = 37^2 + 1 — implies
-        # positional_encoding_size=37 (pretrain res). Loader currently sizes
-        # by image_size so the lengths disagree (1601 vs 1370). Real port
-        # must either interpolate or use a smaller image_size.
-        ("rename", "backbone.0.encoder.encoder.embeddings.position_embeddings", None),
-    "backbone.norm.weight":
-        ("rename", "backbone.0.encoder.encoder.layernorm.weight", None),
-    "backbone.norm.bias":
-        ("rename", "backbone.0.encoder.encoder.layernorm.bias", None),
-    # Per-layer (i = 0..11):
-    #   norm1/norm2: rename from backbone.0.encoder.encoder.encoder.layer.{i}.norm{1,2}.{w,b}
-    #   attn.qkv.weight: torch.cat([q.w, k.w, v.w], 0) from
-    #       backbone.0.encoder.encoder.encoder.layer.{i}.attention.attention.{query,key,value}.weight
-    #   attn.qkv.bias: torch.cat([q.b, k.b, v.b], 0) similarly
-    #   attn.proj.{w,b}: rename from .attention.output.dense.{w,b}
-    #   mlp.fc1/fc2.{w,b}: rename from .mlp.fc1/fc2.{w,b} (NB: fc dim = 1536 = 4*384)
-    #   layer_scale1/2.lambda1: NO target in current spec; runtime missing the gamma multiply
-}
+# transform is either:
+#   None                     -> use the tensor as-is
+#   "slice_first_300"        -> tensor[:300]      (group-0 slice of query tensors)
+#   "squeeze_cls"            -> tensor.reshape(-1) (drops leading 1,1)
+#   "squeeze_pos"            -> tensor[0]         (drops leading 1 to keep (n_tokens, dim))
+# ----------------------------------------------------------------------------
+
+def build_tensor_name_map(variant_cfg):
+    """Returns ordered dict: gguf_name -> (source_key, transform_tag)."""
+    bb_depth   = variant_cfg["backbone"]["depth"]
+    n_bn       = variant_cfg["projector"]["n_bottlenecks"]
+    n_groups   = variant_cfg["two_stage"]["n_groups"]
+    dec_layers = variant_cfg["decoder"]["layers"]
+
+    BB = "backbone.0.encoder.encoder."   # DINOv2 prefix inside Joiner
+    PJ = "backbone.0.projector.stages.0." # single-stage projector
+    TF = "transformer."                   # two-stage + decoder root
+
+    m = {}
+
+    # ---- Backbone embeddings (4) ----
+    m["backbone.patch_embed.weight"] = (BB + "embeddings.patch_embeddings.projection.weight", None)
+    m["backbone.patch_embed.bias"]   = (BB + "embeddings.patch_embeddings.projection.bias", None)
+    m["backbone.cls_token"]          = (BB + "embeddings.cls_token", "squeeze_cls")
+    m["backbone.pos_embed"]          = (BB + "embeddings.position_embeddings", "squeeze_pos")
+
+    # ---- Backbone blocks ----
+    for i in range(bb_depth):
+        src = BB + f"encoder.layer.{i}."
+        dst = f"backbone.blocks.{i}."
+        m[dst + "norm1.weight"]    = (src + "norm1.weight", None)
+        m[dst + "norm1.bias"]      = (src + "norm1.bias",   None)
+        m[dst + "attn.q.weight"]   = (src + "attention.attention.query.weight", None)
+        m[dst + "attn.q.bias"]     = (src + "attention.attention.query.bias",   None)
+        m[dst + "attn.k.weight"]   = (src + "attention.attention.key.weight",   None)
+        m[dst + "attn.k.bias"]     = (src + "attention.attention.key.bias",     None)
+        m[dst + "attn.v.weight"]   = (src + "attention.attention.value.weight", None)
+        m[dst + "attn.v.bias"]     = (src + "attention.attention.value.bias",   None)
+        m[dst + "attn.proj.weight"] = (src + "attention.output.dense.weight",   None)
+        m[dst + "attn.proj.bias"]   = (src + "attention.output.dense.bias",     None)
+        m[dst + "layer_scale1"]    = (src + "layer_scale1.lambda1", None)
+        m[dst + "norm2.weight"]    = (src + "norm2.weight", None)
+        m[dst + "norm2.bias"]      = (src + "norm2.bias",   None)
+        m[dst + "mlp.fc1.weight"]  = (src + "mlp.fc1.weight", None)
+        m[dst + "mlp.fc1.bias"]    = (src + "mlp.fc1.bias",   None)
+        m[dst + "mlp.fc2.weight"]  = (src + "mlp.fc2.weight", None)
+        m[dst + "mlp.fc2.bias"]    = (src + "mlp.fc2.bias",   None)
+        m[dst + "layer_scale2"]    = (src + "layer_scale2.lambda1", None)
+
+    # ---- Backbone final norm ----
+    m["backbone.norm.weight"] = (BB + "layernorm.weight", None)
+    m["backbone.norm.bias"]   = (BB + "layernorm.bias",   None)
+
+    # ---- Projector (single P4 C2f) ----
+    # Note: upstream .bn.{weight,bias} are LayerNorm params (no running stats);
+    # we rename to .norm. on the GGUF side.
+    m["projector.cv1.conv.weight"] = (PJ + "0.cv1.conv.weight", None)
+    m["projector.cv1.norm.weight"] = (PJ + "0.cv1.bn.weight",   None)
+    m["projector.cv1.norm.bias"]   = (PJ + "0.cv1.bn.bias",     None)
+    m["projector.cv2.conv.weight"] = (PJ + "0.cv2.conv.weight", None)
+    m["projector.cv2.norm.weight"] = (PJ + "0.cv2.bn.weight",   None)
+    m["projector.cv2.norm.bias"]   = (PJ + "0.cv2.bn.bias",     None)
+    for j in range(n_bn):
+        sj = PJ + f"0.m.{j}."
+        dj = f"projector.bottleneck.{j}."
+        m[dj + "cv1.conv.weight"] = (sj + "cv1.conv.weight", None)
+        m[dj + "cv1.norm.weight"] = (sj + "cv1.bn.weight",   None)
+        m[dj + "cv1.norm.bias"]   = (sj + "cv1.bn.bias",     None)
+        m[dj + "cv2.conv.weight"] = (sj + "cv2.conv.weight", None)
+        m[dj + "cv2.norm.weight"] = (sj + "cv2.bn.weight",   None)
+        m[dj + "cv2.norm.bias"]   = (sj + "cv2.bn.bias",     None)
+    m["projector.final_norm.weight"] = (PJ + "1.weight", None)
+    m["projector.final_norm.bias"]   = (PJ + "1.bias",   None)
+
+    # ---- Two-stage groups ----
+    for g in range(n_groups):
+        gs = str(g)
+        m[f"two_stage.enc_output.{gs}.weight"]      = (TF + f"enc_output.{gs}.weight", None)
+        m[f"two_stage.enc_output.{gs}.bias"]        = (TF + f"enc_output.{gs}.bias",   None)
+        m[f"two_stage.enc_output_norm.{gs}.weight"] = (TF + f"enc_output_norm.{gs}.weight", None)
+        m[f"two_stage.enc_output_norm.{gs}.bias"]   = (TF + f"enc_output_norm.{gs}.bias",   None)
+        m[f"two_stage.enc_out_class_embed.{gs}.weight"] = (TF + f"enc_out_class_embed.{gs}.weight", None)
+        m[f"two_stage.enc_out_class_embed.{gs}.bias"]   = (TF + f"enc_out_class_embed.{gs}.bias",   None)
+        for j in range(3):
+            m[f"two_stage.enc_out_bbox_embed.{gs}.layers.{j}.weight"] = (
+                TF + f"enc_out_bbox_embed.{gs}.layers.{j}.weight", None)
+            m[f"two_stage.enc_out_bbox_embed.{gs}.layers.{j}.bias"] = (
+                TF + f"enc_out_bbox_embed.{gs}.layers.{j}.bias",   None)
+
+    # ---- Decoder queries (slice to group 0) ----
+    m["decoder.queries.feat"]      = ("query_feat.weight",      "slice_first_300")
+    m["decoder.queries.refpoints"] = ("refpoint_embed.weight",  "slice_first_300")
+
+    # ---- Decoder ref_point_head ----
+    m["decoder.ref_point_head.layers.0.weight"] = (TF + "decoder.ref_point_head.layers.0.weight", None)
+    m["decoder.ref_point_head.layers.0.bias"]   = (TF + "decoder.ref_point_head.layers.0.bias",   None)
+    m["decoder.ref_point_head.layers.1.weight"] = (TF + "decoder.ref_point_head.layers.1.weight", None)
+    m["decoder.ref_point_head.layers.1.bias"]   = (TF + "decoder.ref_point_head.layers.1.bias",   None)
+
+    # ---- Decoder layers ----
+    for i in range(dec_layers):
+        src = TF + f"decoder.layers.{i}."
+        dst = f"decoder.layers.{i}."
+        m[dst + "self_attn.in_proj.weight"]  = (src + "self_attn.in_proj_weight", None)
+        m[dst + "self_attn.in_proj.bias"]    = (src + "self_attn.in_proj_bias",   None)
+        m[dst + "self_attn.out_proj.weight"] = (src + "self_attn.out_proj.weight", None)
+        m[dst + "self_attn.out_proj.bias"]   = (src + "self_attn.out_proj.bias",   None)
+        m[dst + "norm1.weight"] = (src + "norm1.weight", None)
+        m[dst + "norm1.bias"]   = (src + "norm1.bias",   None)
+        m[dst + "cross_attn.sampling_offsets.weight"]  = (src + "cross_attn.sampling_offsets.weight",  None)
+        m[dst + "cross_attn.sampling_offsets.bias"]    = (src + "cross_attn.sampling_offsets.bias",    None)
+        m[dst + "cross_attn.attention_weights.weight"] = (src + "cross_attn.attention_weights.weight", None)
+        m[dst + "cross_attn.attention_weights.bias"]   = (src + "cross_attn.attention_weights.bias",   None)
+        m[dst + "cross_attn.value_proj.weight"]        = (src + "cross_attn.value_proj.weight",        None)
+        m[dst + "cross_attn.value_proj.bias"]          = (src + "cross_attn.value_proj.bias",          None)
+        m[dst + "cross_attn.output_proj.weight"]       = (src + "cross_attn.output_proj.weight",       None)
+        m[dst + "cross_attn.output_proj.bias"]         = (src + "cross_attn.output_proj.bias",         None)
+        m[dst + "norm2.weight"] = (src + "norm2.weight", None)
+        m[dst + "norm2.bias"]   = (src + "norm2.bias",   None)
+        m[dst + "linear1.weight"] = (src + "linear1.weight", None)
+        m[dst + "linear1.bias"]   = (src + "linear1.bias",   None)
+        m[dst + "linear2.weight"] = (src + "linear2.weight", None)
+        m[dst + "linear2.bias"]   = (src + "linear2.bias",   None)
+        m[dst + "norm3.weight"] = (src + "norm3.weight", None)
+        m[dst + "norm3.bias"]   = (src + "norm3.bias",   None)
+
+    # ---- Decoder final norm ----
+    m["decoder.norm.weight"] = (TF + "decoder.norm.weight", None)
+    m["decoder.norm.bias"]   = (TF + "decoder.norm.bias",   None)
+
+    # ---- Heads (shared) ----
+    m["heads.class_embed.weight"]         = ("class_embed.weight", None)
+    m["heads.class_embed.bias"]           = ("class_embed.bias",   None)
+    m["heads.bbox_embed.layers.0.weight"] = ("bbox_embed.layers.0.weight", None)
+    m["heads.bbox_embed.layers.0.bias"]   = ("bbox_embed.layers.0.bias",   None)
+    m["heads.bbox_embed.layers.1.weight"] = ("bbox_embed.layers.1.weight", None)
+    m["heads.bbox_embed.layers.1.bias"]   = ("bbox_embed.layers.1.bias",   None)
+    m["heads.bbox_embed.layers.2.weight"] = ("bbox_embed.layers.2.weight", None)
+    m["heads.bbox_embed.layers.2.bias"]   = ("bbox_embed.layers.2.bias",   None)
+
+    return m
+
+
+def validate(state_dict, name_map):
+    """Return (missing_sources, unused_keys)."""
+    sd_keys = set(state_dict.keys())
+    missing = []
+    used = set()
+    for gguf_name, (src_key, _t) in name_map.items():
+        if src_key not in sd_keys:
+            missing.append((gguf_name, src_key))
+        else:
+            used.add(src_key)
+    unused = sorted(sd_keys - used)
+    return missing, unused
+
+
+def apply_transform(tensor, transform_tag):
+    import numpy as np
+    if transform_tag is None:
+        return tensor
+    if transform_tag == "slice_first_300":
+        return tensor[:300]
+    if transform_tag == "squeeze_cls":
+        # (1, 1, dim) -> (dim,)
+        return tensor.reshape(-1)
+    if transform_tag == "squeeze_pos":
+        # (1, n_tokens, dim) -> (n_tokens, dim)
+        return tensor[0]
+    raise ValueError(f"unknown transform tag: {transform_tag}")
+
+
+def write_gguf(out_path, variant_name, variant_cfg, name_map, state_dict, dtype_str):
+    import numpy as np
+    import gguf as gguf_mod
+
+    np_dtype = np.float16 if dtype_str == "f16" else np.float32
+    ggml_dtype = gguf_mod.GGMLQuantizationType.F16 if dtype_str == "f16" \
+                 else gguf_mod.GGMLQuantizationType.F32
+
+    writer = gguf_mod.GGUFWriter(out_path, arch="rfdetr")
+
+    # --- Top-level metadata ---
+    writer.add_string("rfdetr.format.version", FORMAT_VERSION)
+    writer.add_string("rfdetr.variant",         variant_name)
+    writer.add_uint32("rfdetr.image_size",      variant_cfg["image_size"])
+    writer.add_uint32("rfdetr.patch_size",      variant_cfg["patch_size"])
+    writer.add_uint32("rfdetr.num_queries",     variant_cfg["num_queries"])
+    writer.add_uint32("rfdetr.group_detr",      variant_cfg["group_detr"])
+    writer.add_uint32("rfdetr.num_classes",     variant_cfg["num_classes"])
+
+    # class_names: 91-slot string array. gguf wants a Sequence[str].
+    writer.add_array("rfdetr.class_names", COCO_CLASS_NAMES)
+
+    # preprocess
+    mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+    std  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+    writer.add_array("rfdetr.preprocess.mean", mean.tolist())
+    writer.add_array("rfdetr.preprocess.std",  std.tolist())
+
+    # backbone
+    bb = variant_cfg["backbone"]
+    writer.add_uint32("rfdetr.backbone.dim",                  bb["dim"])
+    writer.add_uint32("rfdetr.backbone.depth",                bb["depth"])
+    writer.add_uint32("rfdetr.backbone.heads",                bb["heads"])
+    writer.add_uint32("rfdetr.backbone.ffn_dim",              bb["ffn_dim"])
+    writer.add_uint32("rfdetr.backbone.num_windows",          bb["num_windows"])
+    writer.add_array ("rfdetr.backbone.global_attn_indices",  bb["global_attn_indices"])
+    writer.add_array ("rfdetr.backbone.out_feature_indices",  bb["out_feature_indices"])
+    writer.add_uint32("rfdetr.backbone.pos_embed_train_size", bb["pos_embed_train_size"])
+
+    # projector
+    pj = variant_cfg["projector"]
+    writer.add_uint32("rfdetr.projector.in_dim",         pj["in_dim"])
+    writer.add_uint32("rfdetr.projector.out_dim",        pj["out_dim"])
+    writer.add_uint32("rfdetr.projector.bottleneck_dim", pj["bottleneck_dim"])
+    writer.add_uint32("rfdetr.projector.n_bottlenecks",  pj["n_bottlenecks"])
+
+    # decoder
+    dc = variant_cfg["decoder"]
+    writer.add_uint32("rfdetr.decoder.layers",              dc["layers"])
+    writer.add_uint32("rfdetr.decoder.model_dim",           dc["model_dim"])
+    writer.add_uint32("rfdetr.decoder.ffn_dim",             dc["ffn_dim"])
+    writer.add_uint32("rfdetr.decoder.self_attn_heads",     dc["self_attn_heads"])
+    writer.add_uint32("rfdetr.decoder.cross_attn_heads",    dc["cross_attn_heads"])
+    writer.add_uint32("rfdetr.decoder.cross_attn_n_levels", dc["cross_attn_n_levels"])
+    writer.add_uint32("rfdetr.decoder.cross_attn_n_points", dc["cross_attn_n_points"])
+
+    # two-stage
+    writer.add_uint32("rfdetr.two_stage.n_groups", variant_cfg["two_stage"]["n_groups"])
+
+    # --- Tensors ---
+    n_written = 0
+    for gguf_name, (src_key, transform) in name_map.items():
+        t = state_dict[src_key]
+        # torch -> numpy
+        arr = t.detach().cpu().numpy()
+        arr = apply_transform(arr, transform)
+        # contiguous + dtype
+        arr = np.ascontiguousarray(arr).astype(np_dtype, copy=False)
+        writer.add_tensor(gguf_name, arr, raw_dtype=ggml_dtype)
+        n_written += 1
+
+    writer.write_header_to_file()
+    writer.write_kv_data_to_file()
+    writer.write_tensors_to_file(progress=False)
+    writer.close()
+
+    return n_written
 
 
 def main() -> int:
@@ -171,7 +377,6 @@ def main() -> int:
     if args.output is None:
         args.output = f"rfdetr-{args.variant}-{args.dtype}.gguf"
 
-    # Lazy imports so --help works without torch / rfdetr installed
     try:
         import torch  # noqa: F401
         from rfdetr import RFDETRBase
@@ -181,58 +386,52 @@ def main() -> int:
         return 2
 
     print(f"Loading rfdetr-{args.variant} ...", file=sys.stderr)
-
-    # NOTE: RFDETRBase() will download ~355 MB to ~/.roboflow on first run.
-    # --checkpoint is not yet wired (rfdetr 1.7.0 reads pretrain_weights from
-    # the model config; would need a custom constructor path).
     if args.checkpoint:
         print(f"warning: --checkpoint ignored; rfdetr 1.7.0 uses model_config.pretrain_weights "
               f"(currently '{args.checkpoint}' is unused).", file=sys.stderr)
 
+    if args.variant != "base":
+        print(f"error: only 'base' is supported in this script (got {args.variant!r}); "
+              f"other variants come in a later plan.", file=sys.stderr)
+        return 4
+
     rfdetr_model = RFDETRBase()
-    inner = rfdetr_model.model.model  # LWDETR (rfdetr.models.lwdetr)
+    inner = rfdetr_model.model.model
     sd = inner.state_dict()
 
-    print(f"\n[probe] inner module: {type(inner).__name__}", file=sys.stderr)
+    print(f"[probe] inner module: {type(inner).__name__}", file=sys.stderr)
     print(f"[probe] state_dict entries: {len(sd)}", file=sys.stderr)
-    print(f"[probe] top-level prefixes: {sorted(set(k.split('.')[0] for k in sd.keys()))}",
-          file=sys.stderr)
 
-    # Architecture mismatch summary (see module docstring).
-    print("", file=sys.stderr)
-    print("=" * 72, file=sys.stderr)
-    print("BLOCKED: rfdetr-base state_dict does not match this project's C++", file=sys.stderr)
-    print("         runtime schema. Conversion cannot be completed.", file=sys.stderr)
-    print("=" * 72, file=sys.stderr)
-    print("", file=sys.stderr)
-    print("Key gaps (see this script's module docstring for the full table):",
-          file=sys.stderr)
-    print("  - backbone dim 384 (actual) vs 768 (spec) — DINOv2-small not -base",
-          file=sys.stderr)
-    print("  - separate q/k/v in backbone, not packed qkv", file=sys.stderr)
-    print("  - layer_scale (lambda) terms have no place in the spec", file=sys.stderr)
-    print("  - NO transformer encoder in the model (spec has 3-layer encoder)",
-          file=sys.stderr)
-    print("  - decoder cross-attn is DEFORMABLE, not standard MHA", file=sys.stderr)
-    print("  - heads use different names + shapes (91 classes vs 80)", file=sys.stderr)
-    print("  - projector is conv-based with BN, not 4 linear levels", file=sys.stderr)
-    print("", file=sys.stderr)
-    print("Source state_dict tensor counts by top-level prefix:", file=sys.stderr)
-    prefix_counts = {}
-    for k in sd.keys():
-        prefix_counts[k.split(".")[0]] = prefix_counts.get(k.split(".")[0], 0) + 1
-    for p, n in sorted(prefix_counts.items()):
-        print(f"  {p:18s}: {n}", file=sys.stderr)
-    print("", file=sys.stderr)
-    print("Next step: redesign the C++ runtime (src/*.cpp, model_loader.cpp,",
-          file=sys.stderr)
-    print("docs/conversion.md, tests/fixtures/gen_model_gguf.cpp) against the",
-          file=sys.stderr)
-    print("real architecture, then come back to finish this script.", file=sys.stderr)
+    variant_cfg = VARIANTS[args.variant]
+    name_map    = build_tensor_name_map(variant_cfg)
+
+    missing, unused = validate(sd, name_map)
+    expected_count  = len(name_map)
+    print(f"[validate] expected v2 tensors: {expected_count}", file=sys.stderr)
+    print(f"[validate] missing (source key not in state_dict): {len(missing)}", file=sys.stderr)
+    if missing:
+        print("MISSING (will block conversion):", file=sys.stderr)
+        for gname, skey in missing[:40]:
+            print(f"  {gname:60s} <- {skey}", file=sys.stderr)
+        if len(missing) > 40:
+            print(f"  ... and {len(missing) - 40} more", file=sys.stderr)
+        return 3
+    print(f"[validate] unused state_dict keys (dropped): {len(unused)}", file=sys.stderr)
+    if unused:
+        for k in unused[:10]:
+            print(f"  - {k}", file=sys.stderr)
+        if len(unused) > 10:
+            print(f"  ... and {len(unused) - 10} more", file=sys.stderr)
 
     if args.dry_run:
         print("\n(--dry-run) Not writing GGUF.", file=sys.stderr)
-    return 90  # blocked, architectural mismatch
+        return 0
+
+    print(f"\nWriting GGUF -> {args.output} (dtype={args.dtype}) ...", file=sys.stderr)
+    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+    n_written = write_gguf(args.output, args.variant, variant_cfg, name_map, sd, args.dtype)
+    print(f"[done] wrote {n_written} tensors to {args.output}", file=sys.stderr)
+    return 0
 
 
 if __name__ == "__main__":
