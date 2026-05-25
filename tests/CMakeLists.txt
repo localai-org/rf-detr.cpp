@@ -73,20 +73,20 @@ add_custom_command(
 add_custom_target(rfdetr_model_fixture_seeded ALL
     DEPENDS ${RFDETR_TEST_FIXTURES}/model_base_seeded.gguf)
 
-# Parity baseline bundle: numpy reference for patch_embed + backbone block 0.
+# Parity baseline bundle: numpy reference for the full DINOv2 backbone.
 # See docs/parity.md and scripts/gen_numpy_baseline.py.
 find_program(PYTHON3 python3 REQUIRED)
 add_custom_command(
-    OUTPUT  ${RFDETR_TEST_FIXTURES}/baseline_block0.gguf
+    OUTPUT  ${RFDETR_TEST_FIXTURES}/baseline_backbone.gguf
     COMMAND ${PYTHON3} ${CMAKE_SOURCE_DIR}/scripts/gen_numpy_baseline.py
             --model  ${RFDETR_TEST_FIXTURES}/model_base_seeded.gguf
-            --output ${RFDETR_TEST_FIXTURES}/baseline_block0.gguf
+            --output ${RFDETR_TEST_FIXTURES}/baseline_backbone.gguf
     DEPENDS ${RFDETR_TEST_FIXTURES}/model_base_seeded.gguf
             ${CMAKE_SOURCE_DIR}/scripts/gen_numpy_baseline.py
     VERBATIM
 )
-add_custom_target(rfdetr_baseline_block0 ALL
-    DEPENDS ${RFDETR_TEST_FIXTURES}/baseline_block0.gguf)
+add_custom_target(rfdetr_baseline_backbone ALL
+    DEPENDS ${RFDETR_TEST_FIXTURES}/baseline_backbone.gguf)
 
 rfdetr_add_test(test_model_loader)
 add_dependencies(test_model_loader rfdetr_model_fixture)
@@ -98,8 +98,8 @@ add_dependencies(test_capi rfdetr_model_fixture rfdetr_fixtures)
 rfdetr_add_test(test_capi_flat)
 add_dependencies(test_capi_flat rfdetr_model_fixture rfdetr_fixtures)
 
-rfdetr_add_test(test_parity_block0)
-target_link_libraries(test_parity_block0 PRIVATE ggml)
-add_dependencies(test_parity_block0
+rfdetr_add_test(test_parity_backbone)
+target_link_libraries(test_parity_backbone PRIVATE ggml)
+add_dependencies(test_parity_backbone
     rfdetr_model_fixture_seeded
-    rfdetr_baseline_block0)
+    rfdetr_baseline_backbone)

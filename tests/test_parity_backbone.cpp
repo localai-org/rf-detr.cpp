@@ -135,7 +135,7 @@ bool allclose(const std::string& name,
 int main() {
     const std::string fixtures = RFDETR_TEST_FIXTURES;
     const std::string model_path    = fixtures + "/model_base_seeded.gguf";
-    const std::string baseline_path = fixtures + "/baseline_block0.gguf";
+    const std::string baseline_path = fixtures + "/baseline_backbone.gguf";
 
     Baseline base = load_baseline(baseline_path);
     RFDETR_ASSERT(base.input_shape.size() == 4);

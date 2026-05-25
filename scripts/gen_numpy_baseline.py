@@ -3,12 +3,12 @@
 forward through patch_embed + CLS/pos_embed + all backbone blocks in numpy.
 
 The intermediate tensors are written to a new GGUF as parity.<checkpoint>
-tensors. The C++ test_parity_block0 consumes this bundle.
+tensors. The C++ test_parity_backbone consumes this bundle.
 
 Usage:
     python3 scripts/gen_numpy_baseline.py \
         --model tests/fixtures/model_base_seeded.gguf \
-        --output tests/fixtures/baseline_block0.gguf \
+        --output tests/fixtures/baseline_backbone.gguf \
         [--input-seed 7]
 
 Format version: "1" (see docs/parity.md).
