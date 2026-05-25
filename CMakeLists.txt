@@ -60,6 +60,7 @@ set(RFDETR_SOURCES
     src/rfdetr.cpp
     src/rfdetr_capi.cpp
     src/trace.cpp
+    src/backend.cpp
 )
 
 if(RFDETR_SHARED)
