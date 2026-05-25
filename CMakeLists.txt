@@ -59,6 +59,7 @@ set(RFDETR_SOURCES
     src/model_loader.cpp
     src/rfdetr.cpp
     src/rfdetr_capi.cpp
+    src/trace.cpp
 )
 
 if(RFDETR_SHARED)
