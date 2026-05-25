@@ -63,6 +63,7 @@ set(RFDETR_SOURCES
     src/backend.cpp
     src/dinov2.cpp
     src/transformer_ops.cpp
+    src/projector.cpp
 )
 
 if(RFDETR_SHARED)

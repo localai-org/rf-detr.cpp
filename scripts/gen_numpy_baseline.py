@@ -214,6 +214,43 @@ def mlp(x, W1, b1, W2, b2):
     return h @ W2.T + b2
 
 
+def projector_forward(cfg, tensors, multi_scale):
+    """Multi-scale projector.
+
+    Args:
+        multi_scale: list of 4 numpy arrays, each (N+1, backbone.dim)
+                     where token 0 is CLS, tokens 1..N are patches.
+
+    Returns: (out_dict, concat) where:
+        out_dict: dict with intermediate tensors:
+            - projector.level{0..3}.output: per-level (N, model_dim)
+            - projector.concat.output:       (4*N, model_dim)
+        concat: the final concatenated tensor
+    """
+    out = {}
+    n_levels = len(cfg["bb_multi_scale_layers"])
+    level_embed = tensors["projector.level_embed"]  # numpy shape: (n_levels, model_dim)
+                                                    # (gguf-py reverses ggml's (model_dim, n_levels))
+
+    projected = []
+    for j in range(n_levels):
+        feat = multi_scale[j]                       # (N+1, backbone.dim)
+        patches = feat[1:, :]                       # strip CLS → (N, backbone.dim)
+
+        Wj = tensors[f"projector.level{j}.weight"]  # numpy shape: (model_dim, backbone.dim)
+        bj = tensors[f"projector.level{j}.bias"]    # (model_dim,)
+        y = patches @ Wj.T + bj                     # (N, model_dim)
+
+        y = y + level_embed[j]                      # add level-j embedding (broadcast over N)
+
+        out[f"projector.level{j}.output"] = y.copy()
+        projected.append(y)
+
+    concat = np.concatenate(projected, axis=0)      # (4*N, model_dim)
+    out["projector.concat.output"] = concat.copy()
+    return out, concat
+
+
 def patchify_and_embed(input_img, kernel, bias):
     """Replicate Conv2d(kernel=stride=14, padding=0).
 
@@ -322,6 +359,13 @@ def forward(cfg, tensors, input_img):
                     tensors["backbone.norm.bias"])
     out["backbone.norm.output"] = fn.copy()
     x = fn
+
+    # ---- Multi-scale projector ----
+    multi_scale = [out[f"backbone.multiscale.level{j}"]
+                   for j in range(len(cfg["bb_multi_scale_layers"]))]
+    proj_out, _ = projector_forward(cfg, tensors, multi_scale)
+    out.update(proj_out)
+
     return out
 
 

@@ -79,6 +79,11 @@ Configured in `tests/test_parity_backbone.cpp` via a small table. Defaults:
 | `backbone.multiscale.level1`          | 1e-5  | 1e-4  |
 | `backbone.multiscale.level2`          | 1e-5  | 1e-4  |
 | `backbone.multiscale.level3`          | 1e-5  | 1e-4  |
+| `projector.level0.output`             | 1e-5  | 1e-4  |
+| `projector.level1.output`             | 1e-5  | 1e-4  |
+| `projector.level2.output`             | 1e-5  | 1e-4  |
+| `projector.level3.output`             | 1e-5  | 1e-4  |
+| `projector.concat.output`             | 1e-5  | 1e-4  |
 
 Plan 4 switched the fixture to F32 weights (the generator now defaults to
 `--dtype f32`), eliminating the F16 quantization noise floor that

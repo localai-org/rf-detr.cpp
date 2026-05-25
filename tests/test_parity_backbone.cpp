@@ -7,6 +7,7 @@
 #include "backend.hpp"
 #include "trace.hpp"
 #include "dinov2.hpp"
+#include "projector.hpp"
 
 #include "ggml.h"
 #include "ggml-backend.h"
@@ -46,6 +47,10 @@ std::map<std::string, Tol> build_tolerances(const rfdetr::Config& cfg) {
     for (size_t k = 0; k < cfg.backbone.multi_scale_layers.size(); ++k) {
         tol["backbone.multiscale.level" + std::to_string(k)] = {1e-5f, 1e-4f};
     }
+    for (size_t j = 0; j < cfg.backbone.multi_scale_layers.size(); ++j) {
+        tol["projector.level" + std::to_string(j) + ".output"] = {1e-5f, 1e-4f};
+    }
+    tol["projector.concat.output"] = {1e-5f, 1e-4f};
     return tol;
 }
 
@@ -183,7 +188,13 @@ int main() {
 
     rfdetr::BackboneOutput bb = rfdetr::dinov2_forward(gctx, *m, input);
     RFDETR_ASSERT(bb.final != nullptr);
-    ggml_tensor* t = bb.final;
+
+    ggml_tensor* projected = rfdetr::projector_forward(gctx, *m, bb);
+    RFDETR_ASSERT(projected != nullptr);
+
+    /* The graph root must reach both the backbone's final output and the
+     * projector's concat output so all published tensors are kept alive. */
+    ggml_tensor* t = projected;
 
     auto kTolerances = build_tolerances(m->config);
 
@@ -194,6 +205,10 @@ int main() {
      * ancestors of `t`, so they're included. */
     ggml_cgraph* graph = ggml_new_graph(gctx);
     ggml_build_forward_expand(graph, t);
+    /* bb.final (post-norm) is not an ancestor of the projector output (which
+     * branches off the multi-scale taps before the final norm), so expand
+     * it separately to keep `backbone.norm.output` reachable. */
+    ggml_build_forward_expand(graph, bb.final);
 
     /* Allocate compute buffers + set input + run. */
     ggml_backend_buffer_t buf = ggml_backend_alloc_ctx_tensors(gctx, backend);
