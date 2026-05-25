@@ -364,6 +364,38 @@ def decoder_layer(cfg, tensors, q, encoder_out, i):
     return out, q
 
 
+def class_head_forward(cfg, tensors, decoder_out):
+    """Class head: single linear. decoder_out: (num_queries, model_dim).
+    Returns: (dict, logits) where logits is (num_queries, num_classes)."""
+    W = tensors["heads.class.fc.weight"]  # numpy (num_classes, model_dim)
+    b = tensors["heads.class.fc.bias"]    # (num_classes,)
+    logits = decoder_out @ W.T + b        # (num_queries, num_classes)
+    return {"heads.class.logits": logits.copy()}, logits
+
+
+def bbox_head_forward(cfg, tensors, decoder_out):
+    """Bbox head: 3-layer MLP with ReLU + sigmoid.
+    Returns: (dict, bbox_pred) where bbox_pred is (num_queries, 4) in [0,1]."""
+    W1 = tensors["heads.bbox.fc1.weight"]; b1 = tensors["heads.bbox.fc1.bias"]
+    W2 = tensors["heads.bbox.fc2.weight"]; b2 = tensors["heads.bbox.fc2.bias"]
+    W3 = tensors["heads.bbox.fc3.weight"]; b3 = tensors["heads.bbox.fc3.bias"]
+
+    h = decoder_out @ W1.T + b1
+    h = np.maximum(h, 0)
+    out_dict = {"heads.bbox.fc1.output": h.copy()}
+
+    h = h @ W2.T + b2
+    h = np.maximum(h, 0)
+    out_dict["heads.bbox.fc2.output"] = h.copy()
+
+    h = h @ W3.T + b3
+    out_dict["heads.bbox.fc3.output"] = h.copy()
+
+    pred = 1.0 / (1.0 + np.exp(-h))
+    out_dict["heads.bbox.pred"] = pred.copy()
+    return out_dict, pred
+
+
 def patchify_and_embed(input_img, kernel, bias):
     """Replicate Conv2d(kernel=stride=14, padding=0).
 
@@ -496,6 +528,12 @@ def forward(cfg, tensors, input_img):
         dec_out, q = decoder_layer(cfg, tensors, q, x_enc, i)
         out.update(dec_out)
     out["decoder.output"] = q.copy()
+
+    # ---- Class + Bbox heads ----
+    cls_out, _class_logits = class_head_forward(cfg, tensors, q)
+    out.update(cls_out)
+    bbox_out, _bbox_pred = bbox_head_forward(cfg, tensors, q)
+    out.update(bbox_out)
 
     return out
 

@@ -10,6 +10,7 @@
 #include "projector.hpp"
 #include "encoder.hpp"
 #include "decoder.hpp"
+#include "heads.hpp"
 
 #include "ggml.h"
 #include "ggml-backend.h"
@@ -70,6 +71,11 @@ std::map<std::string, Tol> build_tolerances(const rfdetr::Config& cfg) {
         tol[p + "output"]            = {1e-5f, 1e-4f};
     }
     tol["decoder.output"] = {1e-5f, 1e-4f};
+    tol["heads.class.logits"]    = {1e-5f, 1e-4f};
+    tol["heads.bbox.fc1.output"] = {1e-5f, 1e-4f};
+    tol["heads.bbox.fc2.output"] = {1e-5f, 1e-4f};
+    tol["heads.bbox.fc3.output"] = {1e-5f, 1e-4f};
+    tol["heads.bbox.pred"]       = {1e-5f, 1e-4f};
     return tol;
 }
 
@@ -217,6 +223,11 @@ int main() {
     ggml_tensor* dec = rfdetr::decoder_forward(gctx, *m, enc);
     RFDETR_ASSERT(dec != nullptr);
 
+    ggml_tensor* class_logits = rfdetr::class_head_forward(gctx, *m, dec);
+    RFDETR_ASSERT(class_logits != nullptr);
+    ggml_tensor* bbox_pred = rfdetr::bbox_head_forward(gctx, *m, dec);
+    RFDETR_ASSERT(bbox_pred != nullptr);
+
     /* The graph root must reach the decoder layer's output, the encoder's
      * output, the backbone's final output, and the projector's concat output
      * so all published tensors are kept alive. */
@@ -242,6 +253,10 @@ int main() {
     /* `enc` is an ancestor of `dec`, but expand it explicitly so the
      * encoder's published `output` checkpoint is reachable. */
     ggml_build_forward_expand(graph, enc);
+    /* Heads branch off decoder.output — expand each head leaf so their
+     * published checkpoints stay reachable from the graph. */
+    ggml_build_forward_expand(graph, class_logits);
+    ggml_build_forward_expand(graph, bbox_pred);
 
     /* Allocate compute buffers + set input + run. */
     ggml_backend_buffer_t buf = ggml_backend_alloc_ctx_tensors(gctx, backend);
