@@ -9,6 +9,12 @@
 
 namespace rfdetr {
 
+/* DINOv2's patch size is architecturally 14. RF-DETR doesn't expose this as
+ * a per-variant parameter — all variants use 14. If a future variant ever
+ * uses a different patch size, this constant should move into Config and
+ * be sourced from GGUF metadata. */
+static constexpr int kPatchSize = 14;
+
 ggml_tensor* dinov2_patch_embed(ggml_context* ctx, const Model& m,
                                 ggml_tensor* input) {
     /* DINOv2 patch embedding is a Conv2d with kernel=stride=14.
@@ -249,6 +255,18 @@ ggml_tensor* mha_window(ggml_context* ctx, ggml_tensor* x,
     const int T   = W * W;          /* tokens per window */
     const int head_dim = dim / n_heads;
 
+    if (hp % W != 0 || wp % W != 0) {
+        rfdetr_logf(RFDETR_LOG_ERROR,
+                    "mha_window: patch grid %dx%d not divisible by window_size %d",
+                    hp, wp, W);
+        return nullptr;
+    }
+    if (n_windows * T != N) {
+        rfdetr_logf(RFDETR_LOG_ERROR,
+                    "mha_window: n_windows*T (%d) != N (%d)", n_windows * T, N);
+        return nullptr;
+    }
+
     /* Split off CLS (axis 1, position 0) and patches (axis 1, positions 1..N). */
     ggml_tensor* cls = ggml_view_2d(ctx, x, dim, 1,
                                     x->nb[1],
@@ -470,11 +488,12 @@ ggml_tensor* dinov2_block(ggml_context* ctx, const Model& m,
     /* x = x + attn(norm1(x)) */
     ggml_tensor* y = layer_norm(ctx, x, n1w, n1b);
     publish(pub + "norm1.output", y);
+    /* Per rfdetr convention, multi_scale_layers indices == global-attention blocks. */
     if (is_global_block(m.config, (uint32_t)block_idx)) {
         y = mha(ctx, y, qkvW, qkvB, prW, prB, (int)m.config.backbone.heads);
     } else {
-        const int hp = (int)(m.config.image_size / 14);
-        const int wp = (int)(m.config.image_size / 14);
+        const int hp = (int)(m.config.image_size / kPatchSize);
+        const int wp = (int)(m.config.image_size / kPatchSize);
         y = mha_window(ctx, y, qkvW, qkvB, prW, prB,
                        (int)m.config.backbone.heads,
                        (int)m.config.backbone.window_size, hp, wp);
