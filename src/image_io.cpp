@@ -1,5 +1,6 @@
 #include "image_io.hpp"
 #include "common.hpp"
+#include "visualize.hpp"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -67,14 +68,18 @@ extern "C" const uint8_t* rfdetr_image_rgb_data(const rfdetr_image* img) {
 }
 
 extern "C" rfdetr_status rfdetr_render(const rfdetr_image* img,
-                                       const rfdetr_detection* /*detections*/, size_t /*n*/,
+                                       const rfdetr_detection* detections, size_t n,
                                        const char* out_path) {
     if (!img || !out_path) return RFDETR_ERR_INVALID_ARG;
 
-    /* For this plan we copy the image through unchanged (no detections drawn).
-     * Task 11 adds bbox drawing; labels come in Plan 2. */
-    int w = img->width, h = img->height;
-    if (!stbi_write_png(out_path, w, h, 3, img->rgb.data(), w * 3)) {
+    /* Copy so we don't mutate the caller's image. */
+    rfdetr_image copy = *img;
+    for (size_t i = 0; i < n; ++i) {
+        rfdetr_visualize_draw_box(&copy, detections[i], /*thickness*/ 2);
+    }
+
+    int w = copy.width, h = copy.height;
+    if (!stbi_write_png(out_path, w, h, 3, copy.rgb.data(), w * 3)) {
         rfdetr_logf(RFDETR_LOG_ERROR, "stbi_write_png failed for '%s'", out_path);
         return RFDETR_ERR_IO;
     }
