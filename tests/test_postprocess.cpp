@@ -128,5 +128,24 @@ int main() {
         rfdetr_detections_free(dets, n);
     }
 
+    // top_k == 0 means "no cap": keep every candidate that passes the threshold
+    {
+        const size_t Q = 4, C = 1;
+        auto logit_of = [](float s) { return std::log(s / (1.0f - s)); };
+        float logits[Q*C] = { logit_of(0.9f), logit_of(0.8f), logit_of(0.7f), logit_of(0.6f) };
+        float boxes[Q*4];
+        for (size_t i = 0; i < Q; ++i) {
+            boxes[i*4 + 0] = 0.5f; boxes[i*4 + 1] = 0.5f;
+            boxes[i*4 + 2] = 0.1f; boxes[i*4 + 3] = 0.1f;
+        }
+        rfdetr_detection* dets = nullptr;
+        size_t n = 0;
+        rfdetr_select_detections(logits, boxes, Q, C,
+                                 /*threshold*/ 0.5f, /*top_k*/ 0,
+                                 nullptr, 0, 100, 100, &dets, &n);
+        RFDETR_ASSERT_EQ_INT(n, 4);  // unlimited cap, all 4 pass
+        rfdetr_detections_free(dets, n);
+    }
+
     return 0;
 }

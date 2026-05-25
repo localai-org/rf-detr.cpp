@@ -86,5 +86,22 @@ int main() {
         RFDETR_ASSERT_STR_EQ(r.compare.model.c_str(),        "m.gguf");
     }
 
+    // Out-of-range topk → error
+    {
+        auto r = run({"rfdetr-cli", "detect",
+                      "--model", "m.gguf", "--input", "x.png", "--output", "y.json",
+                      "--topk", "99999999999999"});
+        RFDETR_ASSERT(r.sub == rfdetr_cli::Subcommand::Detect);
+        RFDETR_ASSERT(!r.error.empty());
+    }
+    // Negative topk → error
+    {
+        auto r = run({"rfdetr-cli", "detect",
+                      "--model", "m.gguf", "--input", "x.png", "--output", "y.json",
+                      "--topk", "-5"});
+        RFDETR_ASSERT(r.sub == rfdetr_cli::Subcommand::Detect);
+        RFDETR_ASSERT(!r.error.empty());
+    }
+
     return 0;
 }

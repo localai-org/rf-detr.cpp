@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -25,7 +26,7 @@ int main() {
     const std::string out_json = std::string(fixtures) + "/generated/cli_out.json";
     const std::string out_png  = std::string(fixtures) + "/generated/cli_out.png";
 
-    std::system(("mkdir -p " + std::string(fixtures) + "/generated").c_str());
+    std::filesystem::create_directories(std::string(fixtures) + "/generated");
     std::remove(out_json.c_str());
     std::remove(out_png.c_str());
 

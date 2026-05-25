@@ -38,7 +38,9 @@ rfdetr_add_test(test_visualize)
 
 rfdetr_add_test(test_cli_smoke)
 
-rfdetr_add_test(test_cli_integration)
-target_compile_definitions(test_cli_integration PRIVATE
-    RFDETR_CLI_BINARY="$<TARGET_FILE:rfdetr-cli>")
-add_dependencies(test_cli_integration rfdetr-cli)
+if(TARGET rfdetr-cli)
+    rfdetr_add_test(test_cli_integration)
+    target_compile_definitions(test_cli_integration PRIVATE
+        RFDETR_CLI_BINARY="$<TARGET_FILE:rfdetr-cli>")
+    add_dependencies(test_cli_integration rfdetr-cli)
+endif()

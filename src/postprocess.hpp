@@ -21,7 +21,11 @@ void rfdetr_bbox_cxcywh_to_xyxy(const float in[4], int img_w, int img_h, float o
  *   bbox_cxcywh      [num_queries * 4]            — normalized predicted boxes
  *   num_queries, num_classes
  *   threshold        — drop predictions with sigmoid(logit) <= threshold
- *   top_k            — keep at most this many predictions (after threshold)
+ *   top_k            — keep at most this many predictions (after threshold).
+ *                      0 means "no cap" (keep all predictions that passed the
+ *                      threshold). Public callers use rfdetr_detect_params.top_k
+ *                      which defaults to 300; only the internal helper supports
+ *                      0 == unlimited.
  *   class_filter     — optional allowlist of class ids; NULL = all classes
  *   class_filter_len — length of allowlist
  *   img_w, img_h     — original image dimensions, for xyxy projection

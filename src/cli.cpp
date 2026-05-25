@@ -1,5 +1,6 @@
 #include "cli.hpp"
 
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -22,8 +23,18 @@ bool eat_value(int argc, char** argv, int& i, const char* flag, std::string& out
 
 bool parse_uint(const std::string& s, uint32_t& out, std::string& err, const char* flag) {
     char* end = nullptr;
-    long v = std::strtol(s.c_str(), &end, 10);
-    if (end == s.c_str() || *end != '\0' || v < 0) {
+    errno = 0;
+    unsigned long long v = std::strtoull(s.c_str(), &end, 10);
+    if (end == s.c_str() || *end != '\0') {
+        err = std::string("invalid integer for ") + flag + ": " + s;
+        return false;
+    }
+    if (errno == ERANGE || v > 0xFFFFFFFFull) {
+        err = std::string("integer out of range for ") + flag + ": " + s;
+        return false;
+    }
+    /* strtoull treats leading "-" as wrap-around; reject explicit negatives. */
+    if (!s.empty() && s[0] == '-') {
         err = std::string("invalid integer for ") + flag + ": " + s;
         return false;
     }

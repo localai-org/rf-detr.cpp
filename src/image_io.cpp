@@ -10,6 +10,7 @@
 #include <cerrno>
 #include <cstring>
 #include <fstream>
+#include <new>
 #include <vector>
 
 extern "C" rfdetr_image* rfdetr_image_load_buffer(const uint8_t* bytes, size_t len, rfdetr_status* out_status) {
@@ -24,12 +25,20 @@ extern "C" rfdetr_image* rfdetr_image_load_buffer(const uint8_t* bytes, size_t l
         return nullptr;
     }
 
-    auto* img = new (std::nothrow) rfdetr_image();
-    if (!img) { stbi_image_free(px); set(RFDETR_ERR_OUT_OF_MEMORY); return nullptr; }
-    img->width    = w;
-    img->height   = h;
-    img->channels = 3;
-    img->rgb.assign(px, px + (size_t)w * h * 3);
+    rfdetr_image* img = nullptr;
+    try {
+        img = new (std::nothrow) rfdetr_image();
+        if (!img) { stbi_image_free(px); set(RFDETR_ERR_OUT_OF_MEMORY); return nullptr; }
+        img->width    = w;
+        img->height   = h;
+        img->channels = 3;
+        img->rgb.assign(px, px + (size_t)w * (size_t)h * 3);
+    } catch (const std::bad_alloc&) {
+        stbi_image_free(px);
+        delete img;
+        set(RFDETR_ERR_OUT_OF_MEMORY);
+        return nullptr;
+    }
     stbi_image_free(px);
     set(RFDETR_OK);
     return img;
@@ -45,7 +54,13 @@ extern "C" rfdetr_image* rfdetr_image_load_file(const char* path, rfdetr_status*
         set(RFDETR_ERR_FILE_NOT_FOUND);
         return nullptr;
     }
-    std::vector<uint8_t> buf((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    std::vector<uint8_t> buf;
+    try {
+        buf.assign((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    } catch (const std::bad_alloc&) {
+        set(RFDETR_ERR_OUT_OF_MEMORY);
+        return nullptr;
+    }
     if (buf.empty()) { set(RFDETR_ERR_IO); return nullptr; }
 
     return rfdetr_image_load_buffer(buf.data(), buf.size(), out_status);
@@ -73,7 +88,12 @@ extern "C" rfdetr_status rfdetr_render(const rfdetr_image* img,
     if (!img || !out_path) return RFDETR_ERR_INVALID_ARG;
 
     /* Copy so we don't mutate the caller's image. */
-    rfdetr_image copy = *img;
+    rfdetr_image copy;
+    try {
+        copy = *img;  /* deep copy of pixel buffer */
+    } catch (const std::bad_alloc&) {
+        return RFDETR_ERR_OUT_OF_MEMORY;
+    }
     for (size_t i = 0; i < n; ++i) {
         rfdetr_visualize_draw_box(&copy, detections[i], /*thickness*/ 2);
     }

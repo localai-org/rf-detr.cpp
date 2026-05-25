@@ -2,6 +2,7 @@
 #include "rfdetr.h"
 #include "image_io.hpp"
 #include <string>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <cstdlib>
@@ -59,8 +60,7 @@ int main() {
         RFDETR_ASSERT(st3 == RFDETR_OK);
 
         const std::string out_path = std::string(fixtures) + "/generated/cats_out.png";
-        std::string mkdir_cmd = "mkdir -p " + std::string(fixtures) + "/generated";
-        std::system(mkdir_cmd.c_str());
+        std::filesystem::create_directories(std::string(fixtures) + "/generated");
 
         rfdetr_status r = rfdetr_render(img, nullptr, 0, out_path.c_str());
         RFDETR_ASSERT(r == RFDETR_OK);
