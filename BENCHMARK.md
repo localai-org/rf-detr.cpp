@@ -47,6 +47,20 @@ The default cmake configuration enables:
   micro-kernels and proper register blocking — substantially faster than the
   per-row dot-product fallback for the F32 backbone hotspot (10-15% at T=8,
   ~30% at T=1).
+- **tinyBLAS broadcast-fold (in-tree ggml patch).** `ggml_compute_forward_mul_mat`
+  dispatches one tinyBLAS call per (i12, i13) pair in the broadcast loop. For
+  RF-DETR that means windowed attention (`ne12=16` windows × `ne11=101` tokens)
+  invokes 16 separate sgemm calls of `N=101` instead of one call of `N=1616`.
+  Per-call overhead (`ggml_barrier`, chunk setup, kernel prelude) and poor
+  thread utilization on tiny N dominate the FMA work.
+  Patch in `third_party/ggml/src/ggml-cpu/ggml-cpu.c` collapses the broadcast
+  iterations into a single `llamafile_sgemm` of merged `N = ne11*ne12*ne13`
+  when `src0` is broadcast on those dims and `src1`/`dst` pack them
+  contiguously. Profile shows the per-iteration MUL_MAT total drops from
+  ~367 ms to ~338 ms (-8%) on the test host; end-to-end best-case drops from
+  ~440 ms to ~410 ms median, ~390 ms min. Global-attention shapes
+  (`ne02 = n_heads > 1`) cannot be folded with this approach and remain the
+  next bottleneck.
 - `GGML_OPENMP=ON` (ggml's default) — OpenMP-based thread pool. Has lower
   per-graph wakeup overhead than the pthread fallback for batch-1 inference.
 - **Persistent ggml threadpool.** `init_backend_ctx` calls
