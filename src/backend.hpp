@@ -9,6 +9,8 @@ struct ggml_backend;
 typedef struct ggml_backend* ggml_backend_t;
 struct ggml_backend_sched;
 typedef struct ggml_backend_sched* ggml_backend_sched_t;
+struct ggml_threadpool;
+typedef struct ggml_threadpool* ggml_threadpool_t;
 struct ggml_cgraph;
 
 namespace rfdetr {
@@ -33,10 +35,18 @@ bool is_cpu(ggml_backend_t b);
  * When BLAS is not compiled in (or sched_new failed), `blas` and `sched` are
  * both nullptr and graph compute falls back to the single CPU backend. */
 struct BackendCtx {
-    ggml_backend_t       cpu   = nullptr;
-    ggml_backend_t       blas  = nullptr;
-    ggml_backend_sched_t sched = nullptr;
-    int                  n_threads = 1;
+    ggml_backend_t       cpu        = nullptr;
+    ggml_backend_t       blas       = nullptr;
+    ggml_backend_sched_t sched      = nullptr;
+    /* Persistent worker threadpool attached to the CPU backend so we don't
+     * pay the per-call allocation / cpumask-init cost on every
+     * ggml_graph_compute invocation (the scheduler can call graph_compute
+     * many times per forward pass — once per split). The OpenMP team itself
+     * is still spawned per call by ggml, but the per-call setup work that
+     * happens *outside* the OMP region (worker state allocation, cpumask
+     * pre-compute) is now amortized across the whole inference. */
+    ggml_threadpool_t    threadpool = nullptr;
+    int                  n_threads  = 1;
 };
 
 /* Initialize the compute backend bundle. Always creates a CPU backend; if

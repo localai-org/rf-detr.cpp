@@ -149,6 +149,30 @@ BackendCtx init_backend_ctx(int n_threads, rfdetr_status* out_status) {
         return ctx;  // status already set
     }
 
+    /* Attach a persistent threadpool to the CPU backend. ggml's
+     * ggml_graph_compute() otherwise builds (and tears down) a disposable
+     * threadpool on every call — allocating workers state, computing
+     * cpumasks, etc. The scheduler can invoke graph_compute many times per
+     * forward pass (one per split), so amortizing this setup across the run
+     * is worth a few hundred bytes of long-lived state.
+     *
+     * With GGML_USE_OPENMP=ON the OpenMP team itself is still created per
+     * call (ggml uses `#pragma omp parallel num_threads(N)` inside
+     * ggml_graph_compute regardless), but everything *outside* the OMP
+     * region — and notably the disposable-threadpool malloc — is now paid
+     * only once. */
+    {
+        ggml_threadpool_params tpp = ggml_threadpool_params_default(ctx.n_threads);
+        ctx.threadpool = ggml_threadpool_new(&tpp);
+        if (ctx.threadpool) {
+            ggml_backend_cpu_set_threadpool(ctx.cpu, ctx.threadpool);
+        } else {
+            rfdetr_logf(RFDETR_LOG_WARN,
+                        "init_backend_ctx: ggml_threadpool_new failed; "
+                        "falling back to per-call disposable threadpool");
+        }
+    }
+
 #ifdef RFDETR_HAVE_BLAS
     if (blas_enabled_for_runtime()) {
         ctx.blas = ggml_backend_blas_init();
@@ -213,6 +237,14 @@ void free_backend_ctx(BackendCtx& ctx) {
     if (ctx.cpu) {
         ggml_backend_free(ctx.cpu);
         ctx.cpu = nullptr;
+    }
+    /* Free the threadpool AFTER the CPU backend that referenced it. The CPU
+     * backend's destructor doesn't touch the threadpool (it's borrowed, not
+     * owned), but pausing/freeing in the right order keeps the worker
+     * threads from being torn down underneath the backend. */
+    if (ctx.threadpool) {
+        ggml_threadpool_free(ctx.threadpool);
+        ctx.threadpool = nullptr;
     }
 }
 

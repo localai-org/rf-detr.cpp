@@ -49,6 +49,17 @@ The default cmake configuration enables:
   ~30% at T=1).
 - `GGML_OPENMP=ON` (ggml's default) — OpenMP-based thread pool. Has lower
   per-graph wakeup overhead than the pthread fallback for batch-1 inference.
+- **Persistent ggml threadpool.** `init_backend_ctx` calls
+  `ggml_threadpool_new` and attaches it to the CPU backend with
+  `ggml_backend_cpu_set_threadpool`. This avoids re-allocating the workers
+  state / cpumask array on every `ggml_graph_compute` call (each scheduler
+  split is one call). The improvement is small (~2-3% at T=8) because with
+  `GGML_USE_OPENMP=ON` ggml still opens a fresh `#pragma omp parallel
+  num_threads(N)` per call regardless of whether the threadpool is borrowed
+  or disposable — the persistent threadpool only avoids the malloc, not the
+  OpenMP team setup. The wiring is kept for correctness and because it would
+  be a real win in a future no-OpenMP build mode where the pthread workers
+  spin between graphs.
 
 Explicit `GGML_AVX512` / `GGML_AVX512_VNNI` / `GGML_AVX512_BF16` flags are
 **not** set, because they would compile features the local CPU might not
