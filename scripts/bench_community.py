@@ -6,12 +6,13 @@ benchmarks/results/bench_data.json. Use scripts/plot_community.py to render
 the plots.
 
 Cells run:
-- per_image: PyTorch F32 / C++ F32 / C++ Q8_0 / C++ Q5_0 / C++ Q4_0 at T=8
-  on N images (the "headline" latency comparison data)
+- per_image: PyTorch F32 / C++ F32 / C++ Q8_0 / C++ Q5_0 / C++ Q4_0 plus optional
+  C++ Q4_K / Q5_K / Q6_K (K-quants from `rfdetr-cli quantize`) at T=8 on N images
+  (the "headline" latency comparison data)
 - thread_sweep: PyTorch + C++ F32 + C++ Q8_0 over T in {1,2,4,8,12,16,20}
-  on ONE representative image (kitchen / coco_sample.jpg). Q4_0 / Q5_0 are
-  only swept at the headline T=8 cell — their per-thread shape is similar to
-  Q8_0 and they're a side story, not the headline.
+  on ONE representative image (kitchen / coco_sample.jpg). Q4_0 / Q5_0 /
+  K-quants are only swept at the headline T=8 cell — their per-thread shape is
+  similar to Q8_0 and they're a side story, not the headline.
 - detections: one detect run per (impl, image) for accuracy cross-check
 
 Uses time.perf_counter and disables GC during timed Python sections.
@@ -197,6 +198,12 @@ def main() -> int:
                     help="optional Q5_0 model; skipped if file missing")
     ap.add_argument("--q4",      default=str(REPO / "models/rfdetr-base-q4_0.gguf"),
                     help="optional Q4_0 model; skipped if file missing")
+    ap.add_argument("--q4_K",    default=str(REPO / "models/rfdetr-base-q4_K.gguf"),
+                    help="optional Q4_K model; skipped if file missing")
+    ap.add_argument("--q5_K",    default=str(REPO / "models/rfdetr-base-q5_K.gguf"),
+                    help="optional Q5_K model; skipped if file missing")
+    ap.add_argument("--q6_K",    default=str(REPO / "models/rfdetr-base-q6_K.gguf"),
+                    help="optional Q6_K model; skipped if file missing")
     ap.add_argument("--images-dir", default=str(REPO / "benchmarks/images"))
     ap.add_argument("--out",     default=str(REPO / "benchmarks/results/bench_data.json"))
     ap.add_argument("--iters",   type=int, default=15,
@@ -218,10 +225,16 @@ def main() -> int:
     q8   = Path(args.q8)
     q5   = Path(args.q5)
     q4   = Path(args.q4)
+    q4K  = Path(args.q4_K)
+    q5K  = Path(args.q5_K)
+    q6K  = Path(args.q6_K)
     idir = Path(args.images_dir)
 
     have_q5 = q5.exists()
     have_q4 = q4.exists()
+    have_q4K = q4K.exists()
+    have_q5K = q5K.exists()
+    have_q6K = q6K.exists()
 
     images = sorted(idir.glob("*.jpg"))
     if not images:
@@ -258,6 +271,9 @@ def main() -> int:
             "q8_path":  str(q8),  "q8_size_bytes":  q8.stat().st_size,
             **({"q5_path": str(q5), "q5_size_bytes": q5.stat().st_size} if have_q5 else {}),
             **({"q4_path": str(q4), "q4_size_bytes": q4.stat().st_size} if have_q4 else {}),
+            **({"q4K_path": str(q4K), "q4K_size_bytes": q4K.stat().st_size} if have_q4K else {}),
+            **({"q5K_path": str(q5K), "q5K_size_bytes": q5K.stat().st_size} if have_q5K else {}),
+            **({"q6K_path": str(q6K), "q6K_size_bytes": q6K.stat().st_size} if have_q6K else {}),
         },
         "cli": str(cli),
     }
@@ -309,6 +325,18 @@ def main() -> int:
             print(f"[cpp_q4 ] median={cell['cpp_q4']['median_ms']:.1f} ms "
                   f"min={cell['cpp_q4']['min_ms']:.1f} max={cell['cpp_q4']['max_ms']:.1f}",
                   file=sys.stderr)
+        for label, path, have in [
+            ("cpp_q4K", q4K, have_q4K),
+            ("cpp_q5K", q5K, have_q5K),
+            ("cpp_q6K", q6K, have_q6K),
+        ]:
+            if not have:
+                continue
+            print(f"[{label}  T={args.threads}]", file=sys.stderr)
+            cell[label] = time_one_cpp(cli, path, img, args.iters, args.warmup, args.threads)
+            print(f"[{label}] median={cell[label]['median_ms']:.1f} ms "
+                  f"min={cell[label]['min_ms']:.1f} max={cell[label]['max_ms']:.1f}",
+                  file=sys.stderr)
 
         # detections (single run each)
         if "detections" not in data:
@@ -324,6 +352,15 @@ def main() -> int:
         if have_q4:
             print(f"[detect cpp_q4 ]", file=sys.stderr)
             data["detections"][img.name]["cpp_q4" ] = run_cpp_detect(cli, q4, img, args.threads)
+        for label, path, have in [
+            ("cpp_q4K", q4K, have_q4K),
+            ("cpp_q5K", q5K, have_q5K),
+            ("cpp_q6K", q6K, have_q6K),
+        ]:
+            if not have:
+                continue
+            print(f"[detect {label}]", file=sys.stderr)
+            data["detections"][img.name][label] = run_cpp_detect(cli, path, img, args.threads)
 
         data["per_image"][img.name] = cell
 
@@ -374,7 +411,8 @@ def main() -> int:
         if "python" not in dets:
             continue
         py_dets = dets["python"]
-        for impl in ("cpp_f32", "cpp_q8", "cpp_q5", "cpp_q4"):
+        for impl in ("cpp_f32", "cpp_q8", "cpp_q5", "cpp_q4",
+                     "cpp_q4K", "cpp_q5K", "cpp_q6K"):
             if impl not in dets:
                 continue
             pairs = match_detections(py_dets, dets[impl])

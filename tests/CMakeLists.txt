@@ -171,3 +171,11 @@ target_link_libraries(test_q4_quant PRIVATE ggml)
 target_compile_definitions(test_q4_quant PRIVATE
     RFDETR_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
+# K-quant (Q4_K / Q5_K / Q6_K) sanity checks. Generated via
+#   build/bin/rfdetr-cli quantize ... q{4,5,6}_K
+# Skips per-file gracefully if absent.
+rfdetr_add_test(test_kquant)
+target_link_libraries(test_kquant PRIVATE ggml)
+target_compile_definitions(test_kquant PRIVATE
+    RFDETR_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+

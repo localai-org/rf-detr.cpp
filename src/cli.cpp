@@ -79,6 +79,9 @@ void print_help() {
         "  rfdetr-cli bench   --model <gguf> --input <image> [--iters N] [--warmup N]\n"
         "                     [--threads N]\n"
         "  rfdetr-cli compare --baseline <dir> --image <png> --model <gguf> [--threads N]\n"
+        "  rfdetr-cli quantize <input.gguf> <output.gguf> <type>\n"
+        "                     type: f32 | f16 | q4_0 | q4_1 | q5_0 | q5_1 | q8_0 |\n"
+        "                           q4_K | q5_K | q6_K\n"
         "  rfdetr-cli --help\n"
         "\n"
         "  --threads N   number of CPU threads for ggml (0 = auto, default 0).\n");
@@ -167,6 +170,32 @@ ParseResult parse(int argc, char** argv) {
         }
         if (r.bench.model.empty()) { r.error = "bench: --model is required"; return r; }
         if (r.bench.input.empty()) { r.error = "bench: --input is required"; return r; }
+        return r;
+    }
+
+    if (first == "quantize") {
+        r.sub = Subcommand::Quantize;
+        /* Three positional args: input output type. No flags. */
+        std::vector<std::string> pos;
+        for (int i = 2; i < argc; ++i) {
+            std::string a = argv[i];
+            if (a == "--help" || a == "-h") {
+                r.sub = Subcommand::Help;
+                return r;
+            }
+            if (!a.empty() && a[0] == '-') {
+                r.error = "quantize takes positional args only: <input.gguf> <output.gguf> <type>";
+                return r;
+            }
+            pos.push_back(a);
+        }
+        if (pos.size() != 3) {
+            r.error = "quantize: expected exactly 3 positional args: <input.gguf> <output.gguf> <type>";
+            return r;
+        }
+        r.quantize.input  = pos[0];
+        r.quantize.output = pos[1];
+        r.quantize.type   = pos[2];
         return r;
     }
 

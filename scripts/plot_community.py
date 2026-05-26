@@ -37,32 +37,44 @@ plt.rcParams.update({
 # Per-impl palette. Picked for distinctness in colorblind-safe range and
 # good print contrast.
 PALETTE = {
-    "python":  "#8E8E93",   # neutral grey — the reference
-    "cpp_f32": "#0A84FF",   # vivid blue   — our F32
-    "cpp_q8":  "#30D158",   # green        — our Q8_0
-    "cpp_q5":  "#FF9F0A",   # amber        — our Q5_0 (auxiliary)
-    "cpp_q4":  "#FF453A",   # red          — our Q4_0 (auxiliary, less accurate)
+    "python":   "#8E8E93",   # neutral grey — the reference
+    "cpp_f32":  "#0A84FF",   # vivid blue   — our F32
+    "cpp_q8":   "#30D158",   # green        — our Q8_0
+    "cpp_q6K":  "#5AC8FA",   # cyan         — Q6_K
+    "cpp_q5K":  "#BF5AF2",   # purple       — Q5_K
+    "cpp_q4K":  "#FFD60A",   # gold         — Q4_K
+    "cpp_q5":   "#FF9F0A",   # amber        — our Q5_0 (auxiliary)
+    "cpp_q4":   "#FF453A",   # red          — our Q4_0 (auxiliary, less accurate)
 }
 HATCH = {
-    "python":  "",
-    "cpp_f32": "",
-    "cpp_q8":  "//",        # extra accessibility cue
-    "cpp_q5":  "\\\\",
-    "cpp_q4":  "xx",
+    "python":   "",
+    "cpp_f32":  "",
+    "cpp_q8":   "//",        # extra accessibility cue
+    "cpp_q6K":  "++",
+    "cpp_q5K":  "..",
+    "cpp_q4K":  "OO",
+    "cpp_q5":   "\\\\",
+    "cpp_q4":   "xx",
 }
 LABEL = {
-    "python":  "PyTorch (rfdetr 1.7.0)",
-    "cpp_f32": "rfdetr.cpp F32",
-    "cpp_q8":  "rfdetr.cpp Q8_0",
-    "cpp_q5":  "rfdetr.cpp Q5_0",
-    "cpp_q4":  "rfdetr.cpp Q4_0",
+    "python":   "PyTorch (rfdetr 1.7.0)",
+    "cpp_f32":  "rfdetr.cpp F32",
+    "cpp_q8":   "rfdetr.cpp Q8_0",
+    "cpp_q6K":  "rfdetr.cpp Q6_K",
+    "cpp_q5K":  "rfdetr.cpp Q5_K",
+    "cpp_q4K":  "rfdetr.cpp Q4_K",
+    "cpp_q5":   "rfdetr.cpp Q5_0",
+    "cpp_q4":   "rfdetr.cpp Q4_0",
 }
 MARKER = {
-    "python":  "o",
-    "cpp_f32": "s",
-    "cpp_q8":  "D",
-    "cpp_q5":  "^",
-    "cpp_q4":  "v",
+    "python":   "o",
+    "cpp_f32":  "s",
+    "cpp_q8":   "D",
+    "cpp_q6K":  "P",
+    "cpp_q5K":  "X",
+    "cpp_q4K":  "h",
+    "cpp_q5":   "^",
+    "cpp_q4":   "v",
 }
 
 PRETTY_IMG = {
@@ -422,20 +434,29 @@ def plot_quant_tradeoffs(data: dict, out_dir: Path):
         agg[impl]["py_lenient"]      = py
 
     # Each known variant: (label, size_key, impl_key)
+    # Ordered F32 -> Q8 -> Q6_K -> Q5_K -> Q4_K -> Q5_0 -> Q4_0
+    # (largest -> smallest; K-quants in between the legacy block quants).
     variants = []
     if "f32_size_bytes" in models:
         variants.append(("F32",  "f32_size_bytes", "cpp_f32"))
     if "q8_size_bytes"  in models:
         variants.append(("Q8_0", "q8_size_bytes",  "cpp_q8"))
+    if "q6K_size_bytes" in models:
+        variants.append(("Q6_K", "q6K_size_bytes", "cpp_q6K"))
+    if "q5K_size_bytes" in models:
+        variants.append(("Q5_K", "q5K_size_bytes", "cpp_q5K"))
+    if "q4K_size_bytes" in models:
+        variants.append(("Q4_K", "q4K_size_bytes", "cpp_q4K"))
     if "q5_size_bytes"  in models:
         variants.append(("Q5_0", "q5_size_bytes",  "cpp_q5"))
     if "q4_size_bytes"  in models:
         variants.append(("Q4_0", "q4_size_bytes",  "cpp_q4"))
 
-    # Skip the plot if Q4 / Q5 aren't present — nothing new to say vs the
-    # F32-vs-Q8_0 panel.
-    if not any(v[2] in ("cpp_q5", "cpp_q4") for v in variants):
-        print("  [skip] no Q4 / Q5 data — quant_tradeoffs plot adds no info")
+    # Skip the plot if no auxiliary quants are present — nothing new to say
+    # vs the F32-vs-Q8_0 panel.
+    AUX = ("cpp_q5", "cpp_q4", "cpp_q6K", "cpp_q5K", "cpp_q4K")
+    if not any(v[2] in AUX for v in variants):
+        print("  [skip] no auxiliary quant data — quant_tradeoffs plot adds no info")
         return
 
     fig, (axL, axR) = plt.subplots(1, 2, figsize=(13.5, 5.5),
@@ -528,7 +549,8 @@ def plot_quant_tradeoffs(data: dict, out_dir: Path):
     axR.set_title("Detection accuracy per quant variant", fontsize=11, color="#222")
 
     fig.suptitle(
-        "Quant tradeoff — Q8_0 is the sweet spot; below 8 bits accuracy drops faster than size",
+        "Quant tradeoff — K-quants keep accuracy at ~3.5x compression "
+        "(legacy Q4_0 falls off the cliff)",
         fontsize=14, fontweight="bold", y=0.99,
     )
     fig.tight_layout(rect=[0, 0, 1, 0.94])

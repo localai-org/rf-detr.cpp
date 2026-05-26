@@ -65,26 +65,41 @@ tighten the cumulative number.
 
 12/12 detections match in class, with no false positives or negatives.
 
-### Quantization (Q8_0)
+### Quantization (Q8_0 + K-quants)
 
-Pass `--dtype q8_0` to the converter to write a Q8_0 GGUF. Only 2D linear
-weights with both dims ≥ 64 are quantized; LayerNorm params, biases, conv
-kernels, layer-scale gammas, and embeddings stay F32.
+Pass `--dtype q8_0` to the Python converter to write a Q8_0 GGUF. Only
+2D linear weights with both dims ≥ 64 are quantized; LayerNorm params,
+biases, conv kernels, layer-scale gammas, and embeddings stay F32.
 
 | Model               | Size  | Compression | Detections | Class mismatches |
 |---------------------|-------|-------------|------------|------------------|
 | rfdetr-base-f32     | 120 MB | 1.0x       | 12         | 0                |
 | rfdetr-base-q8_0    |  39 MB | 3.08x      | 12         | 0                |
 
-Same kitchen image; max score Δ < 0.02, max box Δ < 1 px. ggml's CPU backend
-handles F32 × Q8_0 `mul_mat` natively, so the loader and module code are
-unchanged — only the converter writes Q8_0 blocks.
+Same kitchen image; max score Δ < 0.02, max box Δ < 1 px. ggml's CPU
+backend handles F32 × Q8_0 `mul_mat` natively, so the loader and module
+code are unchanged — only the converter writes Q8_0 blocks.
 
-The converter also supports `q4_0`, `q4_1`, `q5_0`, `q5_1` for users who
-need a smaller disk footprint (down to ~25 MB at q4_0, **4.8× compression**).
-The sub-8-bit variants are not faster on CPU and Q4_0 drops ~11% of
-detections — see `BENCHMARK.md → "What about 4-bit?"` for the full
-size/speed/accuracy tradeoff. **Q8_0 remains the recommended quant.**
+For sub-Q8 footprints, **use the C++ quantizer** — it supports the full
+ggml set including K-quants (which the Python `gguf` package can't write):
+
+```sh
+# K-quants — the recommended sub-Q8 path.
+build/bin/rfdetr-cli quantize models/rfdetr-base-f32.gguf \
+    models/rfdetr-base-q6_K.gguf q6_K    # ~36 MB, detection-identical to Q8_0
+build/bin/rfdetr-cli quantize models/rfdetr-base-f32.gguf \
+    models/rfdetr-base-q4_K.gguf q4_K    # ~32 MB, beats legacy Q4_0 by 2× on Δscore
+```
+
+Legacy block quants (`q4_0`, `q4_1`, `q5_0`, `q5_1`, `q8_0`) are still
+available through both the Python converter and the C++ quantizer; the
+two paths produce **byte-for-byte identical Q8_0 tensor data** (and
+differ in only 1-2 nibbles total across ~30 MB for Q4_0 / Q5_0, an
+FMA-rounding artifact that's documented as a known quirk in the upstream
+gguf package). Sub-Q8 variants don't speed up CPU inference on this
+model — see `BENCHMARK.md → "What about 4-bit?"` for the full
+size/speed/accuracy tradeoff. **Q8_0 remains the default; Q6_K is the
+recommended sub-Q8 option for size-constrained deployment.**
 
 ### Benchmark vs upstream Python
 
@@ -133,6 +148,11 @@ python3 scripts/convert_rfdetr_to_gguf.py \
 # Or Q8_0 (~39 MB, ~3.1x smaller, near-identical detections):
 python3 scripts/convert_rfdetr_to_gguf.py \
     --dtype q8_0 --output models/rfdetr-base-q8_0.gguf
+
+# Or re-quantize an existing F32 GGUF to any ggml type (incl. K-quants):
+./build/bin/rfdetr-cli quantize \
+    models/rfdetr-base-f32.gguf models/rfdetr-base-q6_K.gguf q6_K
+# Supported types: f32 | f16 | q4_0 | q4_1 | q5_0 | q5_1 | q8_0 | q4_K | q5_K | q6_K
 
 # Detect
 ./build/bin/rfdetr-cli detect \

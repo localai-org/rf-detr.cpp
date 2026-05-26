@@ -20,9 +20,19 @@ of quantizable linear weights):
   * q4_0 — 32-element blocks, F16 scale + 32 4-bit nibbles — ~5.6x
 
 K-quants (q4_K, q5_K, q6_K) are not exposed by the `gguf` Python package
-(NotImplementedError in gguf.quants.quantize_blocks), so we ship the legacy
-"round number" quants here. Q4_K would be the better story; revisit when the
-upstream gguf Python writer adds K-quant encoders.
+(NotImplementedError in gguf.quants.quantize_blocks). For K-quants, use
+the C++ quantizer instead — it links ggml directly and supports the full
+ggml type set:
+
+    build/bin/rfdetr-cli quantize models/rfdetr-base-f32.gguf \
+        models/rfdetr-base-q4_K.gguf q4_K
+
+Q8_0 output from this Python converter is byte-for-byte identical to the
+C++ output (no quant-rounding ambiguity). Q4_0 / Q5_0 outputs match in all
+but a handful of nibbles across the ~30 MB tensor blob — the Python path
+uses the gguf package's "FMA-cursed" reference whereas the C++ path uses
+ggml's own ref kernel (which is what runs at inference time). See
+BENCHMARK.md → "What about 4-bit?" for the full comparison.
 
 Format version: "2" (see docs/conversion.md).
 
