@@ -18,6 +18,18 @@ Cells run:
 - detections: one detect run per (impl, image) for accuracy cross-check
 
 Uses time.perf_counter and disables GC during timed Python sections.
+
+Two modes:
+- Default (legacy): cycles through (impl × image) cells in a single linear
+  sweep. Back-to-back C++ runs can heat the CPU, polluting measurements that
+  follow (PyTorch tends to suffer because it runs first per image, see git
+  history for the methodology hole this revealed).
+- --rigorous: round-robin per (image, impl) with a cooldown sleep between
+  cells, plus multiple full passes through the (impl × image) grid. The
+  per-cell median is then taken across passes (a trimmed-median when
+  passes >= 4) and the IQR (p25..p75) across passes is the reported error
+  bar. Python warmup+iters is still run inside one cell, with the cooldown
+  applied between cells. Use this for publication-quality numbers.
 """
 from __future__ import annotations
 
@@ -57,8 +69,12 @@ def parse_bench_stdout(text: str) -> dict:
 
 
 def run_cpp_bench(cli: Path, model: Path, image: Path,
-                  iters: int, warmup: int, threads: int) -> dict:
-    cmd = [
+                  iters: int, warmup: int, threads: int,
+                  taskset: str = "") -> dict:
+    cmd: list[str] = []
+    if taskset:
+        cmd = ["taskset", "-c", taskset]
+    cmd += [
         str(cli), "bench",
         "--model", str(model),
         "--input", str(image),
@@ -126,13 +142,13 @@ def time_one_python(model, img: Path, iters: int, warmup: int) -> tuple[list[flo
 
 
 def time_one_cpp(cli: Path, model: Path, img: Path, iters: int, warmup: int,
-                 threads: int) -> dict:
+                 threads: int, taskset: str = "") -> dict:
     """Single C++ bench call → returns full parsed dict (incl min/median/mean/max).
 
     We can't get per-iter, but min/median/max with iters>=15 gives reliable
     error bars. We also estimate p25/p75 from min/max assuming a tight dist.
     """
-    return run_cpp_bench(cli, model, img, iters, warmup, threads)
+    return run_cpp_bench(cli, model, img, iters, warmup, threads, taskset)
 
 
 def aggregate_python(ms_list: list[float]) -> dict:
@@ -160,6 +176,103 @@ def iou(a: list[float], b: list[float]) -> float:
     bb = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
     u = aa + bb - inter
     return inter / u if u > 0 else 0.0
+
+
+# ----------------------------------------------------------------------------
+# Rigorous-mode helpers
+# ----------------------------------------------------------------------------
+def trimmed_aggregate(ms_list: list[float], trim_pct: float = 0.10) -> dict:
+    """Drop top+bottom `trim_pct` of `ms_list` then compute median + IQR.
+
+    For per-iter Python data with 20+ samples this kills the bimodal cold-
+    iter / scheduler-jitter outliers that dominate min/max-based whiskers.
+
+    Returns the same fields as `aggregate_python` plus `trim_pct`, `n_trimmed`,
+    and an `iqr_pct` health metric (lower = more stable).
+    """
+    n = len(ms_list)
+    if n == 0:
+        return {"min_ms": 0.0, "p25_ms": 0.0, "median_ms": 0.0,
+                "p75_ms": 0.0, "mean_ms": 0.0, "max_ms": 0.0,
+                "raw_ms": [], "trim_pct": trim_pct, "n_trimmed": 0,
+                "iqr_pct": 0.0}
+    s = sorted(ms_list)
+    drop = int(n * trim_pct)
+    trimmed = s[drop:n - drop] if drop > 0 and n - 2 * drop >= 1 else s
+    t = len(trimmed)
+    median = trimmed[t // 2]
+    p25 = trimmed[t // 4] if t >= 4 else trimmed[0]
+    p75 = trimmed[(3 * t) // 4] if t >= 4 else trimmed[-1]
+    iqr_pct = ((p75 - p25) / median * 100.0) if median > 0 else 0.0
+    return {
+        "min_ms":    s[0],
+        "p25_ms":    p25,
+        "median_ms": median,
+        "p75_ms":    p75,
+        "mean_ms":   sum(trimmed) / t,
+        "max_ms":    s[-1],
+        "raw_ms":    ms_list,
+        "trim_pct":  trim_pct,
+        "n_trimmed": n - t,
+        "iqr_pct":   iqr_pct,
+    }
+
+
+def aggregate_across_passes(per_pass_cells: list[dict]) -> dict:
+    """Aggregate per-pass cell dicts into one canonical cell.
+
+    Each `per_pass_cells[i]` has {min_ms, median_ms, mean_ms, max_ms, ...}
+    from one bench call. We take the median across the per-pass medians
+    (no trim with passes <= 3, hard-min/max trim with passes >= 4) and
+    expose the per-pass set as `passes_medians`.
+
+    p25/p75 come from the per-pass medians directly (so they reflect
+    pass-to-pass thermal/scheduler stability, not within-call jitter).
+    """
+    if not per_pass_cells:
+        return {"min_ms": 0.0, "p25_ms": 0.0, "median_ms": 0.0,
+                "p75_ms": 0.0, "mean_ms": 0.0, "max_ms": 0.0,
+                "passes_medians": [], "iqr_pct": 0.0}
+    medians = sorted(float(c["median_ms"]) for c in per_pass_cells)
+    n = len(medians)
+    # With >=4 passes, drop one from each end before aggregating.
+    if n >= 4:
+        core = medians[1:-1]
+    else:
+        core = medians
+    m = len(core)
+    median = core[m // 2]
+    p25 = core[m // 4] if m >= 4 else core[0]
+    p75 = core[(3 * m) // 4] if m >= 4 else core[-1]
+    iqr_pct = ((p75 - p25) / median * 100.0) if median > 0 else 0.0
+    out = {
+        "min_ms":         min(float(c["min_ms"])    for c in per_pass_cells),
+        "p25_ms":         p25,
+        "median_ms":      median,
+        "p75_ms":         p75,
+        "mean_ms":        sum(float(c["mean_ms"]) for c in per_pass_cells) / n,
+        "max_ms":         max(float(c["max_ms"])    for c in per_pass_cells),
+        "passes_medians": medians,
+        "n_passes":       n,
+        "iqr_pct":        iqr_pct,
+    }
+    # Echo non-numeric fields (model/image/threads/iters) from the first cell.
+    for k in ("model", "image", "threads", "warmup", "iters",
+             "detections", "load_ms"):
+        if k in per_pass_cells[0]:
+            out[k] = per_pass_cells[0][k]
+    return out
+
+
+def cooldown_sleep(seconds: float, label: str = "") -> None:
+    """Sleep for thermal cooldown, with optional progress dot output."""
+    if seconds <= 0:
+        return
+    msg = f"[cooldown {seconds:.1f}s]"
+    if label:
+        msg = f"[cooldown {seconds:.1f}s after {label}]"
+    print(msg, file=sys.stderr, flush=True)
+    time.sleep(seconds)
 
 
 def match_detections(py_dets: list[dict], cpp_dets: list[dict],
@@ -234,6 +347,29 @@ def main() -> int:
     ap.add_argument("--variant-sweep-image", default="coco_kitchen.jpg",
                     help="image to use for the per-variant timing sweep "
                          "(also used for detection counts in plots)")
+    # ---- rigorous mode -----------------------------------------------------
+    ap.add_argument("--rigorous", action="store_true",
+                    help="Use the rigorous methodology: round-robin per "
+                         "(image, impl), cooldown sleep between cells, and N "
+                         "full passes through the (impl × image) grid. Final "
+                         "per-cell numbers are aggregated across passes "
+                         "(median-of-medians + IQR from per-pass medians). "
+                         "Recommended for publication-quality data; defaults "
+                         "(legacy linear sweep) are kept for back-compat.")
+    ap.add_argument("--cooldown", type=float, default=8.0,
+                    help="seconds to sleep between cells in rigorous mode "
+                         "(default 8.0) — lets the CPU return toward baseline "
+                         "temperature between impls and images")
+    ap.add_argument("--passes", type=int, default=3,
+                    help="number of full round-robin passes through the "
+                         "(impl × image) grid in rigorous mode (default 3); "
+                         "averaging across passes cancels monotonic thermal "
+                         "drift and dual-CCD scheduler jitter")
+    ap.add_argument("--taskset", default="",
+                    help="optional taskset CPU mask/range for C++ runs in "
+                         "rigorous mode (e.g. '0-15' to pin to one CCD on "
+                         "9950X3D). Empty = no pinning. Python isn't pinned "
+                         "(rfdetr's torch threads ignore the outer cpuset).")
     args = ap.parse_args()
 
     cli  = Path(args.cli)
@@ -280,6 +416,42 @@ def main() -> int:
         "threads_headline": args.threads,
         "thread_sweep": sweep_threads,
         "sweep_image": sweep_image.name,
+        "methodology": (
+            {
+                "mode":     "rigorous",
+                "passes":   args.passes,
+                "cooldown_seconds": args.cooldown,
+                "iters_per_cell":   args.iters,
+                "warmup_per_cell":  args.warmup,
+                "round_robin":      True,
+                "trim_pct_python":  0.10,
+                "passes_aggregate": "median-of-per-pass-medians; IQR from per-pass medians",
+                "taskset":          args.taskset or None,
+                "notes": (
+                    "Round-robin per (image, impl); cooldown sleep between "
+                    "every cell to keep the CPU near baseline temperature. "
+                    "Per-pass C++ medians come from rfdetr-cli bench's "
+                    "internal median over `iters` timed iterations after "
+                    "`warmup`. Python per-iter ms are trimmed top+bottom "
+                    "10% before computing the in-cell median, then per-pass "
+                    "medians are aggregated as above. The IQR reported per "
+                    "cell measures pass-to-pass stability, not within-call "
+                    "jitter, so it's a direct thermal/scheduler-jitter probe."
+                ),
+            }
+            if args.rigorous else
+            {
+                "mode":     "legacy-linear-sweep",
+                "iters_per_cell":   args.iters,
+                "warmup_per_cell":  args.warmup,
+                "notes": (
+                    "Single linear pass through (impl × image); no cooldown "
+                    "between cells. Back-to-back C++ runs may thermally "
+                    "pollute the PyTorch measurement that follows. Use "
+                    "--rigorous for publication-quality numbers."
+                ),
+            }
+        ),
         "platform": {
             "system":  platform.system(),
             "release": platform.release(),
@@ -328,94 +500,177 @@ def main() -> int:
         py_model = RFDETRBase()
 
     # -------- per-image headline timings (T=8 for C++, default Python threads) --------
-    for img in images:
-        print(f"\n=== headline: {img.name} ===", file=sys.stderr)
-        cell: dict = {"image": img.name}
+    # Build the (label, path, has-model) impl list used by both modes.
+    cpp_impls: list[tuple[str, Path]] = [("cpp_f32", f32)]
+    if have_f16: cpp_impls.append(("cpp_f16", f16))
+    cpp_impls.append(("cpp_q8", q8))
+    if have_q5:  cpp_impls.append(("cpp_q5", q5))
+    if have_q4:  cpp_impls.append(("cpp_q4", q4))
+    if have_q4K: cpp_impls.append(("cpp_q4K", q4K))
+    if have_q5K: cpp_impls.append(("cpp_q5K", q5K))
+    if have_q6K: cpp_impls.append(("cpp_q6K", q6K))
 
+    if args.rigorous:
+        # ---- Rigorous mode: round-robin per (image, impl), N passes,
+        #      cooldown between every cell. Aggregate per-pass medians.
+        print(f"\n=== RIGOROUS sweep: passes={args.passes} "
+              f"cooldown={args.cooldown}s iters={args.iters} warmup={args.warmup} "
+              f"taskset='{args.taskset or 'none'}' ===", file=sys.stderr)
+
+        # Per-cell accumulators: per_cell["coco_kitchen.jpg"]["cpp_f32"] = [pass1, pass2, ...]
+        per_cell: dict[str, dict[str, list[dict]]] = {
+            img.name: {} for img in images
+        }
+        # Python per-iter timings accumulated across passes (one flat list per image).
+        python_iter_ms: dict[str, list[float]] = {img.name: [] for img in images}
+        python_last_dets: dict[str, list[dict]] = {}
+
+        # Pin Python threads if rigorous (so torch doesn't oversubscribe; the
+        # legacy mode left this to user env, which led to inconsistent T).
         if py_model is not None:
-            print(f"[python] warmup={args.warmup}, iters={args.iters}", file=sys.stderr)
-            ms_list, py_dets = time_one_python(py_model, img, args.iters, args.warmup)
-            cell["python"] = aggregate_python(ms_list)
-            data["detections"].setdefault(img.name, {})["python"] = py_dets
-            print(f"[python] median={cell['python']['median_ms']:.1f} ms "
-                  f"min={cell['python']['min_ms']:.1f} max={cell['python']['max_ms']:.1f}",
-                  file=sys.stderr)
+            import torch
+            torch.set_num_threads(args.threads)
+            print(f"[python] torch.set_num_threads({args.threads})", file=sys.stderr)
 
-        print(f"[cpp_f32 T={args.threads}]", file=sys.stderr)
-        cell["cpp_f32"] = time_one_cpp(cli, f32, img, args.iters, args.warmup, args.threads)
-        print(f"[cpp_f32] median={cell['cpp_f32']['median_ms']:.1f} ms "
-              f"min={cell['cpp_f32']['min_ms']:.1f} max={cell['cpp_f32']['max_ms']:.1f}",
+        for pass_idx in range(args.passes):
+            print(f"\n--- pass {pass_idx + 1}/{args.passes} ---", file=sys.stderr)
+            for img in images:
+                # Python arm first (so we get the same cooldown discipline as C++).
+                if py_model is not None:
+                    print(f"[pass {pass_idx+1}] [python] {img.name} "
+                          f"warmup={args.warmup} iters={args.iters}",
+                          file=sys.stderr)
+                    ms_list, py_dets = time_one_python(
+                        py_model, img, args.iters, args.warmup)
+                    python_iter_ms[img.name].extend(ms_list)
+                    python_last_dets[img.name] = py_dets
+                    s = sorted(ms_list)
+                    print(f"  pass median={s[len(s)//2]:.1f} ms "
+                          f"min={s[0]:.1f} max={s[-1]:.1f}", file=sys.stderr)
+                    cooldown_sleep(args.cooldown, f"pass{pass_idx+1}/{img.name}/python")
+
+                for label, path in cpp_impls:
+                    print(f"[pass {pass_idx+1}] [{label} T={args.threads}] {img.name}",
+                          file=sys.stderr)
+                    cell_pass = time_one_cpp(
+                        cli, path, img, args.iters, args.warmup,
+                        args.threads, taskset=args.taskset)
+                    per_cell[img.name].setdefault(label, []).append(cell_pass)
+                    print(f"  pass median={cell_pass['median_ms']:.1f} ms "
+                          f"min={cell_pass['min_ms']:.1f} "
+                          f"max={cell_pass['max_ms']:.1f}", file=sys.stderr)
+                    cooldown_sleep(args.cooldown,
+                                   f"pass{pass_idx+1}/{img.name}/{label}")
+
+            # Persist partial progress after every pass (so a crash mid-bench
+            # doesn't lose the data we already have).
+            partial = {}
+            for img_name, impl_passes in per_cell.items():
+                cell: dict = {"image": img_name}
+                for impl, passes_list in impl_passes.items():
+                    if passes_list:
+                        cell[impl] = aggregate_across_passes(passes_list)
+                if python_iter_ms.get(img_name):
+                    cell["python"] = trimmed_aggregate(python_iter_ms[img_name])
+                partial[img_name] = cell
+            data["per_image"] = partial
+            out_path.write_text(json.dumps(data, indent=2))
+
+        # Final aggregate.
+        for img in images:
+            cell = {"image": img.name}
+            for impl, passes_list in per_cell[img.name].items():
+                cell[impl] = aggregate_across_passes(passes_list)
+            if python_iter_ms.get(img.name):
+                cell["python"] = trimmed_aggregate(python_iter_ms[img.name])
+                data["detections"].setdefault(img.name, {})["python"] = \
+                    python_last_dets.get(img.name, [])
+            data["per_image"][img.name] = cell
+
+            # Per-cell IQR sanity print
+            for impl in ["python"] + [l for l, _ in cpp_impls]:
+                if impl in cell and isinstance(cell[impl], dict) and "iqr_pct" in cell[impl]:
+                    iqr = cell[impl]["iqr_pct"]
+                    med = cell[impl]["median_ms"]
+                    flag = "" if iqr < 10 else "  [HIGH-IQR]"
+                    print(f"  {img.name:25s} {impl:8s} "
+                          f"median={med:6.1f} ms  IQR={iqr:4.1f}%{flag}",
+                          file=sys.stderr)
+
+        # One-shot detection run for the cross-check (correctness data only —
+        # one run per cell is fine for this).
+        print("\n=== detections (single run per cell, for accuracy cross-check) ===",
               file=sys.stderr)
+        for img in images:
+            data["detections"].setdefault(img.name, {})
+            print(f"[detect cpp_f32] {img.name}", file=sys.stderr)
+            data["detections"][img.name]["cpp_f32"] = run_cpp_detect(cli, f32, img, args.threads)
+            if have_f16:
+                print(f"[detect cpp_f16] {img.name}", file=sys.stderr)
+                data["detections"][img.name]["cpp_f16"] = run_cpp_detect(cli, f16, img, args.threads)
+            print(f"[detect cpp_q8 ] {img.name}", file=sys.stderr)
+            data["detections"][img.name]["cpp_q8"] = run_cpp_detect(cli, q8, img, args.threads)
+            if have_q5:
+                data["detections"][img.name]["cpp_q5"] = run_cpp_detect(cli, q5, img, args.threads)
+            if have_q4:
+                data["detections"][img.name]["cpp_q4"] = run_cpp_detect(cli, q4, img, args.threads)
+            for label, path, have in [
+                ("cpp_q4K", q4K, have_q4K),
+                ("cpp_q5K", q5K, have_q5K),
+                ("cpp_q6K", q6K, have_q6K),
+            ]:
+                if have:
+                    data["detections"][img.name][label] = run_cpp_detect(cli, path, img, args.threads)
 
-        if have_f16:
-            print(f"[cpp_f16 T={args.threads}]", file=sys.stderr)
-            cell["cpp_f16"] = time_one_cpp(cli, f16, img, args.iters, args.warmup, args.threads)
-            print(f"[cpp_f16] median={cell['cpp_f16']['median_ms']:.1f} ms "
-                  f"min={cell['cpp_f16']['min_ms']:.1f} max={cell['cpp_f16']['max_ms']:.1f}",
-                  file=sys.stderr)
-
-        print(f"[cpp_q8  T={args.threads}]", file=sys.stderr)
-        cell["cpp_q8"]  = time_one_cpp(cli, q8,  img, args.iters, args.warmup, args.threads)
-        print(f"[cpp_q8 ] median={cell['cpp_q8']['median_ms']:.1f} ms "
-              f"min={cell['cpp_q8']['min_ms']:.1f} max={cell['cpp_q8']['max_ms']:.1f}",
-              file=sys.stderr)
-
-        if have_q5:
-            print(f"[cpp_q5  T={args.threads}]", file=sys.stderr)
-            cell["cpp_q5"]  = time_one_cpp(cli, q5,  img, args.iters, args.warmup, args.threads)
-            print(f"[cpp_q5 ] median={cell['cpp_q5']['median_ms']:.1f} ms "
-                  f"min={cell['cpp_q5']['min_ms']:.1f} max={cell['cpp_q5']['max_ms']:.1f}",
-                  file=sys.stderr)
-        if have_q4:
-            print(f"[cpp_q4  T={args.threads}]", file=sys.stderr)
-            cell["cpp_q4"]  = time_one_cpp(cli, q4,  img, args.iters, args.warmup, args.threads)
-            print(f"[cpp_q4 ] median={cell['cpp_q4']['median_ms']:.1f} ms "
-                  f"min={cell['cpp_q4']['min_ms']:.1f} max={cell['cpp_q4']['max_ms']:.1f}",
-                  file=sys.stderr)
-        for label, path, have in [
-            ("cpp_q4K", q4K, have_q4K),
-            ("cpp_q5K", q5K, have_q5K),
-            ("cpp_q6K", q6K, have_q6K),
-        ]:
-            if not have:
-                continue
-            print(f"[{label}  T={args.threads}]", file=sys.stderr)
-            cell[label] = time_one_cpp(cli, path, img, args.iters, args.warmup, args.threads)
-            print(f"[{label}] median={cell[label]['median_ms']:.1f} ms "
-                  f"min={cell[label]['min_ms']:.1f} max={cell[label]['max_ms']:.1f}",
-                  file=sys.stderr)
-
-        # detections (single run each)
-        if "detections" not in data:
-            data["detections"] = {}
-        data["detections"].setdefault(img.name, {})
-        print(f"[detect cpp_f32]", file=sys.stderr)
-        data["detections"][img.name]["cpp_f32"] = run_cpp_detect(cli, f32, img, args.threads)
-        if have_f16:
-            print(f"[detect cpp_f16]", file=sys.stderr)
-            data["detections"][img.name]["cpp_f16"] = run_cpp_detect(cli, f16, img, args.threads)
-        print(f"[detect cpp_q8 ]", file=sys.stderr)
-        data["detections"][img.name]["cpp_q8" ] = run_cpp_detect(cli, q8,  img, args.threads)
-        if have_q5:
-            print(f"[detect cpp_q5 ]", file=sys.stderr)
-            data["detections"][img.name]["cpp_q5" ] = run_cpp_detect(cli, q5, img, args.threads)
-        if have_q4:
-            print(f"[detect cpp_q4 ]", file=sys.stderr)
-            data["detections"][img.name]["cpp_q4" ] = run_cpp_detect(cli, q4, img, args.threads)
-        for label, path, have in [
-            ("cpp_q4K", q4K, have_q4K),
-            ("cpp_q5K", q5K, have_q5K),
-            ("cpp_q6K", q6K, have_q6K),
-        ]:
-            if not have:
-                continue
-            print(f"[detect {label}]", file=sys.stderr)
-            data["detections"][img.name][label] = run_cpp_detect(cli, path, img, args.threads)
-
-        data["per_image"][img.name] = cell
-
-        # Persist after each image so progress isn't lost
         out_path.write_text(json.dumps(data, indent=2))
+
+    else:
+        # ---- Legacy mode (the original linear sweep) ------------------------
+        for img in images:
+            print(f"\n=== headline: {img.name} ===", file=sys.stderr)
+            cell: dict = {"image": img.name}
+
+            if py_model is not None:
+                print(f"[python] warmup={args.warmup}, iters={args.iters}", file=sys.stderr)
+                ms_list, py_dets = time_one_python(py_model, img, args.iters, args.warmup)
+                cell["python"] = aggregate_python(ms_list)
+                data["detections"].setdefault(img.name, {})["python"] = py_dets
+                print(f"[python] median={cell['python']['median_ms']:.1f} ms "
+                      f"min={cell['python']['min_ms']:.1f} max={cell['python']['max_ms']:.1f}",
+                      file=sys.stderr)
+
+            for label, path in cpp_impls:
+                print(f"[{label} T={args.threads}]", file=sys.stderr)
+                cell[label] = time_one_cpp(cli, path, img, args.iters,
+                                            args.warmup, args.threads)
+                print(f"[{label}] median={cell[label]['median_ms']:.1f} ms "
+                      f"min={cell[label]['min_ms']:.1f} "
+                      f"max={cell[label]['max_ms']:.1f}", file=sys.stderr)
+
+            # detections (single run each)
+            data["detections"].setdefault(img.name, {})
+            print(f"[detect cpp_f32]", file=sys.stderr)
+            data["detections"][img.name]["cpp_f32"] = run_cpp_detect(cli, f32, img, args.threads)
+            if have_f16:
+                print(f"[detect cpp_f16]", file=sys.stderr)
+                data["detections"][img.name]["cpp_f16"] = run_cpp_detect(cli, f16, img, args.threads)
+            print(f"[detect cpp_q8 ]", file=sys.stderr)
+            data["detections"][img.name]["cpp_q8" ] = run_cpp_detect(cli, q8,  img, args.threads)
+            if have_q5:
+                data["detections"][img.name]["cpp_q5" ] = run_cpp_detect(cli, q5, img, args.threads)
+            if have_q4:
+                data["detections"][img.name]["cpp_q4" ] = run_cpp_detect(cli, q4, img, args.threads)
+            for label, path, have in [
+                ("cpp_q4K", q4K, have_q4K),
+                ("cpp_q5K", q5K, have_q5K),
+                ("cpp_q6K", q6K, have_q6K),
+            ]:
+                if have:
+                    data["detections"][img.name][label] = run_cpp_detect(cli, path, img, args.threads)
+
+            data["per_image"][img.name] = cell
+            # Persist after each image so progress isn't lost
+            out_path.write_text(json.dumps(data, indent=2))
 
     # -------- thread sweep on ONE image --------
     if not args.skip_sweep:
@@ -425,6 +680,9 @@ def main() -> int:
                  "cpp_f32": {}, "cpp_q8": {}, "python": {}}
         if have_f16:
             sweep["cpp_f16"] = {}
+
+        sweep_cooldown = args.cooldown if args.rigorous else 0.0
+        sweep_taskset  = args.taskset if args.rigorous else ""
 
         # Python doesn't expose a thread knob via predict(); torch reads
         # OMP_NUM_THREADS / MKL_NUM_THREADS at import time. To probe scaling
@@ -437,29 +695,39 @@ def main() -> int:
                 # interop threads stay at default; matmul threads is what matters
                 ms_list, _ = time_one_python(py_model, sweep_image,
                                               args.iters, args.warmup)
-                sweep["python"][str(n)] = aggregate_python(ms_list)
+                sweep["python"][str(n)] = (
+                    trimmed_aggregate(ms_list) if args.rigorous
+                    else aggregate_python(ms_list)
+                )
                 print(f"  median={sweep['python'][str(n)]['median_ms']:.1f} ms",
                       file=sys.stderr)
+                cooldown_sleep(sweep_cooldown, f"sweep python T={n}")
 
         for n in sweep_threads:
             print(f"[cpp_f32 T={n}]", file=sys.stderr)
             sweep["cpp_f32"][str(n)] = time_one_cpp(
-                cli, f32, sweep_image, args.iters, args.warmup, n)
+                cli, f32, sweep_image, args.iters, args.warmup, n,
+                taskset=sweep_taskset)
             print(f"  median={sweep['cpp_f32'][str(n)]['median_ms']:.1f} ms",
                   file=sys.stderr)
+            cooldown_sleep(sweep_cooldown, f"sweep cpp_f32 T={n}")
         if have_f16:
             for n in sweep_threads:
                 print(f"[cpp_f16 T={n}]", file=sys.stderr)
                 sweep["cpp_f16"][str(n)] = time_one_cpp(
-                    cli, f16, sweep_image, args.iters, args.warmup, n)
+                    cli, f16, sweep_image, args.iters, args.warmup, n,
+                    taskset=sweep_taskset)
                 print(f"  median={sweep['cpp_f16'][str(n)]['median_ms']:.1f} ms",
                       file=sys.stderr)
+                cooldown_sleep(sweep_cooldown, f"sweep cpp_f16 T={n}")
         for n in sweep_threads:
             print(f"[cpp_q8  T={n}]", file=sys.stderr)
             sweep["cpp_q8"][str(n)] = time_one_cpp(
-                cli, q8, sweep_image, args.iters, args.warmup, n)
+                cli, q8, sweep_image, args.iters, args.warmup, n,
+                taskset=sweep_taskset)
             print(f"  median={sweep['cpp_q8'][str(n)]['median_ms']:.1f} ms",
                   file=sys.stderr)
+            cooldown_sleep(sweep_cooldown, f"sweep cpp_q8 T={n}")
 
         data["thread_sweep"] = sweep
         out_path.write_text(json.dumps(data, indent=2))

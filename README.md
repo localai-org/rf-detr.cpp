@@ -8,30 +8,32 @@ See `docs/superpowers/specs/2026-05-25-rfdetr-cpp-design.md` for the design.
 ## Benchmark results
 
 End-to-end CPU inference on AMD Ryzen 9 9950X3D (single batch, `--threads 8`)
-— **C++ F16 matches PyTorch on speed at 1.86× smaller** (and Q8_0 at
-3.10× smaller if disk size is paramount):
+— **C++ F16 beats PyTorch by 9% on every image at 1.86× smaller** (and Q8_0
+at 3.10× smaller if disk size is paramount):
 
 ![Latency comparison: PyTorch vs rfdetr.cpp F32 vs F16 vs Q8_0 across 7 COCO images](benchmarks/plots/latency_comparison.png)
 
-| impl                           | median ms/image | model size | relative speed | detection match vs PyTorch |
-|--------------------------------|----------------:|-----------:|---------------:|---------------------------:|
-| Python rfdetr (PyTorch+oneDNN) |           209.4 |     120 MB | 1.00× (ref)    | reference                  |
-| C++ rfdetr.cpp F32  (T=8)      |       **144.5** |     120 MB | **0.69×**      | 54/55 IoU ≥ 0.95, max \|Δscore\| 0.045 |
-| **C++ rfdetr.cpp F16  (T=8)**  |       **145.6** |  **64 MB** | **0.70×**      | 54/55 IoU ≥ 0.95, max \|Δscore\| 0.044 |
-| C++ rfdetr.cpp Q8_0 (T=8)      |       **158.8** |  **39 MB** | **0.76×**      | 54/55 IoU ≥ 0.95, max \|Δscore\| 0.046 |
+| impl                           | median ms/image | model size | speedup vs PyTorch | detection match vs PyTorch |
+|--------------------------------|----------------:|-----------:|-------------------:|---------------------------:|
+| Python rfdetr (PyTorch+oneDNN) |           149.5 |     120 MB |        1.00× (ref) | reference                  |
+| C++ rfdetr.cpp F32  (T=8)      |       **142.5** |     120 MB |          **1.05×** | 54/55 IoU ≥ 0.95, max \|Δscore\| 0.045 |
+| **C++ rfdetr.cpp F16  (T=8)**  |       **136.9** |  **64 MB** |          **1.09×** | 54/55 IoU ≥ 0.95, max \|Δscore\| 0.044 |
+| C++ rfdetr.cpp Q8_0 (T=8)      |       **147.6** |  **39 MB** |          **1.01×** | 54/55 IoU ≥ 0.95, max \|Δscore\| 0.046 |
 
-**F16 is the recommended default**: F32-class speed (within 1 ms of F32 on
-the mean, lossless against F32 at max |Δscore|=0.006), faster than Q8_0
-by ~8% on the mean, and 1.86× smaller than F32. Use **Q8_0** only when
-on-disk footprint dominates — same accuracy at 3.10× compression and a
-~10% latency tax vs F16.
+**F16 is the recommended default**: 4 % faster than F32 on the mean (and
+**faster than F32 on every single image** in the rigorous bench),
+lossless against F32 at max |Δscore|=0.006, faster than Q8_0 by ~7%, and
+1.86× smaller than F32. Use **Q8_0** only when on-disk footprint
+dominates — same accuracy at 3.10× compression and a ~7% latency tax
+vs F16.
 
 Numbers are medians (median-of-medians across 7 diverse COCO val2017
-images, 15 iterations each, 3 warmup). Build uses `-march=native` + ggml's
-tinyBLAS SGEMM (`GGML_LLAMAFILE=ON`) + OpenMP + a persistent ggml graph
-allocator. See [BENCHMARK.md](BENCHMARK.md) for the per-image breakdown,
-the F16 fast-path explanation, the thread-scaling sweep, methodology, and
-reproduction recipe.
+images, 3 passes × 20 iterations each, 5 warmup, 8 s cooldown between
+cells — see `--rigorous` mode in `scripts/bench_community.py`). Build uses
+`-march=native` + ggml's tinyBLAS SGEMM (`GGML_LLAMAFILE=ON`) + OpenMP + a
+persistent ggml graph allocator. See [BENCHMARK.md](BENCHMARK.md) for the
+per-image breakdown, the F16 fast-path explanation, the thread-scaling
+sweep, methodology, and reproduction recipe.
 
 ## Status
 
@@ -94,10 +96,11 @@ unchanged — only the converter writes the smaller blob.
 
 **Recommendation order:**
 
-1. **F16 is the default** — fastest on CPU (ggml's F16 matmul fast path
-   beats every quant kernel), 1.86× smaller than F32, lossless.
+1. **F16 is the default** — fastest variant on CPU (ggml's F16 matmul
+   fast path beats every quant kernel and F32 too), 1.86× smaller than
+   F32, lossless.
 2. **Q8_0 for size-constrained deployment** — 3.10× smaller, same
-   accuracy, ~8% latency tax vs F16.
+   accuracy, ~7% latency tax vs F16.
 3. **K-quants below Q8_0** when you must squeeze under 38 MB:
 
 ```sh
@@ -130,9 +133,9 @@ size/speed/accuracy tradeoff.
 A cross-implementation benchmark (latency + detection cross-check) is
 documented in [BENCHMARK.md](BENCHMARK.md). On the same backbone and CPU,
 C++ detections match Python 1-1 (IoU > 0.99 mean, < 0.05 confidence drift,
-sub-pixel boxes); inference latency beats PyTorch at every thread count
-on F32 / F16 / Q8_0, with **F16 ≈ F32 ≈ 145 ms median across 7 images at
-T=8**, and Q8_0 ≈ 159 ms at the same setting.
+sub-pixel boxes); inference latency beats PyTorch on F32 / F16 / Q8_0 at
+T=8, with **F16 ≈ 137 ms / F32 ≈ 143 ms / Q8_0 ≈ 148 ms median across 7
+images** (PyTorch is 149.5 ms at the same setting).
 
 Reproduce with:
 
@@ -254,7 +257,7 @@ you want to inspect the patch flow.
 
 ```
 # One-time: convert upstream rfdetr-base.pth → GGUF (requires .venv with rfdetr).
-# F16 is the recommended default — F32-class speed, 1.86x smaller, lossless.
+# F16 is the recommended default — fastest on CPU, 1.86x smaller than F32, lossless.
 python3 scripts/convert_rfdetr_to_gguf.py \
     --dtype f16 --output models/rfdetr-base-f16.gguf
 

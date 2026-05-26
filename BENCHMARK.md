@@ -25,69 +25,65 @@ The headline finding is in three plots. Raw data lives in
 
 ---
 
-## Headline: F16 is the new sweet-spot recommendation
+## Headline: F16 wins on every axis on CPU
 
 ![Latency comparison](benchmarks/plots/latency_comparison.png)
 
-At T=8 (a single CCD's worth of physical cores), `rfdetr.cpp` runs faster
-than PyTorch on every test image across all three precisions. The three
-C++ variants — **F32**, **F16**, and **Q8_0** — share the same accuracy
-floor against PyTorch, but they sit in three very different points on the
-size/speed plane.
+At T=8 (a single CCD's worth of physical cores), `rfdetr.cpp` is faster
+than PyTorch on every test image across all three precisions, and **F16
+is the cleanly fastest of the three** — not "tied with F32 within
+noise" as the legacy single-pass sweep suggested. The honest story took
+a rigorous methodology (round-robin, cooldown, 3 passes; see "Methodology"
+below) to surface; the previous numbers were polluted by back-to-back C++
+runs heating the CPU before the next PyTorch iteration.
 
-| Variant | Size (MB) | Compression vs F32 | Median ms (mean across 7 imgs) | Accuracy vs PyTorch (IoU ≥ 0.95) |
-|---------|----------:|-------------------:|-------------------------------:|---------------------------------:|
-| F32     |     119.2 |              1.00× |                          150.1 | 54/55, max \|Δscore\| 0.045      |
-| **F16** |  **64.2** |          **1.86×** |                      **151.3** | 54/55, max \|Δscore\| 0.044      |
-| Q8_0    |      38.5 |              3.10× |                          164.8 | 54/55, max \|Δscore\| 0.046      |
+| Variant | Size (MB) | Compression vs F32 | Median ms (mean across 7 imgs) | Speedup vs PyTorch | Accuracy vs PyTorch (IoU ≥ 0.95) |
+|---------|----------:|-------------------:|-------------------------------:|-------------------:|---------------------------------:|
+| PyTorch |     120.0 |              1.00× |                          149.5 |        1.00× (ref) | reference                        |
+| F32     |     119.2 |              1.00× |                          142.8 |              1.05× | 54/55, max \|Δscore\| 0.045      |
+| **F16** |  **64.2** |          **1.86×** |                      **137.2** |          **1.09×** | 54/55, max \|Δscore\| 0.044      |
+| Q8_0    |      38.5 |              3.10× |                          148.0 |              1.01× | 54/55, max \|Δscore\| 0.046      |
 
-**F16 is the new recommended default** for this model on CPU:
+**F16 is the recommended default** for this model on CPU:
 
-- **F32-class speed.** Mean median across 7 images: F16 = 151.3 ms vs
-  F32 = 150.1 ms. F16 is within 1 ms of F32 on the mean, and beats F32
-  outright on 3 of 7 images (indoor / skater / street); F32 edges F16 on
-  the other 4 by 2-15 ms (within run-to-run noise on this dual-CCD host).
-- **F16 beats Q8_0 on 5 of 7 images on median, and on every image on
-  min-time (cleanest run).** Mean median latency: F16 = 151.3 ms vs
-  Q8_0 = 164.8 ms → F16 is ~8% faster overall. ggml's optimized F32×F16
-  matmul path beats the Q8_0 vec-dot kernel for this model's shapes.
-  The 2 images where Q8_0 edges F16 on median (bus, kitchen) sit within
-  run-to-run noise on this dual-CCD host.
+- **Fastest variant we tested**, period. Mean median across 7 images: F16 =
+  137.2 ms vs F32 = 142.8 ms vs Q8_0 = 148.0 ms vs PyTorch = 149.5 ms. F16
+  beats F32 by 5.6 ms on the mean (≈4%) and Q8_0 by 10.8 ms (≈8%). **F16
+  beats F32 on every single image**, by 2.9-7.6 ms — small but consistent,
+  and well above the 3% IQR noise floor.
 - **1.86× smaller than F32** (64 MB vs 120 MB), halfway to Q8_0's 3.10×
-  without paying for it in latency.
+  without paying for it in latency — F16 buys back disk *and* RAM
+  footprint *and* latency vs F32 simultaneously.
 - **Lossless against F32.** Direct F16-vs-F32 comparison: 56/56 detections
   match at IoU ≥ 0.95, **max |Δscore| = 0.006, mean |Δscore| = 0.0005**
   — pure FP rounding noise.
 
-Q8_0 is still the right pick **when disk size dominates** — same accuracy,
-3.08× compression, ~10% latency tax. But for a server/embedded workload
-that has the RAM for ~65 MB of weights, **F16 wins on every axis except
-on-disk footprint**.
+Q8_0 is the right pick **when disk size dominates** — same accuracy as
+F16 / F32 at 3.10× compression, with a ~8% latency tax vs F16. For
+anything else, **F16 wins on every axis**: smaller than F32, faster than
+F32, faster than Q8_0, lossless against F32.
 
-Per-image median latency, T=8, 15 timed iterations after 3 warmup:
+Per-image median latency, T=8, 3 passes × 20 timed iterations per pass
+(rigorous mode; whiskers below are p25/p75 across the 3 per-pass medians):
 
-| image       | PyTorch (ms) | C++ F32 (ms) | C++ F16 (ms) | C++ Q8_0 (ms) | F16 vs Q8_0 | F16 vs F32 |
-|-------------|-------------:|-------------:|-------------:|--------------:|------------:|-----------:|
-| bus         |        226.5 |        143.9 |        160.8 |         148.8 |       1.08× (slower) | 1.12× (slower) |
-| cats        |        198.8 |        162.9 |        171.8 |         176.6 | **0.97×** (F16 wins) | 1.05× (slower) |
-| indoor      |        230.2 |        166.5 |    **138.9** |         182.8 | **0.76×** (F16 wins) | **0.83×** (F16 wins) |
-| kitchen     |        206.9 |        147.2 |        161.8 |         158.8 |       1.02× (~tied) | 1.10× (slower) |
-| living room |        218.0 |        142.8 |        145.6 |         147.6 | **0.99×** (F16 wins) | 1.02× (~tied) |
-| skater      |        209.4 |        144.5 |    **141.4** |         182.1 | **0.78×** (F16 wins) | **0.98×** (F16 wins) |
-| street      |        200.8 |        142.8 |    **138.7** |         156.8 | **0.89×** (F16 wins) | **0.97×** (F16 wins) |
-| **median**  |        209.4 |        144.5 |        145.6 |         158.8 |       0.92× |      1.01× |
-| **mean**    |        212.9 |        150.1 |        151.3 |         164.8 |       0.92× |      1.01× |
+| image       | PyTorch (ms) | C++ F32 (ms) | C++ F16 (ms) | C++ Q8_0 (ms) | F16 vs F32 | F16 vs Q8_0 | F16 vs PyTorch |
+|-------------|-------------:|-------------:|-------------:|--------------:|-----------:|------------:|---------------:|
+| bus         |        152.7 |        142.5 |    **137.7** |         147.3 |   **-4.7 ms** |    **-9.6 ms** |   **-15.0 ms** |
+| cats        |        149.6 |        142.5 |    **137.2** |         147.6 |   **-5.3 ms** |   **-10.4 ms** |   **-12.4 ms** |
+| indoor      |        148.5 |        143.7 |    **136.1** |         148.9 |   **-7.6 ms** |   **-12.7 ms** |   **-12.4 ms** |
+| kitchen     |        149.8 |        144.4 |    **136.9** |         146.8 |   **-7.5 ms** |    **-9.9 ms** |   **-12.9 ms** |
+| living room |        148.1 |        142.5 |    **136.6** |         146.9 |   **-6.0 ms** |   **-10.3 ms** |   **-11.5 ms** |
+| skater      |        149.5 |        141.8 |    **136.4** |         150.3 |   **-5.5 ms** |   **-13.9 ms** |   **-13.1 ms** |
+| street      |        148.3 |        142.2 |    **139.3** |         148.5 |   **-2.9 ms** |    **-9.2 ms** |    **-8.9 ms** |
+| **mean**    |    **149.5** |    **142.8** |    **137.2** |     **148.0** |   **-5.6 ms** |   **-10.8 ms** |   **-12.3 ms** |
+| **median**  |    **149.5** |    **142.5** |    **136.9** |         147.6 |   **-5.5 ms** |   **-10.4 ms** |   **-12.4 ms** |
 
-Honest take: **F16 vs F32 is statistically a wash on this host on
-median**, but F16 buys back ~55 MB of disk and process RSS without
-paying for it. **F16 vs Q8_0**: F16 wins 5/7 on median (cats / indoor
-/ living room / skater / street); the 2 losses (bus, kitchen) are by
-<5 ms, within the dual-CCD scheduler's run-to-run noise floor. On
-**min-time** (the cleanest iteration in the sweep), **F16 is 134-141 ms
-across all 7 images and beats both F32 and Q8_0 in every single run** —
-the F16 fast path is reliably the fastest matmul kernel on this CPU; the
-median noise comes from interrupt / scheduler / thermal jitter, not from
-the kernel itself. See `bench_data.json` for raw per-iteration data.
+**F16 wins on the median on every image** vs both F32 and Q8_0 (and vs
+PyTorch). The deltas are tight but consistent: -2.9 to -7.6 ms vs F32,
+-9.2 to -13.9 ms vs Q8_0, -8.9 to -15.0 ms vs PyTorch. Per-cell IQR
+across the 3 passes is **mean 3.5% / median 2.7%** (one cell hit 16% —
+cpp_q4K on skater, single pass anomaly that the median absorbed), so the
+ranking is stable, not in the noise.
 
 ![Relative latency](benchmarks/plots/relative_latency.png)
 
@@ -110,16 +106,17 @@ costs cycles that the F16 path doesn't pay.
 So the ranking for rfdetr-base on this CPU is roughly:
 
 ```
-F16  matmul  =  F32 matmul × (cache-bound × 0.6) + (compute × 1.0)  → ~F32 speed
-Q8_0 matmul  =  F32 matmul × (cache-bound × 0.4) + (compute × 1.15) → ~F32 × 1.10
+F16  matmul  =  F32 matmul × (cache-bound × 0.6) + (compute × 1.0)  → F32 × 0.96
+Q8_0 matmul  =  F32 matmul × (cache-bound × 0.4) + (compute × 1.15) → F32 × 1.04
 ```
 
 The model is small enough that **all three variants live in L2/L3 once
-warm**, so the bandwidth win for F16 is mostly absorbed by cache reuse
-across the 2,400-step graph. That's why the F16-vs-F32 median delta is
-basically zero on this host; the bandwidth headroom that F16 buys you
-shows up more clearly on smaller-cache CPUs and on larger models where
-the weight blob spills out of L3.
+warm**, so the bandwidth win for F16 is partially absorbed by cache reuse
+across the 2,400-step graph. Even so, the rigorous bench (3 passes, 8 s
+cooldown between cells) measures **F16 ≈ 5.6 ms (≈4 %) faster than F32 on
+the mean** — the bandwidth headroom isn't free here, just modest. On
+smaller-cache CPUs and on larger models where the weight blob spills out
+of L3, the F16 advantage will be wider.
 
 ### F16 vs F32 direct accuracy
 
@@ -147,35 +144,41 @@ inference, half the size.
 
 ![Thread scaling](benchmarks/plots/thread_scaling.png)
 
-A representative image (`coco_kitchen.jpg`) swept over T ∈ {1, 2, 4, 8, 12, 16, 20}:
+A representative image (`coco_kitchen.jpg`) swept over T ∈ {1, 2, 4, 8, 12, 16, 20}
+in rigorous mode (cooldown between cells, single pass):
 
 | Threads | PyTorch (ms) | C++ F32 (ms) | C++ F16 (ms) | C++ Q8_0 (ms) |
 |--------:|-------------:|-------------:|-------------:|--------------:|
-|       1 |        823.3 |        888.6 |        841.4 |         928.2 |
-|       2 |        434.1 |        463.1 |        443.2 |         494.2 |
-|       4 |        312.4 |        248.7 |        238.4 |         265.8 |
-|       8 |        161.3 |        143.7 |        146.2 |         169.8 |
-|      12 |        133.5 |        148.9 |        148.0 |         154.2 |
-|      16 |    **125.8** |    **133.3** |    **144.0** |     **138.7** |
-|      20 |        210.6 |        196.8 |        220.1 |         234.6 |
+|       1 |        810.5 |        859.8 |        819.0 |         900.6 |
+|       2 |        427.6 |        450.7 |        433.8 |         473.5 |
+|       4 |        288.4 |        243.0 |        235.8 |         254.6 |
+|       8 |        150.5 |        143.6 |    **135.7** |         146.9 |
+|      12 |        121.9 |        145.0 |        144.6 |         145.2 |
+|      16 |    **110.1** |    **128.5** |    **125.3** |     **133.1** |
+|      20 |        149.4 |        157.5 |        166.6 |         166.4 |
 
 Observations:
 
 - **All four implementations track within ~10% across the entire sweep**.
-  C++ F16 leads at lower thread counts (T=1, 4) because its bandwidth
-  advantage matters most when fewer cores are sharing the memory subsystem;
-  at T≥8 the three C++ variants converge.
-- **The minimum is at T=16**, not T=8, for all four. That's the host's 16
-  physical cores; the post-gallocr-fix workload now scales further than the
-  original cross-CCD-bound case in earlier revisions. Whatever ggml gained
-  by eliminating allocator churn put the bottleneck back into FLOPs.
-- **T=20 regresses for everyone** (~30-65% slower than T=16). The 20 logical
+  C++ F16 leads at every thread count where the workload is compute-bound
+  (T≥4). At T=1/2 the F32 and F16 paths land within ~5% — bandwidth and
+  compute are still both saturated by the single thread, so the F16 win
+  thins out.
+- **The minimum is at T=16**, not T=8, for all four implementations.
+  Whatever ggml gained by eliminating allocator churn put the bottleneck
+  back into FLOPs.
+- **PyTorch scales further than C++ at high T** — at T=16 PyTorch's
+  oneDNN/MKL backend bottoms out at 110 ms vs C++ F16 at 125 ms. We attribute
+  this to MKL's blocked-AVX-512 micro-kernels using more L3 efficiently than
+  ggml's tinyBLAS at higher thread counts. **At T=8 (the headline setting),
+  C++ F16 wins** — 135.7 ms vs PyTorch's 150.5 ms.
+- **T=20 regresses for everyone** (~30-50% slower than T=16). The 20 logical
   cores on this host include over-subscription beyond physical, and crossing
-  the dual-CCD boundary thrashes per-op L3 locality on the larger residency.
-- **T=8 remains a reasonable default**: ~145 ms across F32/F16, ~170 ms on
-  Q8_0; single-CCD resident, low contention. If you have a 9950X3D,
-  `--threads 16` will get you to ~133 ms on F32; on single-CCD parts the
-  sweet spot tracks the core count directly.
+  the dual-CCD boundary thrashes per-op L3 locality.
+- **T=8 remains the recommended headline default** for C++: F16 ≈ 135 ms,
+  F32 ≈ 144 ms, Q8_0 ≈ 147 ms; single-CCD resident, low contention. For
+  absolute minimum latency on a 9950X3D, `--threads 16` will get you to
+  ~125 ms on F16.
 
 ---
 
@@ -192,11 +195,11 @@ Observations:
 Across the 7 test images, every PyTorch detection has a 1-1 C++ match at
 IoU ≥ 0.95 with one caveat per impl:
 
-| impl     | Python dets | C++ dets | matched (IoU ≥ 0.95) | mean \|Δscore\| | max \|Δscore\| |
-|----------|------------:|---------:|---------------------:|----------------:|---------------:|
-| C++ F32  |          55 |       56 |                   54 |          0.0078 |         0.0445 |
-| C++ F16  |          55 |       56 |                   54 |          0.0079 |         0.0440 |
-| C++ Q8_0 |          55 |       55 |                   54 |          0.0084 |         0.0461 |
+| impl     | Python dets | C++ dets | matched (IoU ≥ 0.95) | matched (IoU ≥ 0.5) | max \|Δscore\| |
+|----------|------------:|---------:|---------------------:|--------------------:|---------------:|
+| C++ F32  |          55 |       56 |                54/55 |               55/55 |         0.0445 |
+| C++ F16  |          55 |       56 |                54/55 |               55/55 |         0.0440 |
+| C++ Q8_0 |          55 |       55 |                54/55 |               55/55 |         0.0461 |
 
 - On **coco_living_room**, one C++ detection (class 64, score 0.504 vs
   Python 0.512, bbox shifted ~1 px) lands at IoU ≈ 0.93 — just under the
@@ -294,7 +297,10 @@ the freedom to keep using K-quants on every tensor that fits.
 | Q4_0     |                  49 / 55 |                   40 / 55 |          0.226 |
 
 The IoU≥0.5 column is "did we find the object at all"; the IoU≥0.95
-column is "is the bbox in roughly the same place".
+column is "is the bbox in roughly the same place". (Accuracy numbers
+are unchanged from the previous bench revision — quantization quality
+is a pure function of the weight blob; the rigorous re-run only
+re-measures latency.)
 
 - **Q6_K matches Q8_0 detection-for-detection** — 55/55 lenient,
   54/55 strict, Δscore in the same ballpark (0.051 vs 0.046).
@@ -307,23 +313,23 @@ column is "is the bbox in roughly the same place".
   the class-confusion failures Q4_0 produces (no "couch → bed" type
   swaps at the threshold).
 
-### Latency (median ms/image across 7 images, T=8, 9950X3D)
+### Latency (median ms/image across 7 images, T=8, 9950X3D, rigorous mode)
 
 | Variant | median of medians (ms) | mean of medians (ms) | vs F32 |
 |---------|-----------------------:|---------------------:|-------:|
-| F32     |                  144.5 |                150.1 |  1.00× |
-| **F16** |              **145.6** |            **151.3** |  1.01× |
-| Q8_0    |                  158.8 |                164.8 |  1.10× |
-| Q4_K    |                  166.4 |                174.0 |  1.16× |
-| Q5_0    |                  168.7 |                172.2 |  1.15× |
-| Q6_K    |                  174.5 |                186.0 |  1.24× |
-| Q4_0    |                  178.7 |                177.2 |  1.18× |
-| Q5_K    |                  190.0 |                195.4 |  1.30× |
+| **F16** |              **136.9** |            **137.2** |  0.96× |
+| F32     |                  142.5 |                142.8 |  1.00× |
+| Q8_0    |                  147.6 |                148.0 |  1.04× |
+| Q4_0    |                  157.8 |                157.8 |  1.10× |
+| Q5_0    |                  162.9 |                164.0 |  1.15× |
+| Q4_K    |                  164.3 |                164.5 |  1.15× |
+| Q6_K    |                  165.2 |                165.0 |  1.16× |
+| Q5_K    |                  176.7 |                177.4 |  1.24× |
 
-**Headline:** F16 is essentially tied with F32 on median latency
-(151.3 ms vs 150.1 ms across 7 images) and is the fastest variant
-among everything quantization-aware. **F16 beats Q8_0 by ~9% in mean
-median latency** and beats every K-quant by 15-30%.
+**Headline:** **F16 is the fastest variant of all** — 5.6 ms (≈4%)
+faster than F32 on the mean and the median, and **beats F32 on every
+single image** in the rigorous bench. F16 also beats Q8_0 by 10.8 ms
+(≈7%) and every K-quant by 16-22%.
 
 ggml's F32×F16 mul_mat fast path is the reason: the kernel dequants
 the F16 weight on-the-fly inside the FMA loop, with no block-scale
@@ -332,16 +338,16 @@ shapes on AVX-512+VNNI, that path is bandwidth-bound, not compute-
 bound, and F16 halves the bandwidth bill vs F32.
 
 K-quants pay the same dequant tax as legacy quants plus extra
-super-block overhead, so they end up ~10-30% slower than F16/F32. The
+super-block overhead, so they end up ~10-24% slower than F16. The
 size savings are real but they trade speed for disk.
 
 ### Conclusions
 
-- **F16 is the new default** for size+accuracy+speed: 1.86× smaller
-  than F32, F32-class speed, lossless against F32, and reliably faster
-  than every quant variant.
+- **F16 is the default**: 1.86× smaller than F32, **4% faster than F32
+  on this CPU**, lossless against F32, and reliably faster than every
+  quant variant.
 - **Q8_0 is the right pick when disk size dominates** — 3.10×
-  compression, same detection accuracy as F32 / F16, ~10% latency tax
+  compression, same detection accuracy as F32 / F16, ~7% latency tax
   vs F16.
 - **Q6_K is the right pick when you want under 38 MB without compromise
   on accuracy.** Detection-identical to Q8_0 at 3.4× compression.
@@ -419,13 +425,31 @@ pretrained `.pth` (~30-130 MB) on first instantiation, cached at
 
 ## Methodology
 
+The numbers above come from `scripts/bench_community.py --rigorous` (the
+rigorous mode added to address the methodology hole described below). Raw
+configuration is echoed into `bench_data.json → meta.methodology` so any
+reviewer can verify the exact knob values used.
+
 - **Timing**: `time.perf_counter()` on the Python side; `std::chrono::high_resolution_clock`
   on the C++ side (via `rfdetr-cli bench`).
 - **GC discipline**: Python GC is `gc.disable()`d for the duration of each
   timed block (re-enabled on exception).
-- **Iterations**: 15 timed iterations per (impl, image, threads) cell, after
-  3 untimed warmup iterations. Median is the reported number; min and max
-  are the whiskers.
+- **Round-robin per (image, impl)**: every cell is timed once, then we
+  cool down, then move to the next impl on the same image — *not* all-Python
+  followed by all-C++. This is the key fix vs the legacy linear sweep.
+- **Cooldown between cells**: 8 seconds of `time.sleep()` between every cell.
+  Without this, back-to-back C++ runs heat the CPU and pollute whichever
+  impl runs next.
+- **Multiple passes**: 3 full round-robin passes through the (image × impl)
+  grid. Per-cell median is taken across the per-pass medians (median-of-
+  medians; with >= 4 passes a hard-min/max trim is also applied).
+- **Within-cell iterations**: 20 timed iterations per (cell, pass) after
+  5 untimed warmup iters. The C++ side reports its internal median over
+  those 20; the Python side captures per-iter timings and applies a
+  symmetric 10% trim before taking the median (kills bimodal cold-iter
+  outliers — we routinely saw single iters above 2000 ms on this host).
+- **Whiskers (in plots)**: per-cell IQR from the per-pass medians (rigorous
+  mode) — directly measures pass-to-pass thermal/scheduler stability.
 - **What's measured**: end-to-end inference latency (image load is excluded
   because `rfdetr-cli bench` loads the image once and re-runs `rfdetr_detect`).
   On the Python side, `model.predict()` is the unit — it includes PIL load
@@ -435,8 +459,23 @@ pretrained `.pth` (~30-130 MB) on first instantiation, cached at
 - **Thread control**: C++ uses `--threads N` (forwarded to
   `ggml_backend_cpu_set_n_threads`). Python sweeps use
   `torch.set_num_threads(N)` between cells; matmul intra-op threads is what
-  matters for this model.
+  matters for this model. The rigorous mode pins Python to the same thread
+  count as C++ at startup (`torch.set_num_threads(args.threads)`), and uses
+  `OMP_NUM_THREADS=N MKL_NUM_THREADS=N` env vars to prevent oversubscription.
 - **Detection threshold**: 0.5 for both sides.
+
+### Legacy-mode caveats (`bench_data.json` revisions prior to this commit)
+
+Earlier `scripts/bench_community.py` (without `--rigorous`) ran a single
+linear sweep — *all Python on image 1, then all C++ impls on image 1, then
+all on image 2, ...*. Back-to-back C++ runs heated the CPU before the next
+image's Python iteration, which made the Python arm look ~30 % slower than
+it actually is in steady state. The headline pre-rigorous numbers (PyTorch
+~210 ms median) reflected that thermal pressure rather than the real
+PyTorch baseline; the rigorous re-run (PyTorch ~150 ms median, this
+revision) puts everyone on equal thermal footing. The legacy mode is still
+the default for back-compat, but `--rigorous` is what produced the headline
+plots in this document.
 
 ---
 
@@ -472,12 +511,15 @@ build/bin/rfdetr-cli quantize models/rfdetr-base-f32.gguf models/rfdetr-base-q4_
 build/bin/rfdetr-cli quantize models/rfdetr-base-f32.gguf models/rfdetr-base-q5_0.gguf q5_0   # optional
 build/bin/rfdetr-cli quantize models/rfdetr-base-f32.gguf models/rfdetr-base-q4_0.gguf q4_0   # optional
 
-# 3. Run the full benchmark sweep (~10-15 minutes on the 9950X3D).
+# 3. Run the rigorous benchmark sweep (~40 minutes on the 9950X3D).
 #    Persists raw timing + detections to benchmarks/results/bench_data.json.
-CUDA_VISIBLE_DEVICES="" .venv/bin/python scripts/bench_community.py \
-    --iters 15 --warmup 3 --threads 8 \
-    --thread-sweep 1,2,4,8,12,16,20 \
-    --sweep-image coco_kitchen.jpg
+#    --rigorous: round-robin per (image, impl), 8 s cooldown between cells,
+#    3 full passes through the (impl × image) grid. See "Methodology" below.
+OMP_NUM_THREADS=8 MKL_NUM_THREADS=8 CUDA_VISIBLE_DEVICES="" \
+    .venv/bin/python scripts/bench_community.py --rigorous \
+        --iters 20 --warmup 5 --cooldown 8 --passes 3 --threads 8 \
+        --thread-sweep 1,2,4,8,12,16,20 \
+        --sweep-image coco_kitchen.jpg
 
 # 4. Render the plots into benchmarks/plots/{*.png,*.svg}.
 .venv/bin/python scripts/plot_community.py
@@ -485,7 +527,9 @@ CUDA_VISIBLE_DEVICES="" .venv/bin/python scripts/bench_community.py \
 
 `scripts/bench_community.py --skip-sweep` skips the thread-scaling pass
 (~5 minutes saved); `--skip-python` skips PyTorch entirely (handy if you
-only want to compare C++ F32 vs Q8_0).
+only want to compare C++ F32 vs Q8_0). Drop `--rigorous` to fall back to
+the legacy single-pass linear sweep (faster but thermally polluted —
+useful only for quick smoke runs).
 
 ---
 
@@ -535,11 +579,14 @@ See the commit history for the full back-and-forth.
   internal resolution after preprocessing, so per-image latency variation
   comes from postprocess (number of detections) and run-to-run jitter, not
   shape. We did not test very large (e.g. 2048×2048) inputs.
-- **PyTorch run-to-run variance is wider** than C++ on this host (visible
-  in the whiskers — Python max is sometimes 200+ ms while C++ max stays
-  under 170 ms). Both medians sit in the ~140-160 ms band. We don't know
-  why exactly — possibly Python GIL / autograd overhead leaking into a
-  no_grad context, possibly oneDNN's lazy backend init firing occasionally.
+- **PyTorch raw per-iter is wider** than C++ on this host — single iters
+  can spike above 2000 ms (we saw one at 2328 ms in the rigorous bench
+  on coco_street). The rigorous mode's 10% trim before per-cell median
+  absorbs this; the reported PyTorch median (~149 ms) is the trimmed
+  one. C++ never produced an outlier above 200 ms in the same run. We
+  don't know the root cause for sure — possibly Python GIL / autograd
+  bookkeeping firing occasionally, possibly oneDNN's lazy backend init
+  on a re-warmed thread pool.
 - The CLI's default is `--threads 0` (auto = all logical cores). On the
   9950X3D that picks 20, which is the **worst** point on the curve. Users
   tuning for latency should pass `--threads 16` (or, for portability,

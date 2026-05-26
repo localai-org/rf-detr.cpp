@@ -196,15 +196,52 @@ def plot_latency_comparison(data: dict, out_dir: Path):
     cpu = data["meta"]["platform"]["cpu"]
     threads = data["meta"]["threads_headline"]
     iters   = data["meta"]["iters"]
-    fig.suptitle(
-        "F16 is the sweet spot: F32-class speed, 1.85× smaller, faster than Q8_0, lossless",
-        fontsize=15, fontweight="bold", y=0.985,
-    )
-    ax.set_title(
-        f"Median ms/image over {iters} timed iterations (whiskers = min/max). "
-        f"CPU: {cpu}, C++ threads = {threads}.",
-        fontsize=10, color="#555", pad=10,
-    )
+    methodology = data["meta"].get("methodology") or {}
+    mode = methodology.get("mode", "")
+    if mode == "rigorous":
+        passes   = methodology.get("passes", "")
+        cooldown = methodology.get("cooldown_seconds", "")
+        subtitle = (
+            f"Median ms/image; {passes} passes × {iters} iters/cell with "
+            f"{cooldown:g}s cooldown between cells (whiskers = p25/p75 across "
+            f"passes). CPU: {cpu}, C++ threads = {threads}."
+        )
+    else:
+        subtitle = (
+            f"Median ms/image over {iters} timed iterations "
+            f"(whiskers = p25/p75 where present, else min/max). "
+            f"CPU: {cpu}, C++ threads = {threads}."
+        )
+    # Dynamic headline: pick the C++ impl with the lowest mean-of-medians
+    # and report its speedup vs PyTorch.
+    cpp_means = {}
+    py_means_per_img = []
+    for impl in cpp_impls:
+        ms = [per_image[i][impl]["median_ms"] for i in images if per_image[i].get(impl)]
+        if ms:
+            cpp_means[impl] = sum(ms) / len(ms)
+    py_means_per_img = [per_image[i]["python"]["median_ms"] for i in images
+                         if per_image[i].get("python")]
+    py_mean = (sum(py_means_per_img) / len(py_means_per_img)) if py_means_per_img else 0
+    if cpp_means and py_mean:
+        winner = min(cpp_means, key=cpp_means.get)
+        speedup = py_mean / cpp_means[winner]
+        win_label = LABEL.get(winner, winner)
+        # Strip the "rfdetr.cpp " prefix for the bold headline
+        win_short = win_label.replace("rfdetr.cpp ", "")
+        # Are F16 / F32 within 5% of each other? Then "F32/F16 tied"
+        if "cpp_f32" in cpp_means and "cpp_f16" in cpp_means:
+            f32m, f16m = cpp_means["cpp_f32"], cpp_means["cpp_f16"]
+            if abs(f16m - f32m) / max(f16m, f32m) < 0.03:
+                win_short = "F32/F16"
+        headline = (
+            f"rfdetr.cpp {win_short} is {speedup:.2f}x faster than PyTorch "
+            f"(mean median across {len(images)} images)"
+        )
+    else:
+        headline = "rfdetr.cpp F32 / F16 / Q8_0 vs PyTorch — CPU-only inference"
+    fig.suptitle(headline, fontsize=15, fontweight="bold", y=0.985)
+    ax.set_title(subtitle, fontsize=10, color="#555", pad=10)
 
     fig.tight_layout(rect=[0, 0, 1, 0.96])
     save(fig, out_dir, "latency_comparison")
@@ -234,11 +271,15 @@ def plot_thread_scaling(data: dict, out_dir: Path):
             if not cell:
                 medians.append(np.nan); lo_err.append(0); hi_err.append(0); continue
             med = cell["median_ms"]
-            mn  = cell["min_ms"]
-            mx  = cell["max_ms"]
+            # Prefer p25/p75 (tighter, the rigorous-mode whisker); fall back to
+            # min/max for legacy data.
+            if "p25_ms" in cell and "p75_ms" in cell:
+                lo, hi = cell["p25_ms"], cell["p75_ms"]
+            else:
+                lo, hi = cell["min_ms"], cell["max_ms"]
             medians.append(med)
-            lo_err.append(med - mn)
-            hi_err.append(mx - med)
+            lo_err.append(med - lo)
+            hi_err.append(hi - med)
 
         ax.errorbar(
             threads, medians, yerr=[lo_err, hi_err],
@@ -248,12 +289,15 @@ def plot_thread_scaling(data: dict, out_dir: Path):
             elinewidth=0.9,
         )
 
-    # Make sure y limits are stable before placing annotations
+    # Make sure y limits are stable before placing annotations. Use p75 if
+    # present (rigorous mode), else max_ms (legacy).
+    def _y_upper(c):
+        return c.get("p75_ms", c.get("max_ms", c.get("median_ms", 0)))
     ax.set_ylim(0, max(
-        sw[impl][str(n)]["max_ms"]
+        _y_upper(sw[impl][str(n)])
         for impl in impls for n in threads
         if str(n) in sw[impl]
-    ) * 1.08)
+    ) * 1.18)
     ymax = ax.get_ylim()[1]
 
     # Highlight T=8 (common default) and T=16 (true minimum)
@@ -773,19 +817,21 @@ def plot_variants_overview(data: dict, out_dir: Path):
     cpp_med = []
     py_lo,  py_hi  = [], []
     cpp_lo, cpp_hi = [], []
+    def _whisker(cell):
+        m = float(cell.get("median_ms", 0))
+        if "p25_ms" in cell and "p75_ms" in cell:
+            return float(cell["p25_ms"]), m, float(cell["p75_ms"])
+        return (float(cell.get("min_ms", m)), m, float(cell.get("max_ms", m)))
+
     for v in have:
         cell = variants_data[v]
         cpp = cell.get("cpp_f32", {})
         py  = cell.get("python", {})
-        c_m = float(cpp.get("median_ms", 0))
-        c_min = float(cpp.get("min_ms", c_m))
-        c_max = float(cpp.get("max_ms", c_m))
-        cpp_med.append(c_m); cpp_lo.append(c_m - c_min); cpp_hi.append(c_max - c_m)
+        c_lo, c_m, c_hi = _whisker(cpp) if cpp else (0, 0, 0)
+        cpp_med.append(c_m); cpp_lo.append(c_m - c_lo); cpp_hi.append(c_hi - c_m)
         if py:
-            p_m = float(py.get("median_ms", 0))
-            p_min = float(py.get("min_ms", p_m))
-            p_max = float(py.get("max_ms", p_m))
-            py_med.append(p_m); py_lo.append(p_m - p_min); py_hi.append(p_max - p_m)
+            p_lo, p_m, p_hi = _whisker(py)
+            py_med.append(p_m); py_lo.append(p_m - p_lo); py_hi.append(p_hi - p_m)
         else:
             py_med.append(np.nan); py_lo.append(0); py_hi.append(0)
 
