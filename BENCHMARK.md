@@ -122,6 +122,97 @@ noise floor.
 
 ---
 
+## What about 4-bit?
+
+> *tl;dr — **Q8_0 is the recommended quant for this model.** Sub-8-bit
+> formats (Q5_0, Q4_0) lose detections faster than they save bytes, and
+> they don't speed up CPU inference. Ship Q8_0; document Q4_0 / Q5_0
+> below for completeness.*
+
+![Quant tradeoffs](benchmarks/plots/quant_tradeoffs.png)
+
+We extended the converter (`scripts/convert_rfdetr_to_gguf.py --dtype`)
+to also emit `q4_0`, `q4_1`, `q5_0`, and `q5_1` GGUFs from the same
+checkpoint. The K-quants (`q4_K`, `q5_K`, `q6_K`) would be the more
+attractive option in 2024 — they ship with per-sub-block scales and
+historically beat the legacy "round-number" quants on quality — but the
+`gguf` Python package's writer raises `NotImplementedError` for K-quant
+encoding, so we ship the legacy block quants here and leave K-quant for a
+future cycle.
+
+### Sizes
+
+| Variant | Size (MB) | vs F32 | vs Q8_0 |
+|---------|----------:|-------:|--------:|
+| F32     |     119.2 |  1.00× |  3.10×  |
+| Q8_0    |      38.5 |  3.10× |  1.00×  |
+| Q5_0    |      28.7 |  4.16× |  1.34×  |
+| Q4_0    |      24.7 |  4.83× |  1.56×  |
+
+The "extra" savings going below Q8_0 are modest — Q4_0 is only **1.56×
+smaller than Q8_0** in absolute terms (14 MB difference) because LayerNorm
+weights, biases, embeddings, and conv kernels (~22 MB total) stay F32 in
+every variant. The 8→4 bit transition only compresses the **~30 MB of
+linear projection weights** that quantize cleanly.
+
+### Detection accuracy (vs PyTorch reference, 7 COCO images)
+
+| impl | dets matched (IoU ≥ 0.5) | dets matched (IoU ≥ 0.95) | max \|Δscore\| |
+|------|-------------------------:|--------------------------:|---------------:|
+| Q8_0 |              **55 / 55** |               **54 / 55** |      **0.046** |
+| Q5_0 |                  53 / 55 |                   46 / 55 |          0.069 |
+| Q4_0 |                  49 / 55 |                   40 / 55 |          0.226 |
+
+The IoU≥0.5 column is "did we find the object at all"; the IoU≥0.95 column
+is "is the bbox in roughly the same place". Q5_0 misses **2 borderline
+detections** (all 0.51 scores — would be threshold-noise on any quant).
+Q4_0 misses **6 detections** including non-borderline ones, and produces at
+least one **class confusion** (the cats-image couch at score 0.68 in F32
+becomes a "bed" at 0.54 in Q4_0).
+
+### Latency (median ms/image, T=8, 9950X3D)
+
+| Variant | median ms | vs F32 |
+|---------|----------:|-------:|
+| F32     |     149.2 |  1.00× |
+| Q8_0    |     148.5 |  1.00× |
+| Q5_0    |     167.4 |  1.12× |
+| Q4_0    |     160.3 |  1.07× |
+
+**The smaller quants are slower, not faster.** The legacy Q4/Q5 vec-dot
+kernels in `ggml-cpu` aren't as well-tuned as Q8_0's int8 path on AVX-512
++ VNNI — they pay a dequant cost without recouping it via tighter memory
+bandwidth (this model's hot weights already fit in L2). At T=16 the gap
+shrinks (~131 ms F32 vs ~131 ms Q4_0 vs ~138 ms Q5_0) but Q8_0 stays the
+fastest.
+
+### Conclusions
+
+- **Q8_0 is the recommended quant for rfdetr-base on CPU.** It's the only
+  quant that gives a free 3× size win with no accuracy or speed regression.
+- **Q5_0 is shippable** if disk space matters more than detection quality
+  (e.g., embedded deployment): it loses ~4% of detections (~2 borderline
+  out of 55) and adds ~12% latency, in exchange for a 4.2× model. The
+  converter supports it.
+- **Q4_0 is documented as available but not recommended.** It drops
+  ~11% of detections including non-borderline ones, produces visible
+  class confusion, and doesn't speed up CPU inference. We ship it for
+  completeness and as a baseline for a future K-quant pass — not as a
+  drop-in replacement for Q8_0.
+
+To reproduce, both auxiliary models build with:
+
+```sh
+.venv/bin/python scripts/convert_rfdetr_to_gguf.py --dtype q5_0 --output models/rfdetr-base-q5_0.gguf
+.venv/bin/python scripts/convert_rfdetr_to_gguf.py --dtype q4_0 --output models/rfdetr-base-q4_0.gguf
+```
+
+`scripts/bench_community.py` picks them up automatically when the files
+exist; the existing benchmark JSON includes Q4_0 and Q5_0 timings and
+detection cross-checks alongside F32 and Q8_0.
+
+---
+
 ## Methodology
 
 - **Timing**: `time.perf_counter()` on the Python side; `std::chrono::high_resolution_clock`
@@ -160,9 +251,14 @@ done
 # Bring your own bus.jpg or any other JPEG to add to the set.
 cd ../..
 
-# 2. Convert / download both model variants into models/ (one-time).
+# 2. Convert / download model variants into models/ (one-time).
+#    Q4_0 / Q5_0 are optional; bench_community.py picks them up if present
+#    and adds them to the per-image latency + accuracy cells. They're
+#    excluded from the headline plots — see "What about 4-bit?" below.
 python3 scripts/convert_rfdetr_to_gguf.py --dtype f32  --output models/rfdetr-base-f32.gguf
 python3 scripts/convert_rfdetr_to_gguf.py --dtype q8_0 --output models/rfdetr-base-q8_0.gguf
+python3 scripts/convert_rfdetr_to_gguf.py --dtype q5_0 --output models/rfdetr-base-q5_0.gguf   # optional
+python3 scripts/convert_rfdetr_to_gguf.py --dtype q4_0 --output models/rfdetr-base-q4_0.gguf   # optional
 
 # 3. Run the full benchmark sweep (~10-15 minutes on the 9950X3D).
 #    Persists raw timing + detections to benchmarks/results/bench_data.json.

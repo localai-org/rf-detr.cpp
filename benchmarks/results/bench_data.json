@@ -25,7 +25,11 @@
       "f32_path": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-f32.gguf",
       "f32_size_bytes": 124989504,
       "q8_path": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q8_0.gguf",
-      "q8_size_bytes": 40337088
+      "q8_size_bytes": 40337088,
+      "q5_path": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q5_0.gguf",
+      "q5_size_bytes": 29530368,
+      "q4_path": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q4_0.gguf",
+      "q4_size_bytes": 25928128
     },
     "cli": "/home/mudler/_git/rt-detr.cpp/build/bin/rfdetr-cli"
   },
@@ -33,379 +37,561 @@
     "bus.jpg": {
       "image": "bus.jpg",
       "python": {
-        "min_ms": 143.11051700497046,
-        "p25_ms": 145.52479999838397,
-        "median_ms": 151.62089298246428,
-        "p75_ms": 166.69999103760347,
-        "mean_ms": 157.7629238793937,
-        "max_ms": 187.6722060260363,
+        "min_ms": 136.6069089854136,
+        "p25_ms": 149.1434079944156,
+        "median_ms": 167.2454589861445,
+        "p75_ms": 190.05967100383714,
+        "mean_ms": 172.04315759784853,
+        "max_ms": 244.427596044261,
         "raw_ms": [
-          187.6722060260363,
-          147.29461900424212,
-          161.59175900975242,
-          176.89849302405491,
-          144.53305100323632,
-          143.11051700497046,
-          144.12631205050275,
-          183.084411022719,
-          153.02350895944983,
-          151.62089298246428,
-          147.61626400286332,
-          149.6693460503593,
-          145.52479999838397,
-          166.69999103760347,
-          163.97768701426685
+          174.4301890139468,
+          152.27177704218775,
+          159.89707998232916,
+          209.73636698909104,
+          202.50347099499777,
+          188.39922396000475,
+          190.05967100383714,
+          244.427596044261,
+          180.66530395299196,
+          136.61147898528725,
+          149.33388901408762,
+          136.6069089854136,
+          139.3155410187319,
+          167.2454589861445,
+          149.1434079944156
         ]
       },
       "cpp_f32": {
         "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-f32.gguf",
         "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/bus.jpg (810x1080)",
         "threads": 8,
-        "load_ms": 35.73,
+        "load_ms": 36.96,
         "warmup": 3,
         "iters": 15,
         "detections": 5,
-        "min_ms": 141.42,
-        "median_ms": 142.79,
-        "mean_ms": 145.19,
-        "max_ms": 156.95
+        "min_ms": 141.55,
+        "median_ms": 144.59,
+        "mean_ms": 146.09,
+        "max_ms": 165.44
       },
       "cpp_q8": {
         "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q8_0.gguf",
         "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/bus.jpg (810x1080)",
         "threads": 8,
-        "load_ms": 14.36,
+        "load_ms": 14.15,
         "warmup": 3,
         "iters": 15,
         "detections": 5,
-        "min_ms": 143.06,
-        "median_ms": 144.99,
-        "mean_ms": 149.2,
-        "max_ms": 163.38
+        "min_ms": 144.82,
+        "median_ms": 149.77,
+        "mean_ms": 152.12,
+        "max_ms": 170.07
+      },
+      "cpp_q5": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q5_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/bus.jpg (810x1080)",
+        "threads": 8,
+        "load_ms": 11.4,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 5,
+        "min_ms": 159.45,
+        "median_ms": 161.26,
+        "mean_ms": 161.3,
+        "max_ms": 165.15
+      },
+      "cpp_q4": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q4_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/bus.jpg (810x1080)",
+        "threads": 8,
+        "load_ms": 9.75,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 5,
+        "min_ms": 154.34,
+        "median_ms": 156.18,
+        "mean_ms": 156.51,
+        "max_ms": 162.08
       }
     },
     "coco_cats.jpg": {
       "image": "coco_cats.jpg",
       "python": {
-        "min_ms": 136.4313789526932,
-        "p25_ms": 145.47536696773022,
-        "median_ms": 148.659405997023,
-        "p75_ms": 156.06727200793102,
-        "mean_ms": 149.70721752227595,
-        "max_ms": 159.77350098546594,
+        "min_ms": 142.95170200057328,
+        "p25_ms": 150.61551600228995,
+        "median_ms": 154.25507200416178,
+        "p75_ms": 163.95558702060953,
+        "mean_ms": 162.63006499890858,
+        "max_ms": 214.09160096663982,
         "raw_ms": [
-          158.5359110031277,
-          147.70953898550943,
-          139.7631709696725,
-          146.9677070272155,
-          143.0225420044735,
-          148.659405997023,
-          136.4313789526932,
-          153.1403959961608,
-          156.06727200793102,
-          159.77350098546594,
-          147.72848301799968,
-          155.1539339707233,
-          158.0301399808377,
-          149.14951496757567,
-          145.47536696773022
+          214.09160096663982,
+          146.7923489981331,
+          152.41290803533047,
+          163.95558702060953,
+          142.95170200057328,
+          157.34795801108703,
+          152.0947749959305,
+          147.26656797574833,
+          158.06218597572297,
+          154.25507200416178,
+          152.13580598356202,
+          150.61551600228995,
+          161.67207498801872,
+          180.49189203884453,
+          205.30497998697683
         ]
       },
       "cpp_f32": {
         "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-f32.gguf",
         "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_cats.jpg (640x480)",
         "threads": 8,
-        "load_ms": 38.71,
+        "load_ms": 38.45,
         "warmup": 3,
         "iters": 15,
         "detections": 5,
-        "min_ms": 140.48,
-        "median_ms": 141.86,
-        "mean_ms": 144.58,
-        "max_ms": 154.47
+        "min_ms": 142.49,
+        "median_ms": 145.44,
+        "mean_ms": 149.95,
+        "max_ms": 176.67
       },
       "cpp_q8": {
         "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q8_0.gguf",
         "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_cats.jpg (640x480)",
         "threads": 8,
-        "load_ms": 15.21,
+        "load_ms": 14.43,
         "warmup": 3,
         "iters": 15,
         "detections": 5,
-        "min_ms": 143.34,
-        "median_ms": 145.46,
-        "mean_ms": 147.48,
-        "max_ms": 165.41
+        "min_ms": 143.74,
+        "median_ms": 156.68,
+        "mean_ms": 157.57,
+        "max_ms": 178.48
+      },
+      "cpp_q5": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q5_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_cats.jpg (640x480)",
+        "threads": 8,
+        "load_ms": 10.9,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 5,
+        "min_ms": 160.75,
+        "median_ms": 162.84,
+        "mean_ms": 164.98,
+        "max_ms": 173.8
+      },
+      "cpp_q4": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q4_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_cats.jpg (640x480)",
+        "threads": 8,
+        "load_ms": 10.03,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 5,
+        "min_ms": 154.87,
+        "median_ms": 155.68,
+        "mean_ms": 156.03,
+        "max_ms": 158.06
       }
     },
     "coco_indoor.jpg": {
       "image": "coco_indoor.jpg",
       "python": {
-        "min_ms": 143.27232301002368,
-        "p25_ms": 155.55387403583154,
-        "median_ms": 157.7935519744642,
-        "p75_ms": 168.2126639643684,
-        "mean_ms": 163.4216895365777,
-        "max_ms": 204.8526389990002,
+        "min_ms": 142.24413398187608,
+        "p25_ms": 150.0600820290856,
+        "median_ms": 160.45708197634667,
+        "p75_ms": 170.9135059500113,
+        "mean_ms": 163.03799311863258,
+        "max_ms": 196.56609796220437,
         "raw_ms": [
-          187.63820501044393,
-          155.55387403583154,
-          155.9218390029855,
-          204.8526389990002,
-          157.3702209861949,
-          151.7908060341142,
-          143.27232301002368,
-          149.44768999703228,
-          157.7935519744642,
-          168.2126639643684,
-          168.55131200281903,
-          164.4669600063935,
-          157.27856598095968,
-          161.66800999781117,
-          167.50668204622343
+          162.00982098234817,
+          150.0600820290856,
+          156.26246598549187,
+          170.9135059500113,
+          186.6587509866804,
+          156.18234395515174,
+          166.52011999394745,
+          196.56609796220437,
+          179.6035019797273,
+          168.4261750197038,
+          149.8746289871633,
+          154.91346502676606,
+          160.45708197634667,
+          142.24413398187608,
+          144.87772196298465
         ]
       },
       "cpp_f32": {
         "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-f32.gguf",
         "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_indoor.jpg (640x483)",
         "threads": 8,
-        "load_ms": 37.83,
+        "load_ms": 38.47,
         "warmup": 3,
         "iters": 15,
         "detections": 4,
-        "min_ms": 140.8,
-        "median_ms": 142.78,
-        "mean_ms": 143.61,
-        "max_ms": 156.92
+        "min_ms": 142.17,
+        "median_ms": 148.33,
+        "mean_ms": 152.41,
+        "max_ms": 173.67
       },
       "cpp_q8": {
         "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q8_0.gguf",
         "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_indoor.jpg (640x483)",
         "threads": 8,
-        "load_ms": 15.63,
+        "load_ms": 18.86,
         "warmup": 3,
         "iters": 15,
         "detections": 4,
-        "min_ms": 143.61,
-        "median_ms": 144.91,
-        "mean_ms": 146.22,
-        "max_ms": 153.17
+        "min_ms": 144.6,
+        "median_ms": 147.12,
+        "mean_ms": 154.82,
+        "max_ms": 179.5
+      },
+      "cpp_q5": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q5_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_indoor.jpg (640x483)",
+        "threads": 8,
+        "load_ms": 12.02,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 4,
+        "min_ms": 160.54,
+        "median_ms": 161.76,
+        "mean_ms": 164.3,
+        "max_ms": 181.29
+      },
+      "cpp_q4": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q4_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_indoor.jpg (640x483)",
+        "threads": 8,
+        "load_ms": 10.7,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 4,
+        "min_ms": 154.93,
+        "median_ms": 156.08,
+        "mean_ms": 156.45,
+        "max_ms": 164.33
       }
     },
     "coco_kitchen.jpg": {
       "image": "coco_kitchen.jpg",
       "python": {
-        "min_ms": 140.9173069987446,
-        "p25_ms": 144.46554397,
-        "median_ms": 153.76426000148058,
-        "p75_ms": 163.74798800097778,
-        "mean_ms": 158.3485458007393,
-        "max_ms": 214.15558399166912,
+        "min_ms": 145.16205695690587,
+        "p25_ms": 153.95934495609254,
+        "median_ms": 156.2177209998481,
+        "p75_ms": 175.82020699046552,
+        "mean_ms": 162.01186786250523,
+        "max_ms": 188.8234739890322,
         "raw_ms": [
-          214.15558399166912,
-          153.76426000148058,
-          163.74798800097778,
-          147.10754103725776,
-          144.46554397,
-          150.91648400994018,
-          163.7892160215415,
-          156.83004999300465,
-          183.79837297834456,
-          161.17959801340476,
-          140.9173069987446,
-          143.47494498360902,
-          159.2926540179178,
-          150.33917798427865,
-          141.4494650089182
+          153.95934495609254,
+          155.27447301428765,
+          175.82020699046552,
+          146.84944303007796,
+          162.76792698772624,
+          159.5099560217932,
+          185.34811900462955,
+          152.8229900286533,
+          188.8234739890322,
+          155.2450079470873,
+          179.59127604262903,
+          156.2177209998481,
+          155.18311999039724,
+          145.16205695690587,
+          157.60290197795257
         ]
       },
       "cpp_f32": {
         "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-f32.gguf",
         "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_kitchen.jpg (640x427)",
         "threads": 8,
-        "load_ms": 37.88,
+        "load_ms": 41.5,
         "warmup": 3,
         "iters": 15,
         "detections": 12,
-        "min_ms": 140.68,
-        "median_ms": 144.15,
-        "mean_ms": 146.18,
-        "max_ms": 159.71
+        "min_ms": 143.61,
+        "median_ms": 153.58,
+        "mean_ms": 154.94,
+        "max_ms": 176.86
       },
       "cpp_q8": {
         "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q8_0.gguf",
         "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_kitchen.jpg (640x427)",
         "threads": 8,
-        "load_ms": 15.05,
+        "load_ms": 15.82,
         "warmup": 3,
         "iters": 15,
         "detections": 12,
-        "min_ms": 143.56,
-        "median_ms": 144.87,
-        "mean_ms": 145.25,
-        "max_ms": 148.32
+        "min_ms": 143.7,
+        "median_ms": 145.32,
+        "mean_ms": 146.93,
+        "max_ms": 154.05
+      },
+      "cpp_q5": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q5_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_kitchen.jpg (640x427)",
+        "threads": 8,
+        "load_ms": 11.42,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 11,
+        "min_ms": 161.64,
+        "median_ms": 193.11,
+        "mean_ms": 192.15,
+        "max_ms": 220.19
+      },
+      "cpp_q4": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q4_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_kitchen.jpg (640x427)",
+        "threads": 8,
+        "load_ms": 10.98,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 11,
+        "min_ms": 159.21,
+        "median_ms": 176.28,
+        "mean_ms": 175.06,
+        "max_ms": 190.95
       }
     },
     "coco_living_room.jpg": {
       "image": "coco_living_room.jpg",
       "python": {
-        "min_ms": 140.6107249786146,
-        "p25_ms": 150.75834497110918,
-        "median_ms": 160.13727599056438,
-        "p75_ms": 202.0540420198813,
-        "mean_ms": 182.8301237236398,
-        "max_ms": 314.7774370154366,
+        "min_ms": 143.5672549996525,
+        "p25_ms": 155.260648985859,
+        "median_ms": 163.91841100994498,
+        "p75_ms": 177.43054404854774,
+        "mean_ms": 167.1408353295798,
+        "max_ms": 195.82908699521795,
         "raw_ms": [
-          223.71297795325518,
-          140.6107249786146,
-          160.13727599056438,
-          192.51897401409224,
-          314.7774370154366,
-          156.53957496397197,
-          178.33537299884483,
-          202.0540420198813,
-          155.00478801550344,
-          163.3030489902012,
-          146.89335599541664,
-          156.7818699986674,
-          253.97192896343768,
-          150.75834497110918,
-          147.05213898560032
+          195.82908699521795,
+          154.94275401579216,
+          186.43833097303286,
+          155.260648985859,
+          158.94031699281186,
+          153.22800498688594,
+          143.5672549996525,
+          174.62406895356253,
+          170.5853110179305,
+          177.43054404854774,
+          163.38336595799774,
+          164.40971300471574,
+          182.41198302712291,
+          163.91841100994498,
+          162.14273497462273
         ]
       },
       "cpp_f32": {
         "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-f32.gguf",
         "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_living_room.jpg (640x426)",
         "threads": 8,
-        "load_ms": 42.13,
+        "load_ms": 39.9,
         "warmup": 3,
         "iters": 15,
         "detections": 13,
-        "min_ms": 142.46,
-        "median_ms": 150.03,
-        "mean_ms": 151.81,
-        "max_ms": 169.48
+        "min_ms": 142.63,
+        "median_ms": 150.88,
+        "mean_ms": 152.49,
+        "max_ms": 173.11
       },
       "cpp_q8": {
         "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q8_0.gguf",
         "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_living_room.jpg (640x426)",
         "threads": 8,
-        "load_ms": 15.31,
+        "load_ms": 14.69,
         "warmup": 3,
         "iters": 15,
         "detections": 13,
-        "min_ms": 143.79,
-        "median_ms": 145.64,
-        "mean_ms": 147.29,
-        "max_ms": 157.78
+        "min_ms": 144.13,
+        "median_ms": 148.9,
+        "mean_ms": 152.07,
+        "max_ms": 172.57
+      },
+      "cpp_q5": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q5_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_living_room.jpg (640x426)",
+        "threads": 8,
+        "load_ms": 11.99,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 14,
+        "min_ms": 160.2,
+        "median_ms": 161.3,
+        "mean_ms": 163.37,
+        "max_ms": 174.07
+      },
+      "cpp_q4": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q4_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_living_room.jpg (640x426)",
+        "threads": 8,
+        "load_ms": 10.4,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 10,
+        "min_ms": 155.09,
+        "median_ms": 164.57,
+        "mean_ms": 164.16,
+        "max_ms": 175.2
       }
     },
     "coco_skater.jpg": {
       "image": "coco_skater.jpg",
       "python": {
-        "min_ms": 134.3235910171643,
-        "p25_ms": 140.5659219599329,
-        "median_ms": 143.51376704871655,
-        "p75_ms": 163.95426902454346,
-        "mean_ms": 154.35815420545018,
-        "max_ms": 210.04709001863375,
+        "min_ms": 151.78912703413516,
+        "p25_ms": 156.2289890134707,
+        "median_ms": 161.08485194854438,
+        "p75_ms": 181.74418597482145,
+        "mean_ms": 169.58965219479674,
+        "max_ms": 220.78889899421483,
         "raw_ms": [
-          210.04709001863375,
-          143.51376704871655,
-          138.3248220081441,
-          163.95426902454346,
-          144.2807869752869,
-          144.49262199923396,
-          142.48230203520507,
-          145.3436510055326,
-          134.3235910171643,
-          143.39216402731836,
-          143.34676699945703,
-          136.98986498638988,
-          140.5659219599329,
-          180.6820789934136,
-          203.63261498278007
+          220.78889899421483,
+          162.56280103698373,
+          156.2289890134707,
+          151.78912703413516,
+          165.32109305262566,
+          181.74418597482145,
+          158.97798701189458,
+          160.72582197375596,
+          154.2880209744908,
+          161.08485194854438,
+          194.2687319824472,
+          153.6300249863416,
+          166.9547479832545,
+          157.36887796083465,
+          198.11062299413607
         ]
       },
       "cpp_f32": {
         "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-f32.gguf",
         "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_skater.jpg (640x480)",
         "threads": 8,
-        "load_ms": 39.01,
+        "load_ms": 46.52,
         "warmup": 3,
         "iters": 15,
         "detections": 12,
-        "min_ms": 142.0,
-        "median_ms": 146.45,
-        "mean_ms": 147.1,
-        "max_ms": 155.36
+        "min_ms": 141.42,
+        "median_ms": 145.76,
+        "mean_ms": 148.85,
+        "max_ms": 166.99
       },
       "cpp_q8": {
         "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q8_0.gguf",
         "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_skater.jpg (640x480)",
         "threads": 8,
-        "load_ms": 14.61,
+        "load_ms": 15.94,
         "warmup": 3,
         "iters": 15,
         "detections": 11,
-        "min_ms": 144.22,
-        "median_ms": 145.82,
-        "mean_ms": 147.53,
-        "max_ms": 155.58
+        "min_ms": 144.45,
+        "median_ms": 146.14,
+        "mean_ms": 151.47,
+        "max_ms": 173.09
+      },
+      "cpp_q5": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q5_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_skater.jpg (640x480)",
+        "threads": 8,
+        "load_ms": 11.82,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 10,
+        "min_ms": 161.83,
+        "median_ms": 170.19,
+        "mean_ms": 170.42,
+        "max_ms": 184.57
+      },
+      "cpp_q4": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q4_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_skater.jpg (640x480)",
+        "threads": 8,
+        "load_ms": 10.64,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 12,
+        "min_ms": 154.99,
+        "median_ms": 157.12,
+        "mean_ms": 158.37,
+        "max_ms": 169.79
       }
     },
     "coco_street.jpg": {
       "image": "coco_street.jpg",
       "python": {
-        "min_ms": 140.11419098824263,
-        "p25_ms": 148.6247880384326,
-        "median_ms": 151.71735099283978,
-        "p75_ms": 162.50054800184444,
-        "mean_ms": 158.48955479838574,
-        "max_ms": 214.4668729742989,
+        "min_ms": 145.39882098324597,
+        "p25_ms": 151.9916679826565,
+        "median_ms": 162.8338629961945,
+        "p75_ms": 177.7563520008698,
+        "mean_ms": 168.59821333006644,
+        "max_ms": 220.51386500243098,
         "raw_ms": [
-          162.50054800184444,
-          156.86282300157472,
-          196.34212797973305,
-          154.34080496197566,
-          169.80766103370115,
-          148.6247880384326,
-          148.8577540148981,
-          214.4668729742989,
-          140.2081220294349,
-          151.35882300091907,
-          151.71735099283978,
-          148.70169496862218,
-          140.80641698092222,
-          140.11419098824263,
-          152.63334300834686
+          167.691484966781,
+          165.83298903424293,
+          147.1785350004211,
+          162.8338629961945,
+          153.58923497842625,
+          186.17351999273524,
+          177.7563520008698,
+          159.67560198623687,
+          150.07788699585944,
+          161.76924802130088,
+          151.9916679826565,
+          145.39882098324597,
+          169.82265404658392,
+          208.66747596301138,
+          220.51386500243098
         ]
       },
       "cpp_f32": {
         "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-f32.gguf",
         "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_street.jpg (640x428)",
         "threads": 8,
-        "load_ms": 41.15,
+        "load_ms": 39.58,
         "warmup": 3,
         "iters": 15,
         "detections": 5,
-        "min_ms": 142.1,
-        "median_ms": 143.05,
-        "mean_ms": 145.3,
-        "max_ms": 160.26
+        "min_ms": 143.94,
+        "median_ms": 156.03,
+        "mean_ms": 156.23,
+        "max_ms": 173.8
       },
       "cpp_q8": {
         "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q8_0.gguf",
         "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_street.jpg (640x428)",
         "threads": 8,
-        "load_ms": 15.14,
+        "load_ms": 16.16,
         "warmup": 3,
         "iters": 15,
         "detections": 5,
-        "min_ms": 144.43,
-        "median_ms": 146.54,
-        "mean_ms": 147.57,
-        "max_ms": 157.85
+        "min_ms": 144.61,
+        "median_ms": 145.39,
+        "mean_ms": 145.78,
+        "max_ms": 148.39
+      },
+      "cpp_q5": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q5_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_street.jpg (640x428)",
+        "threads": 8,
+        "load_ms": 11.11,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 5,
+        "min_ms": 160.91,
+        "median_ms": 161.69,
+        "mean_ms": 161.71,
+        "max_ms": 163.36
+      },
+      "cpp_q4": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q4_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_street.jpg (640x428)",
+        "threads": 8,
+        "load_ms": 10.83,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 5,
+        "min_ms": 154.95,
+        "median_ms": 156.28,
+        "mean_ms": 157.0,
+        "max_ms": 165.05
       }
     }
   },
@@ -951,6 +1137,120 @@
             867.168
           ]
         }
+      ],
+      "cpp_q5": [
+        {
+          "class_id": 6,
+          "class_name": "bus",
+          "score": 0.969061,
+          "bbox": [
+            4.26494,
+            231.181,
+            807.143,
+            734.702
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.941777,
+          "bbox": [
+            50.7227,
+            397.605,
+            246.693,
+            904.65
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.929725,
+          "bbox": [
+            668.431,
+            392.817,
+            809.89,
+            879.576
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.92525,
+          "bbox": [
+            222.285,
+            406.783,
+            343.968,
+            859.293
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.888808,
+          "bbox": [
+            0,
+            554.443,
+            78.3637,
+            865.852
+          ]
+        }
+      ],
+      "cpp_q4": [
+        {
+          "class_id": 6,
+          "class_name": "bus",
+          "score": 0.961284,
+          "bbox": [
+            4.59809,
+            232.963,
+            804.211,
+            736.077
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.936411,
+          "bbox": [
+            49.0554,
+            395.004,
+            246.912,
+            907.505
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.931026,
+          "bbox": [
+            669.104,
+            394.394,
+            810,
+            880.295
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.924043,
+          "bbox": [
+            222.936,
+            406.624,
+            344.717,
+            860.889
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.867007,
+          "bbox": [
+            0.0103198,
+            552.976,
+            79.0595,
+            868.223
+          ]
+        }
       ]
     },
     "coco_cats.jpg": {
@@ -1119,6 +1419,120 @@
             474.459
           ]
         }
+      ],
+      "cpp_q5": [
+        {
+          "class_id": 17,
+          "class_name": "cat",
+          "score": 0.956924,
+          "bbox": [
+            8.74806,
+            55.009,
+            316.969,
+            472.322
+          ]
+        },
+        {
+          "class_id": 17,
+          "class_name": "cat",
+          "score": 0.924305,
+          "bbox": [
+            343.262,
+            23.2875,
+            639.698,
+            371.778
+          ]
+        },
+        {
+          "class_id": 75,
+          "class_name": "remote",
+          "score": 0.886074,
+          "bbox": [
+            40.8366,
+            72.6032,
+            175.948,
+            117.551
+          ]
+        },
+        {
+          "class_id": 75,
+          "class_name": "remote",
+          "score": 0.702154,
+          "bbox": [
+            333.756,
+            76.6355,
+            370.353,
+            186.595
+          ]
+        },
+        {
+          "class_id": 63,
+          "class_name": "couch",
+          "score": 0.654974,
+          "bbox": [
+            0,
+            1.97248,
+            640,
+            474.415
+          ]
+        }
+      ],
+      "cpp_q4": [
+        {
+          "class_id": 17,
+          "class_name": "cat",
+          "score": 0.949029,
+          "bbox": [
+            340.59,
+            23.089,
+            640,
+            372.369
+          ]
+        },
+        {
+          "class_id": 17,
+          "class_name": "cat",
+          "score": 0.936193,
+          "bbox": [
+            8.92798,
+            55.949,
+            318.877,
+            471.723
+          ]
+        },
+        {
+          "class_id": 75,
+          "class_name": "remote",
+          "score": 0.914461,
+          "bbox": [
+            39.7333,
+            73.3636,
+            175.842,
+            118.037
+          ]
+        },
+        {
+          "class_id": 75,
+          "class_name": "remote",
+          "score": 0.549883,
+          "bbox": [
+            333.274,
+            76.5871,
+            370.629,
+            187.791
+          ]
+        },
+        {
+          "class_id": 65,
+          "class_name": "bed",
+          "score": 0.542076,
+          "bbox": [
+            1.15902,
+            1.09828,
+            640,
+            477.028
+          ]
+        }
       ]
     },
     "coco_indoor.jpg": {
@@ -1253,6 +1667,98 @@
             191.904,
             114.871,
             232.043
+          ]
+        }
+      ],
+      "cpp_q5": [
+        {
+          "class_id": 65,
+          "class_name": "bed",
+          "score": 0.956474,
+          "bbox": [
+            0,
+            283.037,
+            399.89,
+            476.372
+          ]
+        },
+        {
+          "class_id": 64,
+          "class_name": "potted plant",
+          "score": 0.858802,
+          "bbox": [
+            342.135,
+            212.484,
+            430.227,
+            351.731
+          ]
+        },
+        {
+          "class_id": 64,
+          "class_name": "potted plant",
+          "score": 0.824581,
+          "bbox": [
+            184.346,
+            132.111,
+            242.225,
+            228.644
+          ]
+        },
+        {
+          "class_id": 44,
+          "class_name": "bottle",
+          "score": 0.687887,
+          "bbox": [
+            96.3135,
+            191.828,
+            114.997,
+            231.415
+          ]
+        }
+      ],
+      "cpp_q4": [
+        {
+          "class_id": 65,
+          "class_name": "bed",
+          "score": 0.954407,
+          "bbox": [
+            0.365734,
+            283.625,
+            400.92,
+            480.104
+          ]
+        },
+        {
+          "class_id": 64,
+          "class_name": "potted plant",
+          "score": 0.86257,
+          "bbox": [
+            341.449,
+            214.24,
+            430.267,
+            350.898
+          ]
+        },
+        {
+          "class_id": 64,
+          "class_name": "potted plant",
+          "score": 0.805234,
+          "bbox": [
+            181.776,
+            133.466,
+            242.712,
+            228.961
+          ]
+        },
+        {
+          "class_id": 44,
+          "class_name": "bottle",
+          "score": 0.553707,
+          "bbox": [
+            95.9617,
+            192.114,
+            114.797,
+            231.858
           ]
         }
       ]
@@ -1645,6 +2151,252 @@
             45.7209,
             521.951,
             91.7619
+          ]
+        }
+      ],
+      "cpp_q5": [
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.953334,
+          "bbox": [
+            386.729,
+            68.4271,
+            499.201,
+            346.803
+          ]
+        },
+        {
+          "class_id": 51,
+          "class_name": "bowl",
+          "score": 0.919166,
+          "bbox": [
+            30.9126,
+            343.474,
+            99.0813,
+            385.829
+          ]
+        },
+        {
+          "class_id": 51,
+          "class_name": "bowl",
+          "score": 0.841377,
+          "bbox": [
+            56.8369,
+            289.08,
+            134.191,
+            328.445
+          ]
+        },
+        {
+          "class_id": 51,
+          "class_name": "bowl",
+          "score": 0.774608,
+          "bbox": [
+            154.64,
+            168.263,
+            183.495,
+            184.928
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.656047,
+          "bbox": [
+            0.162601,
+            263.078,
+            60.661,
+            302.349
+          ]
+        },
+        {
+          "class_id": 64,
+          "class_name": "potted plant",
+          "score": 0.650445,
+          "bbox": [
+            0,
+            0.665434,
+            61.8183,
+            143.745
+          ]
+        },
+        {
+          "class_id": 81,
+          "class_name": "sink",
+          "score": 0.638054,
+          "bbox": [
+            496.328,
+            199.904,
+            616.206,
+            230.935
+          ]
+        },
+        {
+          "class_id": 51,
+          "class_name": "bowl",
+          "score": 0.628382,
+          "bbox": [
+            155.823,
+            112.719,
+            174.773,
+            129.493
+          ]
+        },
+        {
+          "class_id": 51,
+          "class_name": "bowl",
+          "score": 0.604672,
+          "bbox": [
+            0.0541258,
+            303.248,
+            86.3302,
+            370.609
+          ]
+        },
+        {
+          "class_id": 79,
+          "class_name": "oven",
+          "score": 0.539772,
+          "bbox": [
+            233.25,
+            192.791,
+            396.608,
+            314.437
+          ]
+        },
+        {
+          "class_id": 47,
+          "class_name": "cup",
+          "score": 0.517633,
+          "bbox": [
+            145.046,
+            267.301,
+            173.777,
+            301.558
+          ]
+        }
+      ],
+      "cpp_q4": [
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.952679,
+          "bbox": [
+            386.214,
+            68.2301,
+            499.276,
+            348.22
+          ]
+        },
+        {
+          "class_id": 51,
+          "class_name": "bowl",
+          "score": 0.918858,
+          "bbox": [
+            29.8347,
+            343.864,
+            99.1568,
+            386.064
+          ]
+        },
+        {
+          "class_id": 51,
+          "class_name": "bowl",
+          "score": 0.80401,
+          "bbox": [
+            56.5044,
+            289.682,
+            134.418,
+            328.317
+          ]
+        },
+        {
+          "class_id": 51,
+          "class_name": "bowl",
+          "score": 0.777748,
+          "bbox": [
+            155.063,
+            168.843,
+            183.163,
+            185.069
+          ]
+        },
+        {
+          "class_id": 51,
+          "class_name": "bowl",
+          "score": 0.652431,
+          "bbox": [
+            0.10293,
+            303.991,
+            86.6941,
+            370.822
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.621835,
+          "bbox": [
+            0.478919,
+            263.551,
+            60.7357,
+            303.617
+          ]
+        },
+        {
+          "class_id": 81,
+          "class_name": "sink",
+          "score": 0.578539,
+          "bbox": [
+            495.983,
+            199.723,
+            616.553,
+            230.578
+          ]
+        },
+        {
+          "class_id": 51,
+          "class_name": "bowl",
+          "score": 0.569748,
+          "bbox": [
+            155.216,
+            113.021,
+            174.3,
+            129.192
+          ]
+        },
+        {
+          "class_id": 47,
+          "class_name": "cup",
+          "score": 0.543223,
+          "bbox": [
+            146.127,
+            268.05,
+            172.868,
+            301.562
+          ]
+        },
+        {
+          "class_id": 64,
+          "class_name": "potted plant",
+          "score": 0.533431,
+          "bbox": [
+            0,
+            1.71493,
+            62.248,
+            144.125
+          ]
+        },
+        {
+          "class_id": 79,
+          "class_name": "oven",
+          "score": 0.51169,
+          "bbox": [
+            233.187,
+            192.89,
+            398.141,
+            315.028
           ]
         }
       ]
@@ -2071,6 +2823,274 @@
             224.621
           ]
         }
+      ],
+      "cpp_q5": [
+        {
+          "class_id": 72,
+          "class_name": "tv",
+          "score": 0.947547,
+          "bbox": [
+            5.90089,
+            166.253,
+            154.693,
+            262.491
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.870875,
+          "bbox": [
+            415.583,
+            156.966,
+            463.478,
+            298.112
+          ]
+        },
+        {
+          "class_id": 62,
+          "class_name": "chair",
+          "score": 0.844817,
+          "bbox": [
+            292.963,
+            218.769,
+            352.211,
+            316.226
+          ]
+        },
+        {
+          "class_id": 86,
+          "class_name": "vase",
+          "score": 0.8149,
+          "bbox": [
+            550.218,
+            309.657,
+            584.874,
+            400.475
+          ]
+        },
+        {
+          "class_id": 86,
+          "class_name": "vase",
+          "score": 0.787765,
+          "bbox": [
+            166.554,
+            232.955,
+            186.936,
+            267.255
+          ]
+        },
+        {
+          "class_id": 62,
+          "class_name": "chair",
+          "score": 0.779058,
+          "bbox": [
+            366.431,
+            218.69,
+            418.465,
+            317.885
+          ]
+        },
+        {
+          "class_id": 64,
+          "class_name": "potted plant",
+          "score": 0.740173,
+          "bbox": [
+            230.956,
+            177.133,
+            267.257,
+            213.318
+          ]
+        },
+        {
+          "class_id": 72,
+          "class_name": "tv",
+          "score": 0.659209,
+          "bbox": [
+            554.144,
+            207.767,
+            640,
+            290.889
+          ]
+        },
+        {
+          "class_id": 67,
+          "class_name": "dining table",
+          "score": 0.644607,
+          "bbox": [
+            462.515,
+            354.116,
+            639.836,
+            424.229
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.640084,
+          "bbox": [
+            384.046,
+            172.337,
+            401.274,
+            207.522
+          ]
+        },
+        {
+          "class_id": 62,
+          "class_name": "chair",
+          "score": 0.597932,
+          "bbox": [
+            410.855,
+            218.041,
+            443.069,
+            305.038
+          ]
+        },
+        {
+          "class_id": 64,
+          "class_name": "potted plant",
+          "score": 0.526902,
+          "bbox": [
+            340.018,
+            176.361,
+            369.091,
+            219.162
+          ]
+        },
+        {
+          "class_id": 67,
+          "class_name": "dining table",
+          "score": 0.520382,
+          "bbox": [
+            318.787,
+            225.733,
+            449.26,
+            318.612
+          ]
+        },
+        {
+          "class_id": 85,
+          "class_name": "clock",
+          "score": 0.512994,
+          "bbox": [
+            449.071,
+            121.004,
+            461.091,
+            141.904
+          ]
+        }
+      ],
+      "cpp_q4": [
+        {
+          "class_id": 72,
+          "class_name": "tv",
+          "score": 0.951342,
+          "bbox": [
+            5.5155,
+            166.311,
+            155.346,
+            262.337
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.874246,
+          "bbox": [
+            416.344,
+            155.826,
+            463.888,
+            297.514
+          ]
+        },
+        {
+          "class_id": 62,
+          "class_name": "chair",
+          "score": 0.837609,
+          "bbox": [
+            292.997,
+            218.587,
+            353.607,
+            316.653
+          ]
+        },
+        {
+          "class_id": 62,
+          "class_name": "chair",
+          "score": 0.793759,
+          "bbox": [
+            365.926,
+            218.543,
+            419.694,
+            319.473
+          ]
+        },
+        {
+          "class_id": 86,
+          "class_name": "vase",
+          "score": 0.747069,
+          "bbox": [
+            549.925,
+            309.902,
+            585.102,
+            400.938
+          ]
+        },
+        {
+          "class_id": 86,
+          "class_name": "vase",
+          "score": 0.70905,
+          "bbox": [
+            166.218,
+            233.13,
+            186.864,
+            266.806
+          ]
+        },
+        {
+          "class_id": 64,
+          "class_name": "potted plant",
+          "score": 0.70723,
+          "bbox": [
+            229.842,
+            177.52,
+            267.261,
+            213.21
+          ]
+        },
+        {
+          "class_id": 62,
+          "class_name": "chair",
+          "score": 0.695241,
+          "bbox": [
+            408.337,
+            217.124,
+            443.427,
+            306.911
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.641855,
+          "bbox": [
+            383.328,
+            171.978,
+            401.382,
+            207.254
+          ]
+        },
+        {
+          "class_id": 85,
+          "class_name": "clock",
+          "score": 0.589674,
+          "bbox": [
+            448.519,
+            121.494,
+            461.264,
+            141.656
+          ]
+        }
       ]
     },
     "coco_skater.jpg": {
@@ -2442,6 +3462,252 @@
             263.354
           ]
         }
+      ],
+      "cpp_q5": [
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.912118,
+          "bbox": [
+            345.037,
+            170.367,
+            418.816,
+            357.5
+          ]
+        },
+        {
+          "class_id": 41,
+          "class_name": "skateboard",
+          "score": 0.902948,
+          "bbox": [
+            301.778,
+            317.529,
+            362.83,
+            361.739
+          ]
+        },
+        {
+          "class_id": 2,
+          "class_name": "bicycle",
+          "score": 0.882208,
+          "bbox": [
+            255.572,
+            272.039,
+            312.363,
+            331.67
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.866793,
+          "bbox": [
+            254.866,
+            224.337,
+            303.953,
+            317.064
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.78049,
+          "bbox": [
+            76.2979,
+            233.154,
+            106.091,
+            283.118
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.702813,
+          "bbox": [
+            67.0192,
+            238.495,
+            83.0457,
+            280.29
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.673005,
+          "bbox": [
+            206.523,
+            228,
+            219.71,
+            264.183
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.665759,
+          "bbox": [
+            98.6566,
+            236.224,
+            118.925,
+            280.814
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.590231,
+          "bbox": [
+            239.233,
+            227.264,
+            250.341,
+            258.927
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.574434,
+          "bbox": [
+            625.164,
+            222.557,
+            640,
+            270.278
+          ]
+        }
+      ],
+      "cpp_q4": [
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.918595,
+          "bbox": [
+            344.841,
+            171.411,
+            419.558,
+            357.29
+          ]
+        },
+        {
+          "class_id": 41,
+          "class_name": "skateboard",
+          "score": 0.906971,
+          "bbox": [
+            300.669,
+            317.764,
+            363.775,
+            362.273
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.861306,
+          "bbox": [
+            255.227,
+            224.301,
+            304.004,
+            318.422
+          ]
+        },
+        {
+          "class_id": 2,
+          "class_name": "bicycle",
+          "score": 0.80158,
+          "bbox": [
+            255.054,
+            271.639,
+            313.03,
+            331.727
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.720484,
+          "bbox": [
+            76.2533,
+            233.522,
+            106.018,
+            282.51
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.697224,
+          "bbox": [
+            206.465,
+            228.166,
+            219.62,
+            264.092
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.666099,
+          "bbox": [
+            66.5717,
+            238.558,
+            83.0501,
+            280.369
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.655035,
+          "bbox": [
+            97.5369,
+            237.083,
+            118.898,
+            281.104
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.649262,
+          "bbox": [
+            239.35,
+            227.75,
+            249.986,
+            258.857
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.580034,
+          "bbox": [
+            624.812,
+            223.386,
+            639.95,
+            269.843
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.54818,
+          "bbox": [
+            418.169,
+            228.3,
+            434.019,
+            265.787
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.513371,
+          "bbox": [
+            184.257,
+            228.828,
+            198.465,
+            265.501
+          ]
+        }
       ]
     },
     "coco_street.jpg": {
@@ -2610,6 +3876,120 @@
             103.197
           ]
         }
+      ],
+      "cpp_q5": [
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.952243,
+          "bbox": [
+            508.244,
+            171.612,
+            632.951,
+            386.424
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.947722,
+          "bbox": [
+            6.99352,
+            167.088,
+            131.181,
+            393.472
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.944498,
+          "bbox": [
+            326.252,
+            173.72,
+            397.551,
+            372.529
+          ]
+        },
+        {
+          "class_id": 28,
+          "class_name": "umbrella",
+          "score": 0.749607,
+          "bbox": [
+            559.995,
+            89.6677,
+            640,
+            158.844
+          ]
+        },
+        {
+          "class_id": 10,
+          "class_name": "traffic light",
+          "score": 0.517907,
+          "bbox": [
+            340.173,
+            45.5186,
+            398.833,
+            103.01
+          ]
+        }
+      ],
+      "cpp_q4": [
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.951709,
+          "bbox": [
+            6.52144,
+            166.395,
+            131.855,
+            395.081
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.948764,
+          "bbox": [
+            326.353,
+            173.269,
+            396.977,
+            372.394
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.945783,
+          "bbox": [
+            508.356,
+            171.019,
+            633.034,
+            385.522
+          ]
+        },
+        {
+          "class_id": 10,
+          "class_name": "traffic light",
+          "score": 0.695315,
+          "bbox": [
+            339.73,
+            45.6803,
+            399.594,
+            102.942
+          ]
+        },
+        {
+          "class_id": 28,
+          "class_name": "umbrella",
+          "score": 0.536754,
+          "bbox": [
+            560.347,
+            89.0462,
+            640,
+            159.106
+          ]
+        }
       ]
     }
   },
@@ -2710,6 +4090,102 @@
         }
       ]
     },
+    "bus.jpg::cpp_q5": {
+      "image": "bus.jpg",
+      "impl": "cpp_q5",
+      "py_total": 5,
+      "cpp_total": 5,
+      "matched": 5,
+      "mean_score_delta": 0.006359613953399656,
+      "max_score_delta": 0.011012428760528548,
+      "mean_iou": 0.9925321487096326,
+      "min_iou": 0.9904039934822016,
+      "pairs": [
+        {
+          "class_id": 6,
+          "py_score": 0.9717015624046326,
+          "cpp_score": 0.969061,
+          "score_delta": 0.002640562404632618,
+          "iou": 0.992563068560546
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.9480829834938049,
+          "cpp_score": 0.941777,
+          "score_delta": 0.006305983493804956,
+          "iou": 0.9915117847463635
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.9375559091567993,
+          "cpp_score": 0.929725,
+          "score_delta": 0.007830909156799293,
+          "iou": 0.996609009511435
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.9362624287605286,
+          "cpp_score": 0.92525,
+          "score_delta": 0.011012428760528548,
+          "iou": 0.9904039934822016
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.8928161859512329,
+          "cpp_score": 0.888808,
+          "score_delta": 0.004008185951232868,
+          "iou": 0.9915728872476165
+        }
+      ]
+    },
+    "bus.jpg::cpp_q4": {
+      "image": "bus.jpg",
+      "impl": "cpp_q4",
+      "py_total": 5,
+      "cpp_total": 5,
+      "matched": 5,
+      "mean_score_delta": 0.013329613953399665,
+      "max_score_delta": 0.025809185951232938,
+      "mean_iou": 0.9895396260767008,
+      "min_iou": 0.9868928008855423,
+      "pairs": [
+        {
+          "class_id": 6,
+          "py_score": 0.9717015624046326,
+          "cpp_score": 0.961284,
+          "score_delta": 0.010417562404632541,
+          "iou": 0.9930708583173818
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.9480829834938049,
+          "cpp_score": 0.936411,
+          "score_delta": 0.011671983493804938,
+          "iou": 0.9883109850081566
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.9375559091567993,
+          "cpp_score": 0.931026,
+          "score_delta": 0.006529909156799296,
+          "iou": 0.9904698637480229
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.9362624287605286,
+          "cpp_score": 0.924043,
+          "score_delta": 0.012219428760528617,
+          "iou": 0.9889536224244004
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.8928161859512329,
+          "cpp_score": 0.867007,
+          "score_delta": 0.025809185951232938,
+          "iou": 0.9868928008855423
+        }
+      ]
+    },
     "coco_cats.jpg::cpp_f32": {
       "image": "coco_cats.jpg",
       "impl": "cpp_f32",
@@ -2806,6 +4282,95 @@
         }
       ]
     },
+    "coco_cats.jpg::cpp_q5": {
+      "image": "coco_cats.jpg",
+      "impl": "cpp_q5",
+      "py_total": 5,
+      "cpp_total": 5,
+      "matched": 5,
+      "mean_score_delta": 0.013493278454589853,
+      "max_score_delta": 0.02573827962493902,
+      "mean_iou": 0.9928812869236803,
+      "min_iou": 0.984213040551949,
+      "pairs": [
+        {
+          "class_id": 17,
+          "py_score": 0.9603008031845093,
+          "cpp_score": 0.956924,
+          "score_delta": 0.0033768031845092805,
+          "iou": 0.989435396648666
+        },
+        {
+          "class_id": 17,
+          "py_score": 0.9335694909095764,
+          "cpp_score": 0.924305,
+          "score_delta": 0.009264490909576373,
+          "iou": 0.9957729925279662
+        },
+        {
+          "class_id": 75,
+          "py_score": 0.8975501656532288,
+          "cpp_score": 0.886074,
+          "score_delta": 0.011476165653228732,
+          "iou": 0.9982098296509512
+        },
+        {
+          "class_id": 75,
+          "py_score": 0.727892279624939,
+          "cpp_score": 0.702154,
+          "score_delta": 0.02573827962493902,
+          "iou": 0.984213040551949
+        },
+        {
+          "class_id": 63,
+          "py_score": 0.6725846529006958,
+          "cpp_score": 0.654974,
+          "score_delta": 0.017610652900695856,
+          "iou": 0.996775175238869
+        }
+      ]
+    },
+    "coco_cats.jpg::cpp_q4": {
+      "image": "coco_cats.jpg",
+      "impl": "cpp_q4",
+      "py_total": 5,
+      "cpp_total": 5,
+      "matched": 4,
+      "mean_score_delta": 0.058621856561660746,
+      "max_score_delta": 0.17800927962493895,
+      "mean_iou": 0.9798534564414277,
+      "min_iou": 0.9657950441587355,
+      "pairs": [
+        {
+          "class_id": 17,
+          "py_score": 0.9335694909095764,
+          "cpp_score": 0.949029,
+          "score_delta": 0.015459509090423595,
+          "iou": 0.9862034618365161
+        },
+        {
+          "class_id": 17,
+          "py_score": 0.9603008031845093,
+          "cpp_score": 0.936193,
+          "score_delta": 0.024107803184509224,
+          "iou": 0.9894713077479023
+        },
+        {
+          "class_id": 75,
+          "py_score": 0.8975501656532288,
+          "cpp_score": 0.914461,
+          "score_delta": 0.01691083434677121,
+          "iou": 0.9657950441587355
+        },
+        {
+          "class_id": 75,
+          "py_score": 0.727892279624939,
+          "cpp_score": 0.549883,
+          "score_delta": 0.17800927962493895,
+          "iou": 0.9779440120225571
+        }
+      ]
+    },
     "coco_indoor.jpg::cpp_f32": {
       "image": "coco_indoor.jpg",
       "impl": "cpp_f32",
@@ -2885,6 +4450,81 @@
           "cpp_score": 0.689926,
           "score_delta": 0.04605505025482182,
           "iou": 0.9905146392063938
+        }
+      ]
+    },
+    "coco_indoor.jpg::cpp_q5": {
+      "image": "coco_indoor.jpg",
+      "impl": "cpp_q5",
+      "py_total": 4,
+      "cpp_total": 4,
+      "matched": 4,
+      "mean_score_delta": 0.019148970909118657,
+      "max_score_delta": 0.044016050254821804,
+      "mean_iou": 0.9829950942139277,
+      "min_iou": 0.9715969019107252,
+      "pairs": [
+        {
+          "class_id": 65,
+          "py_score": 0.9606183171272278,
+          "cpp_score": 0.956474,
+          "score_delta": 0.004144317127227737,
+          "iou": 0.9836674787723735
+        },
+        {
+          "class_id": 64,
+          "py_score": 0.868493914604187,
+          "cpp_score": 0.858802,
+          "score_delta": 0.009691914604187057,
+          "iou": 0.9925776956431505
+        },
+        {
+          "class_id": 64,
+          "py_score": 0.843324601650238,
+          "cpp_score": 0.824581,
+          "score_delta": 0.01874360165023803,
+          "iou": 0.9841383005294618
+        },
+        {
+          "class_id": 44,
+          "py_score": 0.6438709497451782,
+          "cpp_score": 0.687887,
+          "score_delta": 0.044016050254821804,
+          "iou": 0.9715969019107252
+        }
+      ]
+    },
+    "coco_indoor.jpg::cpp_q4": {
+      "image": "coco_indoor.jpg",
+      "impl": "cpp_q4",
+      "py_total": 4,
+      "cpp_total": 4,
+      "matched": 3,
+      "mean_score_delta": 0.03409972715886437,
+      "max_score_delta": 0.09016394974517827,
+      "mean_iou": 0.9740828169957471,
+      "min_iou": 0.9668683514512922,
+      "pairs": [
+        {
+          "class_id": 65,
+          "py_score": 0.9606183171272278,
+          "cpp_score": 0.954407,
+          "score_delta": 0.006211317127227778,
+          "iou": 0.9755559276594636
+        },
+        {
+          "class_id": 64,
+          "py_score": 0.868493914604187,
+          "cpp_score": 0.86257,
+          "score_delta": 0.005923914604187064,
+          "iou": 0.9668683514512922
+        },
+        {
+          "class_id": 44,
+          "py_score": 0.6438709497451782,
+          "cpp_score": 0.553707,
+          "score_delta": 0.09016394974517827,
+          "iou": 0.9798241718764852
         }
       ]
     },
@@ -3082,6 +4722,165 @@
         }
       ]
     },
+    "coco_kitchen.jpg::cpp_q5": {
+      "image": "coco_kitchen.jpg",
+      "impl": "cpp_q5",
+      "py_total": 12,
+      "cpp_total": 11,
+      "matched": 10,
+      "mean_score_delta": 0.025696099637222282,
+      "max_score_delta": 0.06891270579528808,
+      "mean_iou": 0.9848910837735618,
+      "min_iou": 0.9680649522640491,
+      "pairs": [
+        {
+          "class_id": 1,
+          "py_score": 0.9577370285987854,
+          "cpp_score": 0.953334,
+          "score_delta": 0.004403028598785386,
+          "iou": 0.9940832174609356
+        },
+        {
+          "class_id": 51,
+          "py_score": 0.9163899421691895,
+          "cpp_score": 0.919166,
+          "score_delta": 0.0027760578308105854,
+          "iou": 0.9907400863786237
+        },
+        {
+          "class_id": 51,
+          "py_score": 0.8741320371627808,
+          "cpp_score": 0.841377,
+          "score_delta": 0.03275503716278072,
+          "iou": 0.9960691267241213
+        },
+        {
+          "class_id": 51,
+          "py_score": 0.7906683087348938,
+          "cpp_score": 0.774608,
+          "score_delta": 0.016060308734893836,
+          "iou": 0.9680649522640491
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.6839103698730469,
+          "cpp_score": 0.656047,
+          "score_delta": 0.027863369873046828,
+          "iou": 0.9846030368350894
+        },
+        {
+          "class_id": 64,
+          "py_score": 0.6574227213859558,
+          "cpp_score": 0.650445,
+          "score_delta": 0.00697772138595576,
+          "iou": 0.9974024909116405
+        },
+        {
+          "class_id": 81,
+          "py_score": 0.6242597699165344,
+          "cpp_score": 0.638054,
+          "score_delta": 0.013794230083465586,
+          "iou": 0.9857217500304286
+        },
+        {
+          "class_id": 51,
+          "py_score": 0.6574934720993042,
+          "cpp_score": 0.604672,
+          "score_delta": 0.05282147209930421,
+          "iou": 0.9827459158268316
+        },
+        {
+          "class_id": 79,
+          "py_score": 0.5703690648078918,
+          "cpp_score": 0.539772,
+          "score_delta": 0.030597064807891816,
+          "iou": 0.9782965623598151
+        },
+        {
+          "class_id": 47,
+          "py_score": 0.5865457057952881,
+          "cpp_score": 0.517633,
+          "score_delta": 0.06891270579528808,
+          "iou": 0.9711836989440825
+        }
+      ]
+    },
+    "coco_kitchen.jpg::cpp_q4": {
+      "image": "coco_kitchen.jpg",
+      "impl": "cpp_q4",
+      "py_total": 12,
+      "cpp_total": 11,
+      "matched": 9,
+      "mean_score_delta": 0.04569724285549586,
+      "max_score_delta": 0.12399172138595582,
+      "mean_iou": 0.978454964621692,
+      "min_iou": 0.9546506257427371,
+      "pairs": [
+        {
+          "class_id": 1,
+          "py_score": 0.9577370285987854,
+          "cpp_score": 0.952679,
+          "score_delta": 0.005058028598785347,
+          "iou": 0.9943885004831158
+        },
+        {
+          "class_id": 51,
+          "py_score": 0.9163899421691895,
+          "cpp_score": 0.918858,
+          "score_delta": 0.0024680578308104995,
+          "iou": 0.9737745240731693
+        },
+        {
+          "class_id": 51,
+          "py_score": 0.8741320371627808,
+          "cpp_score": 0.80401,
+          "score_delta": 0.07012203716278076,
+          "iou": 0.9783439550780052
+        },
+        {
+          "class_id": 51,
+          "py_score": 0.6574934720993042,
+          "cpp_score": 0.652431,
+          "score_delta": 0.005062472099304216,
+          "iou": 0.9943141787503399
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.6839103698730469,
+          "cpp_score": 0.621835,
+          "score_delta": 0.06207536987304685,
+          "iou": 0.9546506257427371
+        },
+        {
+          "class_id": 81,
+          "py_score": 0.6242597699165344,
+          "cpp_score": 0.578539,
+          "score_delta": 0.0457207699165344,
+          "iou": 0.9839813285497387
+        },
+        {
+          "class_id": 51,
+          "py_score": 0.607845664024353,
+          "cpp_score": 0.569748,
+          "score_delta": 0.038097664024352995,
+          "iou": 0.9683951256416229
+        },
+        {
+          "class_id": 64,
+          "py_score": 0.6574227213859558,
+          "cpp_score": 0.533431,
+          "score_delta": 0.12399172138595582,
+          "iou": 0.9841552893392237
+        },
+        {
+          "class_id": 79,
+          "py_score": 0.5703690648078918,
+          "cpp_score": 0.51169,
+          "score_delta": 0.05867906480789187,
+          "iou": 0.9740911539372762
+        }
+      ]
+    },
     "coco_living_room.jpg::cpp_f32": {
       "image": "coco_living_room.jpg",
       "impl": "cpp_f32",
@@ -3276,6 +5075,165 @@
         }
       ]
     },
+    "coco_living_room.jpg::cpp_q5": {
+      "image": "coco_living_room.jpg",
+      "impl": "cpp_q5",
+      "py_total": 13,
+      "cpp_total": 14,
+      "matched": 11,
+      "mean_score_delta": 0.024314389262459487,
+      "max_score_delta": 0.06225450744628902,
+      "mean_iou": 0.9828775623894114,
+      "min_iou": 0.9688736568816195,
+      "pairs": [
+        {
+          "class_id": 72,
+          "py_score": 0.9445816874504089,
+          "cpp_score": 0.947547,
+          "score_delta": 0.0029653125495910926,
+          "iou": 0.9928698371203469
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.877151608467102,
+          "cpp_score": 0.870875,
+          "score_delta": 0.006276608467102096,
+          "iou": 0.9859479787615547
+        },
+        {
+          "class_id": 62,
+          "py_score": 0.8583023548126221,
+          "cpp_score": 0.844817,
+          "score_delta": 0.01348535481262203,
+          "iou": 0.9734933032019575
+        },
+        {
+          "class_id": 86,
+          "py_score": 0.7526454925537109,
+          "cpp_score": 0.8149,
+          "score_delta": 0.06225450744628902,
+          "iou": 0.9835130379749499
+        },
+        {
+          "class_id": 86,
+          "py_score": 0.8088513612747192,
+          "cpp_score": 0.787765,
+          "score_delta": 0.02108636127471919,
+          "iou": 0.9777143792291372
+        },
+        {
+          "class_id": 62,
+          "py_score": 0.8056692481040955,
+          "cpp_score": 0.779058,
+          "score_delta": 0.02661124810409543,
+          "iou": 0.9840937554687832
+        },
+        {
+          "class_id": 64,
+          "py_score": 0.731575608253479,
+          "cpp_score": 0.740173,
+          "score_delta": 0.008597391746520966,
+          "iou": 0.9836121788285589
+        },
+        {
+          "class_id": 67,
+          "py_score": 0.6596558094024658,
+          "cpp_score": 0.644607,
+          "score_delta": 0.01504880940246578,
+          "iou": 0.9885759822419387
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.6774874329566956,
+          "cpp_score": 0.640084,
+          "score_delta": 0.03740343295669557,
+          "iou": 0.9688736568816195
+        },
+        {
+          "class_id": 67,
+          "py_score": 0.5489766001701355,
+          "cpp_score": 0.520382,
+          "score_delta": 0.028594600170135487,
+          "iou": 0.9934183736442406
+        },
+        {
+          "class_id": 85,
+          "py_score": 0.5581286549568176,
+          "cpp_score": 0.512994,
+          "score_delta": 0.04513465495681768,
+          "iou": 0.9795407029304378
+        }
+      ]
+    },
+    "coco_living_room.jpg::cpp_q4": {
+      "image": "coco_living_room.jpg",
+      "impl": "cpp_q4",
+      "py_total": 13,
+      "cpp_total": 10,
+      "matched": 8,
+      "mean_score_delta": 0.024483590617179876,
+      "max_score_delta": 0.09980136127471928,
+      "mean_iou": 0.9678589892118563,
+      "min_iou": 0.9507131208691443,
+      "pairs": [
+        {
+          "class_id": 72,
+          "py_score": 0.9445816874504089,
+          "cpp_score": 0.951342,
+          "score_delta": 0.006760312549591085,
+          "iou": 0.9901773286184083
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.877151608467102,
+          "cpp_score": 0.874246,
+          "score_delta": 0.002905608467102083,
+          "iou": 0.953408258082225
+        },
+        {
+          "class_id": 62,
+          "py_score": 0.8583023548126221,
+          "cpp_score": 0.837609,
+          "score_delta": 0.020693354812622022,
+          "iou": 0.9754433466587229
+        },
+        {
+          "class_id": 62,
+          "py_score": 0.8056692481040955,
+          "cpp_score": 0.793759,
+          "score_delta": 0.011910248104095467,
+          "iou": 0.9591833186977485
+        },
+        {
+          "class_id": 86,
+          "py_score": 0.7526454925537109,
+          "cpp_score": 0.747069,
+          "score_delta": 0.005576492553710954,
+          "iou": 0.9868495555023834
+        },
+        {
+          "class_id": 86,
+          "py_score": 0.8088513612747192,
+          "cpp_score": 0.70905,
+          "score_delta": 0.09980136127471928,
+          "iou": 0.968300154605168
+        },
+        {
+          "class_id": 64,
+          "py_score": 0.731575608253479,
+          "cpp_score": 0.70723,
+          "score_delta": 0.02434560825347898,
+          "iou": 0.9587968306610497
+        },
+        {
+          "class_id": 62,
+          "py_score": 0.6713652610778809,
+          "cpp_score": 0.695241,
+          "score_delta": 0.02387573892211914,
+          "iou": 0.9507131208691443
+        }
+      ]
+    },
     "coco_skater.jpg::cpp_f32": {
       "image": "coco_skater.jpg",
       "impl": "cpp_f32",
@@ -3456,6 +5414,116 @@
         }
       ]
     },
+    "coco_skater.jpg::cpp_q5": {
+      "image": "coco_skater.jpg",
+      "impl": "cpp_q5",
+      "py_total": 11,
+      "cpp_total": 10,
+      "matched": 6,
+      "mean_score_delta": 0.021763018526077278,
+      "max_score_delta": 0.05315244335556035,
+      "mean_iou": 0.9802534378705343,
+      "min_iou": 0.9544719584365065,
+      "pairs": [
+        {
+          "class_id": 1,
+          "py_score": 0.9156963229179382,
+          "cpp_score": 0.912118,
+          "score_delta": 0.003578322917938248,
+          "iou": 0.9891201942202003
+        },
+        {
+          "class_id": 41,
+          "py_score": 0.9075666069984436,
+          "cpp_score": 0.902948,
+          "score_delta": 0.004618606998443631,
+          "iou": 0.9901732197246617
+        },
+        {
+          "class_id": 2,
+          "py_score": 0.8642932176589966,
+          "cpp_score": 0.882208,
+          "score_delta": 0.01791478234100341,
+          "iou": 0.985613323169186
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.8835914731025696,
+          "cpp_score": 0.866793,
+          "score_delta": 0.016798473102569544,
+          "iou": 0.9544719584365065
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.6433834433555603,
+          "cpp_score": 0.590231,
+          "score_delta": 0.05315244335556035,
+          "iou": 0.9715057246141
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.6089494824409485,
+          "cpp_score": 0.574434,
+          "score_delta": 0.034515482440948486,
+          "iou": 0.9906362070585512
+        }
+      ]
+    },
+    "coco_skater.jpg::cpp_q4": {
+      "image": "coco_skater.jpg",
+      "impl": "cpp_q4",
+      "py_total": 11,
+      "cpp_total": 12,
+      "matched": 6,
+      "mean_score_delta": 0.020875954624811826,
+      "max_score_delta": 0.06271321765899662,
+      "mean_iou": 0.9620194229703262,
+      "min_iou": 0.9526347932459522,
+      "pairs": [
+        {
+          "class_id": 1,
+          "py_score": 0.9156963229179382,
+          "cpp_score": 0.918595,
+          "score_delta": 0.002898677082061818,
+          "iou": 0.986917503328982
+        },
+        {
+          "class_id": 41,
+          "py_score": 0.9075666069984436,
+          "cpp_score": 0.906971,
+          "score_delta": 0.0005956069984436319,
+          "iou": 0.957822305237631
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.8835914731025696,
+          "cpp_score": 0.861306,
+          "score_delta": 0.022285473102569564,
+          "iou": 0.960521772398631
+        },
+        {
+          "class_id": 2,
+          "py_score": 0.8642932176589966,
+          "cpp_score": 0.80158,
+          "score_delta": 0.06271321765899662,
+          "iou": 0.9592634027793441
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.7050712704658508,
+          "cpp_score": 0.697224,
+          "score_delta": 0.007847270465850875,
+          "iou": 0.9549567608314169
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.6089494824409485,
+          "cpp_score": 0.580034,
+          "score_delta": 0.028915482440948437,
+          "iou": 0.9526347932459522
+        }
+      ]
+    },
     "coco_street.jpg::cpp_f32": {
       "image": "coco_street.jpg",
       "impl": "cpp_f32",
@@ -3549,6 +5617,102 @@
           "cpp_score": 0.559033,
           "score_delta": 0.015859878532409666,
           "iou": 0.9978210337212479
+        }
+      ]
+    },
+    "coco_street.jpg::cpp_q5": {
+      "image": "coco_street.jpg",
+      "impl": "cpp_q5",
+      "py_total": 5,
+      "cpp_total": 5,
+      "matched": 5,
+      "mean_score_delta": 0.017230793046569846,
+      "max_score_delta": 0.05698587853240966,
+      "mean_iou": 0.9924280733892964,
+      "min_iou": 0.9878982804627912,
+      "pairs": [
+        {
+          "class_id": 1,
+          "py_score": 0.9540343284606934,
+          "cpp_score": 0.952243,
+          "score_delta": 0.0017913284606934088,
+          "iou": 0.9917614206255937
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.9560278654098511,
+          "cpp_score": 0.947722,
+          "score_delta": 0.008305865409851121,
+          "iou": 0.9878982804627912
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.9508243799209595,
+          "cpp_score": 0.944498,
+          "score_delta": 0.006326379920959524,
+          "iou": 0.9961822415135767
+        },
+        {
+          "class_id": 28,
+          "py_score": 0.7623515129089355,
+          "cpp_score": 0.749607,
+          "score_delta": 0.012744512908935524,
+          "iou": 0.9927933234063894
+        },
+        {
+          "class_id": 10,
+          "py_score": 0.5748928785324097,
+          "cpp_score": 0.517907,
+          "score_delta": 0.05698587853240966,
+          "iou": 0.9935051009381306
+        }
+      ]
+    },
+    "coco_street.jpg::cpp_q4": {
+      "image": "coco_street.jpg",
+      "impl": "cpp_q4",
+      "py_total": 5,
+      "cpp_total": 5,
+      "matched": 5,
+      "mean_score_delta": 0.07213004163360595,
+      "max_score_delta": 0.2255975129089356,
+      "mean_iou": 0.987143587977406,
+      "min_iou": 0.974845095180179,
+      "pairs": [
+        {
+          "class_id": 1,
+          "py_score": 0.9560278654098511,
+          "cpp_score": 0.951709,
+          "score_delta": 0.004318865409851047,
+          "iou": 0.9868177499086588
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.9508243799209595,
+          "cpp_score": 0.948764,
+          "score_delta": 0.002060379920959421,
+          "iou": 0.9891014825563491
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.9540343284606934,
+          "cpp_score": 0.945783,
+          "score_delta": 0.008251328460693319,
+          "iou": 0.9953762070430422
+        },
+        {
+          "class_id": 10,
+          "py_score": 0.5748928785324097,
+          "cpp_score": 0.695315,
+          "score_delta": 0.12042212146759035,
+          "iou": 0.974845095180179
+        },
+        {
+          "class_id": 28,
+          "py_score": 0.7623515129089355,
+          "cpp_score": 0.536754,
+          "score_delta": 0.2255975129089356,
+          "iou": 0.989577405198801
         }
       ]
     }

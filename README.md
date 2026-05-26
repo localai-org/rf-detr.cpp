@@ -80,6 +80,12 @@ Same kitchen image; max score Δ < 0.02, max box Δ < 1 px. ggml's CPU backend
 handles F32 × Q8_0 `mul_mat` natively, so the loader and module code are
 unchanged — only the converter writes Q8_0 blocks.
 
+The converter also supports `q4_0`, `q4_1`, `q5_0`, `q5_1` for users who
+need a smaller disk footprint (down to ~25 MB at q4_0, **4.8× compression**).
+The sub-8-bit variants are not faster on CPU and Q4_0 drops ~11% of
+detections — see `BENCHMARK.md → "What about 4-bit?"` for the full
+size/speed/accuracy tradeoff. **Q8_0 remains the recommended quant.**
+
 ### Benchmark vs upstream Python
 
 A cross-implementation benchmark (latency + detection cross-check) is

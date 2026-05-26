@@ -163,3 +163,11 @@ target_link_libraries(test_q8_quant PRIVATE ggml)
 target_compile_definitions(test_q8_quant PRIVATE
     RFDETR_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
+# Q4_0 quantized model sanity check. Same structural test as Q8_0; Q4_0
+# itself ships with caveats documented in BENCHMARK.md.
+# Skips gracefully if models/rfdetr-base-q4_0.gguf isn't present.
+rfdetr_add_test(test_q4_quant)
+target_link_libraries(test_q4_quant PRIVATE ggml)
+target_compile_definitions(test_q4_quant PRIVATE
+    RFDETR_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+

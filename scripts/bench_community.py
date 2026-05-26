@@ -6,10 +6,12 @@ benchmarks/results/bench_data.json. Use scripts/plot_community.py to render
 the plots.
 
 Cells run:
-- per_image: PyTorch F32 / C++ F32 / C++ Q8_0 at T=8 on N images
-  (the "headline" latency comparison data)
+- per_image: PyTorch F32 / C++ F32 / C++ Q8_0 / C++ Q5_0 / C++ Q4_0 at T=8
+  on N images (the "headline" latency comparison data)
 - thread_sweep: PyTorch + C++ F32 + C++ Q8_0 over T in {1,2,4,8,12,16,20}
-  on ONE representative image (kitchen / coco_sample.jpg)
+  on ONE representative image (kitchen / coco_sample.jpg). Q4_0 / Q5_0 are
+  only swept at the headline T=8 cell — their per-thread shape is similar to
+  Q8_0 and they're a side story, not the headline.
 - detections: one detect run per (impl, image) for accuracy cross-check
 
 Uses time.perf_counter and disables GC during timed Python sections.
@@ -191,6 +193,10 @@ def main() -> int:
     ap.add_argument("--cli",     default=str(REPO / "build/bin/rfdetr-cli"))
     ap.add_argument("--f32",     default=str(REPO / "models/rfdetr-base-f32.gguf"))
     ap.add_argument("--q8",      default=str(REPO / "models/rfdetr-base-q8_0.gguf"))
+    ap.add_argument("--q5",      default=str(REPO / "models/rfdetr-base-q5_0.gguf"),
+                    help="optional Q5_0 model; skipped if file missing")
+    ap.add_argument("--q4",      default=str(REPO / "models/rfdetr-base-q4_0.gguf"),
+                    help="optional Q4_0 model; skipped if file missing")
     ap.add_argument("--images-dir", default=str(REPO / "benchmarks/images"))
     ap.add_argument("--out",     default=str(REPO / "benchmarks/results/bench_data.json"))
     ap.add_argument("--iters",   type=int, default=15,
@@ -210,7 +216,12 @@ def main() -> int:
     cli  = Path(args.cli)
     f32  = Path(args.f32)
     q8   = Path(args.q8)
+    q5   = Path(args.q5)
+    q4   = Path(args.q4)
     idir = Path(args.images_dir)
+
+    have_q5 = q5.exists()
+    have_q4 = q4.exists()
 
     images = sorted(idir.glob("*.jpg"))
     if not images:
@@ -245,6 +256,8 @@ def main() -> int:
         "models": {
             "f32_path": str(f32), "f32_size_bytes": f32.stat().st_size,
             "q8_path":  str(q8),  "q8_size_bytes":  q8.stat().st_size,
+            **({"q5_path": str(q5), "q5_size_bytes": q5.stat().st_size} if have_q5 else {}),
+            **({"q4_path": str(q4), "q4_size_bytes": q4.stat().st_size} if have_q4 else {}),
         },
         "cli": str(cli),
     }
@@ -284,6 +297,19 @@ def main() -> int:
               f"min={cell['cpp_q8']['min_ms']:.1f} max={cell['cpp_q8']['max_ms']:.1f}",
               file=sys.stderr)
 
+        if have_q5:
+            print(f"[cpp_q5  T={args.threads}]", file=sys.stderr)
+            cell["cpp_q5"]  = time_one_cpp(cli, q5,  img, args.iters, args.warmup, args.threads)
+            print(f"[cpp_q5 ] median={cell['cpp_q5']['median_ms']:.1f} ms "
+                  f"min={cell['cpp_q5']['min_ms']:.1f} max={cell['cpp_q5']['max_ms']:.1f}",
+                  file=sys.stderr)
+        if have_q4:
+            print(f"[cpp_q4  T={args.threads}]", file=sys.stderr)
+            cell["cpp_q4"]  = time_one_cpp(cli, q4,  img, args.iters, args.warmup, args.threads)
+            print(f"[cpp_q4 ] median={cell['cpp_q4']['median_ms']:.1f} ms "
+                  f"min={cell['cpp_q4']['min_ms']:.1f} max={cell['cpp_q4']['max_ms']:.1f}",
+                  file=sys.stderr)
+
         # detections (single run each)
         if "detections" not in data:
             data["detections"] = {}
@@ -292,6 +318,12 @@ def main() -> int:
         data["detections"][img.name]["cpp_f32"] = run_cpp_detect(cli, f32, img, args.threads)
         print(f"[detect cpp_q8 ]", file=sys.stderr)
         data["detections"][img.name]["cpp_q8" ] = run_cpp_detect(cli, q8,  img, args.threads)
+        if have_q5:
+            print(f"[detect cpp_q5 ]", file=sys.stderr)
+            data["detections"][img.name]["cpp_q5" ] = run_cpp_detect(cli, q5, img, args.threads)
+        if have_q4:
+            print(f"[detect cpp_q4 ]", file=sys.stderr)
+            data["detections"][img.name]["cpp_q4" ] = run_cpp_detect(cli, q4, img, args.threads)
 
         data["per_image"][img.name] = cell
 
@@ -342,7 +374,7 @@ def main() -> int:
         if "python" not in dets:
             continue
         py_dets = dets["python"]
-        for impl in ("cpp_f32", "cpp_q8"):
+        for impl in ("cpp_f32", "cpp_q8", "cpp_q5", "cpp_q4"):
             if impl not in dets:
                 continue
             pairs = match_detections(py_dets, dets[impl])
