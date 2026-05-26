@@ -141,12 +141,33 @@ scripts/convert_all_variants.sh
 See [BENCHMARK.md → "Variant comparison"](BENCHMARK.md#variant-comparison)
 for the full per-variant breakdown vs PyTorch.
 
+### Fine-tuning
+
+rfdetr.cpp is inference-only. To fine-tune RF-DETR on a custom dataset,
+train with the upstream [rfdetr](https://github.com/roboflow/rf-detr) Python
+library, then convert the resulting checkpoint to GGUF:
+
+```sh
+.venv/bin/python scripts/convert_rfdetr_to_gguf.py \
+    --checkpoint runs/my_train/checkpoint_best_total.pth \
+    --variant base \
+    --dtype f32 \
+    --output models/my_finetune-f32.gguf
+```
+
+The converter reads the head size directly from the checkpoint tensor and
+resizes the classification head before loading, so arbitrary `num_classes`
+values are handled automatically.
+
+See [docs/finetuning.md](docs/finetuning.md) for the end-to-end walkthrough
+(dataset prep → train → convert → quantize → serve) and an in-repo smoke
+test using a synthetic 5-class checkpoint.
+
 ### Roadmap
 
 - Backbone drift root-cause + fix
 - GPU backends (CUDA / Metal / Vulkan)
 - Segmentation variants (`RFDETRSeg*`)
-- Custom-checkpoint conversion (fine-tuned models)
 
 ## Build
 
