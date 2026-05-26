@@ -84,6 +84,38 @@ rfdetr_add_test(test_capi_flat)
 add_dependencies(test_capi_flat rfdetr_model_fixture rfdetr_fixtures)
 
 # ---------------------------------------------------------------------------
+# Plan 13: torch parity baseline (regenerated on demand, NOT in ALL).
+#
+# To regenerate the baseline:
+#   cmake --build build --target rfdetr_baseline_torch
+#
+# Slow: requires .venv/ with rfdetr 1.7.0 + torch 2.5.1 + gguf + numpy.
+# Runs real rfdetr-base forward with hooks at named checkpoints. The output
+# is consumed by test_parity_torch and (later, in Plans 8-12) by the per-
+# module C++ vs torch comparison loops.
+# ---------------------------------------------------------------------------
+find_program(PYTHON3 python3 REQUIRED)
+# Prefer .venv/bin/python if it exists (has rfdetr + torch installed); fall back
+# to the system python3 (user is responsible for installing the deps).
+set(_torch_baseline_python "${PYTHON3}")
+if(EXISTS "${CMAKE_SOURCE_DIR}/.venv/bin/python")
+    set(_torch_baseline_python "${CMAKE_SOURCE_DIR}/.venv/bin/python")
+endif()
+add_custom_target(rfdetr_baseline_torch
+    COMMAND ${_torch_baseline_python} ${CMAKE_SOURCE_DIR}/scripts/gen_torch_baseline.py
+            --output ${RFDETR_TEST_FIXTURES}/baseline_torch.gguf
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Generating torch parity baseline (requires .venv with rfdetr 1.7.0)"
+    VERBATIM)
+
+# Bundle loader stub: verifies format + required checkpoint coverage.
+# Skips gracefully if the baseline isn't generated (so a fresh clone passes
+# ctest without needing the .venv). Plans 8-12 add the actual per-module
+# C++ vs torch tensor comparison loops.
+rfdetr_add_test(test_parity_torch)
+target_link_libraries(test_parity_torch PRIVATE ggml)
+
+# ---------------------------------------------------------------------------
 # DISABLED (Plan 7 transitional state):
 #
 # test_parity_full_forward exercises a full forward pass against a numpy
