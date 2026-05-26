@@ -1,0 +1,3556 @@
+{
+  "meta": {
+    "schema_version": 1,
+    "iters": 15,
+    "warmup": 3,
+    "threads_headline": 8,
+    "thread_sweep": [
+      1,
+      2,
+      4,
+      8,
+      12,
+      16,
+      20
+    ],
+    "sweep_image": "coco_kitchen.jpg",
+    "platform": {
+      "system": "Linux",
+      "release": "6.8.0-117-generic",
+      "machine": "x86_64",
+      "cpu": "AMD Ryzen 9 9950X3D",
+      "cores": 20
+    },
+    "models": {
+      "f32_path": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-f32.gguf",
+      "f32_size_bytes": 124989504,
+      "q8_path": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q8_0.gguf",
+      "q8_size_bytes": 40337088
+    },
+    "cli": "/home/mudler/_git/rt-detr.cpp/build/bin/rfdetr-cli"
+  },
+  "per_image": {
+    "bus.jpg": {
+      "image": "bus.jpg",
+      "python": {
+        "min_ms": 143.11051700497046,
+        "p25_ms": 145.52479999838397,
+        "median_ms": 151.62089298246428,
+        "p75_ms": 166.69999103760347,
+        "mean_ms": 157.7629238793937,
+        "max_ms": 187.6722060260363,
+        "raw_ms": [
+          187.6722060260363,
+          147.29461900424212,
+          161.59175900975242,
+          176.89849302405491,
+          144.53305100323632,
+          143.11051700497046,
+          144.12631205050275,
+          183.084411022719,
+          153.02350895944983,
+          151.62089298246428,
+          147.61626400286332,
+          149.6693460503593,
+          145.52479999838397,
+          166.69999103760347,
+          163.97768701426685
+        ]
+      },
+      "cpp_f32": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-f32.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/bus.jpg (810x1080)",
+        "threads": 8,
+        "load_ms": 35.73,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 5,
+        "min_ms": 141.42,
+        "median_ms": 142.79,
+        "mean_ms": 145.19,
+        "max_ms": 156.95
+      },
+      "cpp_q8": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q8_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/bus.jpg (810x1080)",
+        "threads": 8,
+        "load_ms": 14.36,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 5,
+        "min_ms": 143.06,
+        "median_ms": 144.99,
+        "mean_ms": 149.2,
+        "max_ms": 163.38
+      }
+    },
+    "coco_cats.jpg": {
+      "image": "coco_cats.jpg",
+      "python": {
+        "min_ms": 136.4313789526932,
+        "p25_ms": 145.47536696773022,
+        "median_ms": 148.659405997023,
+        "p75_ms": 156.06727200793102,
+        "mean_ms": 149.70721752227595,
+        "max_ms": 159.77350098546594,
+        "raw_ms": [
+          158.5359110031277,
+          147.70953898550943,
+          139.7631709696725,
+          146.9677070272155,
+          143.0225420044735,
+          148.659405997023,
+          136.4313789526932,
+          153.1403959961608,
+          156.06727200793102,
+          159.77350098546594,
+          147.72848301799968,
+          155.1539339707233,
+          158.0301399808377,
+          149.14951496757567,
+          145.47536696773022
+        ]
+      },
+      "cpp_f32": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-f32.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_cats.jpg (640x480)",
+        "threads": 8,
+        "load_ms": 38.71,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 5,
+        "min_ms": 140.48,
+        "median_ms": 141.86,
+        "mean_ms": 144.58,
+        "max_ms": 154.47
+      },
+      "cpp_q8": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q8_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_cats.jpg (640x480)",
+        "threads": 8,
+        "load_ms": 15.21,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 5,
+        "min_ms": 143.34,
+        "median_ms": 145.46,
+        "mean_ms": 147.48,
+        "max_ms": 165.41
+      }
+    },
+    "coco_indoor.jpg": {
+      "image": "coco_indoor.jpg",
+      "python": {
+        "min_ms": 143.27232301002368,
+        "p25_ms": 155.55387403583154,
+        "median_ms": 157.7935519744642,
+        "p75_ms": 168.2126639643684,
+        "mean_ms": 163.4216895365777,
+        "max_ms": 204.8526389990002,
+        "raw_ms": [
+          187.63820501044393,
+          155.55387403583154,
+          155.9218390029855,
+          204.8526389990002,
+          157.3702209861949,
+          151.7908060341142,
+          143.27232301002368,
+          149.44768999703228,
+          157.7935519744642,
+          168.2126639643684,
+          168.55131200281903,
+          164.4669600063935,
+          157.27856598095968,
+          161.66800999781117,
+          167.50668204622343
+        ]
+      },
+      "cpp_f32": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-f32.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_indoor.jpg (640x483)",
+        "threads": 8,
+        "load_ms": 37.83,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 4,
+        "min_ms": 140.8,
+        "median_ms": 142.78,
+        "mean_ms": 143.61,
+        "max_ms": 156.92
+      },
+      "cpp_q8": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q8_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_indoor.jpg (640x483)",
+        "threads": 8,
+        "load_ms": 15.63,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 4,
+        "min_ms": 143.61,
+        "median_ms": 144.91,
+        "mean_ms": 146.22,
+        "max_ms": 153.17
+      }
+    },
+    "coco_kitchen.jpg": {
+      "image": "coco_kitchen.jpg",
+      "python": {
+        "min_ms": 140.9173069987446,
+        "p25_ms": 144.46554397,
+        "median_ms": 153.76426000148058,
+        "p75_ms": 163.74798800097778,
+        "mean_ms": 158.3485458007393,
+        "max_ms": 214.15558399166912,
+        "raw_ms": [
+          214.15558399166912,
+          153.76426000148058,
+          163.74798800097778,
+          147.10754103725776,
+          144.46554397,
+          150.91648400994018,
+          163.7892160215415,
+          156.83004999300465,
+          183.79837297834456,
+          161.17959801340476,
+          140.9173069987446,
+          143.47494498360902,
+          159.2926540179178,
+          150.33917798427865,
+          141.4494650089182
+        ]
+      },
+      "cpp_f32": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-f32.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_kitchen.jpg (640x427)",
+        "threads": 8,
+        "load_ms": 37.88,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 12,
+        "min_ms": 140.68,
+        "median_ms": 144.15,
+        "mean_ms": 146.18,
+        "max_ms": 159.71
+      },
+      "cpp_q8": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q8_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_kitchen.jpg (640x427)",
+        "threads": 8,
+        "load_ms": 15.05,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 12,
+        "min_ms": 143.56,
+        "median_ms": 144.87,
+        "mean_ms": 145.25,
+        "max_ms": 148.32
+      }
+    },
+    "coco_living_room.jpg": {
+      "image": "coco_living_room.jpg",
+      "python": {
+        "min_ms": 140.6107249786146,
+        "p25_ms": 150.75834497110918,
+        "median_ms": 160.13727599056438,
+        "p75_ms": 202.0540420198813,
+        "mean_ms": 182.8301237236398,
+        "max_ms": 314.7774370154366,
+        "raw_ms": [
+          223.71297795325518,
+          140.6107249786146,
+          160.13727599056438,
+          192.51897401409224,
+          314.7774370154366,
+          156.53957496397197,
+          178.33537299884483,
+          202.0540420198813,
+          155.00478801550344,
+          163.3030489902012,
+          146.89335599541664,
+          156.7818699986674,
+          253.97192896343768,
+          150.75834497110918,
+          147.05213898560032
+        ]
+      },
+      "cpp_f32": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-f32.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_living_room.jpg (640x426)",
+        "threads": 8,
+        "load_ms": 42.13,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 13,
+        "min_ms": 142.46,
+        "median_ms": 150.03,
+        "mean_ms": 151.81,
+        "max_ms": 169.48
+      },
+      "cpp_q8": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q8_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_living_room.jpg (640x426)",
+        "threads": 8,
+        "load_ms": 15.31,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 13,
+        "min_ms": 143.79,
+        "median_ms": 145.64,
+        "mean_ms": 147.29,
+        "max_ms": 157.78
+      }
+    },
+    "coco_skater.jpg": {
+      "image": "coco_skater.jpg",
+      "python": {
+        "min_ms": 134.3235910171643,
+        "p25_ms": 140.5659219599329,
+        "median_ms": 143.51376704871655,
+        "p75_ms": 163.95426902454346,
+        "mean_ms": 154.35815420545018,
+        "max_ms": 210.04709001863375,
+        "raw_ms": [
+          210.04709001863375,
+          143.51376704871655,
+          138.3248220081441,
+          163.95426902454346,
+          144.2807869752869,
+          144.49262199923396,
+          142.48230203520507,
+          145.3436510055326,
+          134.3235910171643,
+          143.39216402731836,
+          143.34676699945703,
+          136.98986498638988,
+          140.5659219599329,
+          180.6820789934136,
+          203.63261498278007
+        ]
+      },
+      "cpp_f32": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-f32.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_skater.jpg (640x480)",
+        "threads": 8,
+        "load_ms": 39.01,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 12,
+        "min_ms": 142.0,
+        "median_ms": 146.45,
+        "mean_ms": 147.1,
+        "max_ms": 155.36
+      },
+      "cpp_q8": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q8_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_skater.jpg (640x480)",
+        "threads": 8,
+        "load_ms": 14.61,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 11,
+        "min_ms": 144.22,
+        "median_ms": 145.82,
+        "mean_ms": 147.53,
+        "max_ms": 155.58
+      }
+    },
+    "coco_street.jpg": {
+      "image": "coco_street.jpg",
+      "python": {
+        "min_ms": 140.11419098824263,
+        "p25_ms": 148.6247880384326,
+        "median_ms": 151.71735099283978,
+        "p75_ms": 162.50054800184444,
+        "mean_ms": 158.48955479838574,
+        "max_ms": 214.4668729742989,
+        "raw_ms": [
+          162.50054800184444,
+          156.86282300157472,
+          196.34212797973305,
+          154.34080496197566,
+          169.80766103370115,
+          148.6247880384326,
+          148.8577540148981,
+          214.4668729742989,
+          140.2081220294349,
+          151.35882300091907,
+          151.71735099283978,
+          148.70169496862218,
+          140.80641698092222,
+          140.11419098824263,
+          152.63334300834686
+        ]
+      },
+      "cpp_f32": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-f32.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_street.jpg (640x428)",
+        "threads": 8,
+        "load_ms": 41.15,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 5,
+        "min_ms": 142.1,
+        "median_ms": 143.05,
+        "mean_ms": 145.3,
+        "max_ms": 160.26
+      },
+      "cpp_q8": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q8_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_street.jpg (640x428)",
+        "threads": 8,
+        "load_ms": 15.14,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 5,
+        "min_ms": 144.43,
+        "median_ms": 146.54,
+        "mean_ms": 147.57,
+        "max_ms": 157.85
+      }
+    }
+  },
+  "thread_sweep": {
+    "image": "coco_kitchen.jpg",
+    "threads": [
+      1,
+      2,
+      4,
+      8,
+      12,
+      16,
+      20
+    ],
+    "cpp_f32": {
+      "1": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-f32.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_kitchen.jpg (640x427)",
+        "threads": 1,
+        "load_ms": 40.17,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 12,
+        "min_ms": 842.53,
+        "median_ms": 848.01,
+        "mean_ms": 849.07,
+        "max_ms": 858.65
+      },
+      "2": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-f32.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_kitchen.jpg (640x427)",
+        "threads": 2,
+        "load_ms": 37.66,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 12,
+        "min_ms": 446.16,
+        "median_ms": 452.5,
+        "mean_ms": 451.79,
+        "max_ms": 460.37
+      },
+      "4": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-f32.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_kitchen.jpg (640x427)",
+        "threads": 4,
+        "load_ms": 39.62,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 12,
+        "min_ms": 240.77,
+        "median_ms": 244.19,
+        "mean_ms": 244.89,
+        "max_ms": 255.07
+      },
+      "8": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-f32.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_kitchen.jpg (640x427)",
+        "threads": 8,
+        "load_ms": 40.69,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 12,
+        "min_ms": 142.06,
+        "median_ms": 145.09,
+        "mean_ms": 146.79,
+        "max_ms": 157.75
+      },
+      "12": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-f32.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_kitchen.jpg (640x427)",
+        "threads": 12,
+        "load_ms": 36.81,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 12,
+        "min_ms": 145.52,
+        "median_ms": 152.72,
+        "mean_ms": 153.15,
+        "max_ms": 166.01
+      },
+      "16": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-f32.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_kitchen.jpg (640x427)",
+        "threads": 16,
+        "load_ms": 40.43,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 12,
+        "min_ms": 131.61,
+        "median_ms": 138.7,
+        "mean_ms": 138.34,
+        "max_ms": 145.56
+      },
+      "20": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-f32.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_kitchen.jpg (640x427)",
+        "threads": 20,
+        "load_ms": 40.04,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 12,
+        "min_ms": 156.17,
+        "median_ms": 170.85,
+        "mean_ms": 186.0,
+        "max_ms": 284.88
+      }
+    },
+    "cpp_q8": {
+      "1": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q8_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_kitchen.jpg (640x427)",
+        "threads": 1,
+        "load_ms": 15.23,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 12,
+        "min_ms": 891.82,
+        "median_ms": 899.73,
+        "mean_ms": 900.56,
+        "max_ms": 914.83
+      },
+      "2": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q8_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_kitchen.jpg (640x427)",
+        "threads": 2,
+        "load_ms": 15.63,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 12,
+        "min_ms": 466.45,
+        "median_ms": 470.86,
+        "mean_ms": 474.33,
+        "max_ms": 495.84
+      },
+      "4": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q8_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_kitchen.jpg (640x427)",
+        "threads": 4,
+        "load_ms": 15.26,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 12,
+        "min_ms": 249.61,
+        "median_ms": 257.99,
+        "mean_ms": 259.46,
+        "max_ms": 283.8
+      },
+      "8": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q8_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_kitchen.jpg (640x427)",
+        "threads": 8,
+        "load_ms": 16.77,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 12,
+        "min_ms": 145.02,
+        "median_ms": 147.58,
+        "mean_ms": 148.37,
+        "max_ms": 153.44
+      },
+      "12": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q8_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_kitchen.jpg (640x427)",
+        "threads": 12,
+        "load_ms": 15.78,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 12,
+        "min_ms": 145.09,
+        "median_ms": 149.3,
+        "mean_ms": 150.48,
+        "max_ms": 164.82
+      },
+      "16": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q8_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_kitchen.jpg (640x427)",
+        "threads": 16,
+        "load_ms": 17.07,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 12,
+        "min_ms": 129.41,
+        "median_ms": 131.67,
+        "mean_ms": 133.25,
+        "max_ms": 140.39
+      },
+      "20": {
+        "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-base-q8_0.gguf",
+        "image": "/home/mudler/_git/rt-detr.cpp/benchmarks/images/coco_kitchen.jpg (640x427)",
+        "threads": 20,
+        "load_ms": 14.84,
+        "warmup": 3,
+        "iters": 15,
+        "detections": 12,
+        "min_ms": 164.46,
+        "median_ms": 184.73,
+        "mean_ms": 205.92,
+        "max_ms": 407.7
+      }
+    },
+    "python": {
+      "1": {
+        "min_ms": 793.719694018364,
+        "p25_ms": 796.1271519889124,
+        "median_ms": 797.3312839749269,
+        "p75_ms": 799.2282540071756,
+        "mean_ms": 797.5030199314157,
+        "max_ms": 800.620699999854,
+        "raw_ms": [
+          799.2282540071756,
+          796.1271519889124,
+          795.183983980678,
+          800.4185439785942,
+          797.9829179821536,
+          796.80253501283,
+          798.0967400362715,
+          796.0793649544939,
+          797.4251880077645,
+          796.2133660330437,
+          797.3312839749269,
+          800.0762059818953,
+          793.719694018364,
+          797.239369014278,
+          800.620699999854
+        ]
+      },
+      "2": {
+        "min_ms": 419.0305049996823,
+        "p25_ms": 420.5071869655512,
+        "median_ms": 422.08172800019383,
+        "p75_ms": 423.8878660253249,
+        "mean_ms": 422.03333226498216,
+        "max_ms": 425.6434650160372,
+        "raw_ms": [
+          424.48946298100054,
+          420.5976700177416,
+          420.0441600405611,
+          420.0638059992343,
+          423.8878660253249,
+          423.1898799771443,
+          422.08172800019383,
+          419.0305049996823,
+          421.0015669814311,
+          424.2785719688982,
+          425.6434650160372,
+          422.6771339890547,
+          422.44372598361224,
+          420.5071869655512,
+          420.56325502926484
+        ]
+      },
+      "4": {
+        "min_ms": 279.1955139837228,
+        "p25_ms": 279.7822290449403,
+        "median_ms": 281.550687039271,
+        "p75_ms": 283.9340299833566,
+        "mean_ms": 281.9380716731151,
+        "max_ms": 285.5228619882837,
+        "raw_ms": [
+          283.95108302356675,
+          283.9340299833566,
+          285.5228619882837,
+          281.9821829907596,
+          279.7822290449403,
+          281.550687039271,
+          283.6518399999477,
+          284.6398609690368,
+          280.2339230547659,
+          283.48047903273255,
+          281.27548802876845,
+          279.5571869937703,
+          279.4617529725656,
+          280.85195599123836,
+          279.1955139837228
+        ]
+      },
+      "8": {
+        "min_ms": 144.71809496171772,
+        "p25_ms": 145.09343198733404,
+        "median_ms": 146.73031802522019,
+        "p75_ms": 147.80493400758132,
+        "mean_ms": 146.65560240003592,
+        "max_ms": 149.74195399554446,
+        "raw_ms": [
+          146.73031802522019,
+          147.54177100257948,
+          148.79888901486993,
+          149.74195399554446,
+          147.27829699404538,
+          145.79058898380026,
+          148.58719398034737,
+          145.2979650348425,
+          144.89413099363446,
+          144.71809496171772,
+          145.28840698767453,
+          145.09343198733404,
+          145.0437370222062,
+          147.2243230091408,
+          147.80493400758132
+        ]
+      },
+      "12": {
+        "min_ms": 121.93655397277325,
+        "p25_ms": 125.20904996199533,
+        "median_ms": 127.30568402912468,
+        "p75_ms": 129.02445602230728,
+        "mean_ms": 126.71509680027764,
+        "max_ms": 130.17716200556606,
+        "raw_ms": [
+          129.02445602230728,
+          129.64759900933132,
+          129.3510110117495,
+          127.85379402339458,
+          127.30568402912468,
+          122.02726799296215,
+          126.16760400123894,
+          122.72171798394993,
+          125.20904996199533,
+          126.08794204425067,
+          130.17716200556606,
+          128.6087890039198,
+          121.93655397277325,
+          125.7002999773249,
+          128.90752096427605
+        ]
+      },
+      "16": {
+        "min_ms": 106.4797900035046,
+        "p25_ms": 108.12057997100055,
+        "median_ms": 108.49873395636678,
+        "p75_ms": 110.5863019474782,
+        "mean_ms": 111.58164365915582,
+        "max_ms": 140.0390950147994,
+        "raw_ms": [
+          140.0390950147994,
+          106.92666500108317,
+          106.4797900035046,
+          108.10702503658831,
+          108.53330098325387,
+          108.12057997100055,
+          109.17757399147376,
+          108.49873395636678,
+          108.12066099606454,
+          113.3576079737395,
+          108.72918699169531,
+          108.27661998337135,
+          108.28586801653728,
+          120.48564502038062,
+          110.5863019474782
+        ]
+      },
+      "20": {
+        "min_ms": 141.94040198344737,
+        "p25_ms": 150.96510102739558,
+        "median_ms": 156.8488139891997,
+        "p75_ms": 163.29029900953174,
+        "mean_ms": 163.18449172734594,
+        "max_ms": 218.50273798918352,
+        "raw_ms": [
+          163.29029900953174,
+          147.93061098316684,
+          191.0794849973172,
+          189.1678639804013,
+          149.4899070239626,
+          151.52479097014293,
+          153.9277610136196,
+          150.96510102739558,
+          160.05560499615967,
+          157.48028398957103,
+          153.15459296107292,
+          141.94040198344737,
+          156.8488139891997,
+          162.409120996017,
+          218.50273798918352
+        ]
+      }
+    }
+  },
+  "detections": {
+    "bus.jpg": {
+      "python": [
+        {
+          "class_id": 6,
+          "score": 0.9717015624046326,
+          "bbox": [
+            6.228089332580566,
+            231.6125030517578,
+            804.3797607421875,
+            735.0582885742188
+          ]
+        },
+        {
+          "class_id": 1,
+          "score": 0.9480829834938049,
+          "bbox": [
+            49.66618347167969,
+            397.2334289550781,
+            246.80279541015625,
+            905.5936889648438
+          ]
+        },
+        {
+          "class_id": 1,
+          "score": 0.9375559091567993,
+          "bbox": [
+            668.4241943359375,
+            392.6304626464844,
+            810.1312255859375,
+            880.1907958984375
+          ]
+        },
+        {
+          "class_id": 1,
+          "score": 0.9362624287605286,
+          "bbox": [
+            221.95993041992188,
+            406.5940246582031,
+            344.7126770019531,
+            859.5067138671875
+          ]
+        },
+        {
+          "class_id": 1,
+          "score": 0.8928161859512329,
+          "bbox": [
+            -0.017220787703990936,
+            553.6171264648438,
+            78.40614318847656,
+            867.4337768554688
+          ]
+        }
+      ],
+      "cpp_f32": [
+        {
+          "class_id": 6,
+          "class_name": "bus",
+          "score": 0.970298,
+          "bbox": [
+            5.76335,
+            231.77,
+            804.836,
+            735.362
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.948622,
+          "bbox": [
+            49.7695,
+            397.29,
+            246.838,
+            905.563
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.936298,
+          "bbox": [
+            222.015,
+            406.467,
+            344.664,
+            859.627
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.935705,
+          "bbox": [
+            668.642,
+            392.611,
+            810,
+            880.073
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.891722,
+          "bbox": [
+            0,
+            553.414,
+            78.4125,
+            867.177
+          ]
+        }
+      ],
+      "cpp_q8": [
+        {
+          "class_id": 6,
+          "class_name": "bus",
+          "score": 0.969582,
+          "bbox": [
+            6.52313,
+            231.379,
+            804.494,
+            735.092
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.948633,
+          "bbox": [
+            49.7547,
+            397.369,
+            247.011,
+            905.39
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.938013,
+          "bbox": [
+            668.402,
+            392.46,
+            810,
+            879.919
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.937135,
+          "bbox": [
+            222,
+            406.614,
+            344.643,
+            859.613
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.892635,
+          "bbox": [
+            0,
+            553.502,
+            78.3769,
+            867.168
+          ]
+        }
+      ]
+    },
+    "coco_cats.jpg": {
+      "python": [
+        {
+          "class_id": 17,
+          "score": 0.9603008031845093,
+          "bbox": [
+            7.347841262817383,
+            54.6433219909668,
+            318.451904296875,
+            472.13909912109375
+          ]
+        },
+        {
+          "class_id": 17,
+          "score": 0.9335694909095764,
+          "bbox": [
+            342.9867858886719,
+            23.92715072631836,
+            639.3702392578125,
+            371.9057922363281
+          ]
+        },
+        {
+          "class_id": 75,
+          "score": 0.8975501656532288,
+          "bbox": [
+            40.717010498046875,
+            72.61031341552734,
+            175.94491577148438,
+            117.58364868164062
+          ]
+        },
+        {
+          "class_id": 75,
+          "score": 0.727892279624939,
+          "bbox": [
+            333.5335998535156,
+            76.99244689941406,
+            370.355712890625,
+            187.31747436523438
+          ]
+        },
+        {
+          "class_id": 63,
+          "score": 0.6725846529006958,
+          "bbox": [
+            0.8291053771972656,
+            1.5085172653198242,
+            640.3634643554688,
+            474.59765625
+          ]
+        }
+      ],
+      "cpp_f32": [
+        {
+          "class_id": 17,
+          "class_name": "cat",
+          "score": 0.960048,
+          "bbox": [
+            7.45784,
+            54.8153,
+            318.47,
+            472.155
+          ]
+        },
+        {
+          "class_id": 17,
+          "class_name": "cat",
+          "score": 0.932832,
+          "bbox": [
+            343.324,
+            23.9448,
+            639.179,
+            371.999
+          ]
+        },
+        {
+          "class_id": 75,
+          "class_name": "remote",
+          "score": 0.902094,
+          "bbox": [
+            40.7198,
+            72.5993,
+            175.854,
+            117.543
+          ]
+        },
+        {
+          "class_id": 75,
+          "class_name": "remote",
+          "score": 0.715861,
+          "bbox": [
+            333.55,
+            76.9556,
+            370.44,
+            187.29
+          ]
+        },
+        {
+          "class_id": 63,
+          "class_name": "couch",
+          "score": 0.683163,
+          "bbox": [
+            0.745697,
+            1.40031,
+            640,
+            474.652
+          ]
+        }
+      ],
+      "cpp_q8": [
+        {
+          "class_id": 17,
+          "class_name": "cat",
+          "score": 0.959657,
+          "bbox": [
+            7.11899,
+            54.9556,
+            318.148,
+            472.271
+          ]
+        },
+        {
+          "class_id": 17,
+          "class_name": "cat",
+          "score": 0.93555,
+          "bbox": [
+            343.168,
+            23.7257,
+            639.307,
+            372.055
+          ]
+        },
+        {
+          "class_id": 75,
+          "class_name": "remote",
+          "score": 0.90098,
+          "bbox": [
+            40.6718,
+            72.6818,
+            175.884,
+            117.604
+          ]
+        },
+        {
+          "class_id": 75,
+          "class_name": "remote",
+          "score": 0.717923,
+          "bbox": [
+            333.527,
+            76.974,
+            370.449,
+            187.45
+          ]
+        },
+        {
+          "class_id": 63,
+          "class_name": "couch",
+          "score": 0.71421,
+          "bbox": [
+            1.32103,
+            1.41063,
+            640,
+            474.459
+          ]
+        }
+      ]
+    },
+    "coco_indoor.jpg": {
+      "python": [
+        {
+          "class_id": 65,
+          "score": 0.9606183171272278,
+          "bbox": [
+            0.23565292358398438,
+            281.5028381347656,
+            400.46270751953125,
+            477.65283203125
+          ]
+        },
+        {
+          "class_id": 64,
+          "score": 0.868493914604187,
+          "bbox": [
+            342.2332763671875,
+            212.10568237304688,
+            429.928955078125,
+            351.6976013183594
+          ]
+        },
+        {
+          "class_id": 64,
+          "score": 0.843324601650238,
+          "bbox": [
+            183.65481567382812,
+            131.96249389648438,
+            242.33615112304688,
+            228.710205078125
+          ]
+        },
+        {
+          "class_id": 44,
+          "score": 0.6438709497451782,
+          "bbox": [
+            96.22162628173828,
+            191.9497528076172,
+            114.82844543457031,
+            231.8883819580078
+          ]
+        }
+      ],
+      "cpp_f32": [
+        {
+          "class_id": 65,
+          "class_name": "bed",
+          "score": 0.957298,
+          "bbox": [
+            0.177135,
+            281.654,
+            400.363,
+            477.793
+          ]
+        },
+        {
+          "class_id": 64,
+          "class_name": "potted plant",
+          "score": 0.858133,
+          "bbox": [
+            342.092,
+            212.483,
+            429.976,
+            351.646
+          ]
+        },
+        {
+          "class_id": 64,
+          "class_name": "potted plant",
+          "score": 0.834855,
+          "bbox": [
+            183.657,
+            131.857,
+            242.455,
+            228.733
+          ]
+        },
+        {
+          "class_id": 44,
+          "class_name": "bottle",
+          "score": 0.688333,
+          "bbox": [
+            96.2357,
+            191.906,
+            114.854,
+            231.99
+          ]
+        }
+      ],
+      "cpp_q8": [
+        {
+          "class_id": 65,
+          "class_name": "bed",
+          "score": 0.961358,
+          "bbox": [
+            0.471783,
+            281.666,
+            400.388,
+            477.881
+          ]
+        },
+        {
+          "class_id": 64,
+          "class_name": "potted plant",
+          "score": 0.852827,
+          "bbox": [
+            342.031,
+            212.607,
+            429.937,
+            351.531
+          ]
+        },
+        {
+          "class_id": 64,
+          "class_name": "potted plant",
+          "score": 0.829634,
+          "bbox": [
+            183.562,
+            131.995,
+            242.402,
+            228.816
+          ]
+        },
+        {
+          "class_id": 44,
+          "class_name": "bottle",
+          "score": 0.689926,
+          "bbox": [
+            96.2635,
+            191.904,
+            114.871,
+            232.043
+          ]
+        }
+      ]
+    },
+    "coco_kitchen.jpg": {
+      "python": [
+        {
+          "class_id": 1,
+          "score": 0.9577370285987854,
+          "bbox": [
+            386.33270263671875,
+            68.33889770507812,
+            499.1700744628906,
+            347.3118896484375
+          ]
+        },
+        {
+          "class_id": 51,
+          "score": 0.9163899421691895,
+          "bbox": [
+            30.634353637695312,
+            343.5118408203125,
+            99.30973052978516,
+            385.871826171875
+          ]
+        },
+        {
+          "class_id": 51,
+          "score": 0.8741320371627808,
+          "bbox": [
+            56.73158264160156,
+            289.1413269042969,
+            134.22259521484375,
+            328.42083740234375
+          ]
+        },
+        {
+          "class_id": 51,
+          "score": 0.7906683087348938,
+          "bbox": [
+            154.9769287109375,
+            168.28695678710938,
+            183.28575134277344,
+            184.73101806640625
+          ]
+        },
+        {
+          "class_id": 1,
+          "score": 0.6839103698730469,
+          "bbox": [
+            0.1742243766784668,
+            263.4541015625,
+            60.366905212402344,
+            302.31683349609375
+          ]
+        },
+        {
+          "class_id": 51,
+          "score": 0.6574934720993042,
+          "bbox": [
+            0.1887369155883789,
+            303.8803405761719,
+            86.52192687988281,
+            370.893798828125
+          ]
+        },
+        {
+          "class_id": 64,
+          "score": 0.6574227213859558,
+          "bbox": [
+            -0.011985301971435547,
+            0.5715826749801636,
+            61.83501434326172,
+            143.9571990966797
+          ]
+        },
+        {
+          "class_id": 81,
+          "score": 0.6242597699165344,
+          "bbox": [
+            495.9975891113281,
+            199.70343017578125,
+            615.8300170898438,
+            230.87081909179688
+          ]
+        },
+        {
+          "class_id": 51,
+          "score": 0.607845664024353,
+          "bbox": [
+            155.2550811767578,
+            112.94910430908203,
+            174.60153198242188,
+            129.3549346923828
+          ]
+        },
+        {
+          "class_id": 47,
+          "score": 0.5865457057952881,
+          "bbox": [
+            144.8122100830078,
+            267.2049865722656,
+            173.3748779296875,
+            301.7074279785156
+          ]
+        },
+        {
+          "class_id": 79,
+          "score": 0.5703690648078918,
+          "bbox": [
+            232.44183349609375,
+            192.09906005859375,
+            396.6448974609375,
+            315.8038330078125
+          ]
+        },
+        {
+          "class_id": 50,
+          "score": 0.5197123289108276,
+          "bbox": [
+            511.8251037597656,
+            45.60563278198242,
+            521.9285888671875,
+            91.81678771972656
+          ]
+        }
+      ],
+      "cpp_f32": [
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.957026,
+          "bbox": [
+            386.189,
+            68.3716,
+            499.207,
+            347.386
+          ]
+        },
+        {
+          "class_id": 51,
+          "class_name": "bowl",
+          "score": 0.916473,
+          "bbox": [
+            30.6111,
+            343.573,
+            99.2991,
+            385.876
+          ]
+        },
+        {
+          "class_id": 51,
+          "class_name": "bowl",
+          "score": 0.88143,
+          "bbox": [
+            56.8462,
+            289.13,
+            134.211,
+            328.411
+          ]
+        },
+        {
+          "class_id": 51,
+          "class_name": "bowl",
+          "score": 0.790638,
+          "bbox": [
+            154.872,
+            168.397,
+            183.23,
+            184.878
+          ]
+        },
+        {
+          "class_id": 64,
+          "class_name": "potted plant",
+          "score": 0.670479,
+          "bbox": [
+            0,
+            0.53639,
+            61.8881,
+            143.875
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.665097,
+          "bbox": [
+            0.163815,
+            263.274,
+            60.5034,
+            302.921
+          ]
+        },
+        {
+          "class_id": 51,
+          "class_name": "bowl",
+          "score": 0.647661,
+          "bbox": [
+            0.175176,
+            303.549,
+            86.5309,
+            370.806
+          ]
+        },
+        {
+          "class_id": 81,
+          "class_name": "sink",
+          "score": 0.647642,
+          "bbox": [
+            495.894,
+            199.793,
+            616.169,
+            230.886
+          ]
+        },
+        {
+          "class_id": 51,
+          "class_name": "bowl",
+          "score": 0.588752,
+          "bbox": [
+            155.385,
+            112.923,
+            174.593,
+            129.316
+          ]
+        },
+        {
+          "class_id": 47,
+          "class_name": "cup",
+          "score": 0.566313,
+          "bbox": [
+            145.089,
+            267.506,
+            173.374,
+            301.729
+          ]
+        },
+        {
+          "class_id": 79,
+          "class_name": "oven",
+          "score": 0.540777,
+          "bbox": [
+            232.606,
+            192.135,
+            396.673,
+            315.054
+          ]
+        },
+        {
+          "class_id": 50,
+          "class_name": "spoon",
+          "score": 0.51031,
+          "bbox": [
+            511.747,
+            45.6451,
+            521.92,
+            91.7508
+          ]
+        }
+      ],
+      "cpp_q8": [
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.957851,
+          "bbox": [
+            386.313,
+            68.3328,
+            499.167,
+            347.422
+          ]
+        },
+        {
+          "class_id": 51,
+          "class_name": "bowl",
+          "score": 0.914489,
+          "bbox": [
+            30.6314,
+            343.625,
+            99.277,
+            385.874
+          ]
+        },
+        {
+          "class_id": 51,
+          "class_name": "bowl",
+          "score": 0.880815,
+          "bbox": [
+            56.8585,
+            289.121,
+            134.217,
+            328.34
+          ]
+        },
+        {
+          "class_id": 51,
+          "class_name": "bowl",
+          "score": 0.795172,
+          "bbox": [
+            154.867,
+            168.37,
+            183.26,
+            184.824
+          ]
+        },
+        {
+          "class_id": 64,
+          "class_name": "potted plant",
+          "score": 0.663699,
+          "bbox": [
+            0,
+            0.47985,
+            61.9542,
+            144.207
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.659487,
+          "bbox": [
+            0.180373,
+            263.349,
+            60.4547,
+            302.707
+          ]
+        },
+        {
+          "class_id": 51,
+          "class_name": "bowl",
+          "score": 0.654226,
+          "bbox": [
+            0.257382,
+            303.426,
+            86.532,
+            370.78
+          ]
+        },
+        {
+          "class_id": 81,
+          "class_name": "sink",
+          "score": 0.638572,
+          "bbox": [
+            495.695,
+            199.794,
+            616.214,
+            231.001
+          ]
+        },
+        {
+          "class_id": 51,
+          "class_name": "bowl",
+          "score": 0.58938,
+          "bbox": [
+            155.375,
+            112.941,
+            174.569,
+            129.315
+          ]
+        },
+        {
+          "class_id": 47,
+          "class_name": "cup",
+          "score": 0.56643,
+          "bbox": [
+            145.016,
+            267.455,
+            173.417,
+            301.804
+          ]
+        },
+        {
+          "class_id": 79,
+          "class_name": "oven",
+          "score": 0.561899,
+          "bbox": [
+            232.585,
+            192.086,
+            396.498,
+            314.881
+          ]
+        },
+        {
+          "class_id": 50,
+          "class_name": "spoon",
+          "score": 0.515072,
+          "bbox": [
+            511.783,
+            45.7209,
+            521.951,
+            91.7619
+          ]
+        }
+      ]
+    },
+    "coco_living_room.jpg": {
+      "python": [
+        {
+          "class_id": 72,
+          "score": 0.9445816874504089,
+          "bbox": [
+            5.563836097717285,
+            166.15982055664062,
+            154.83444213867188,
+            262.7782287597656
+          ]
+        },
+        {
+          "class_id": 1,
+          "score": 0.877151608467102,
+          "bbox": [
+            415.3524475097656,
+            156.75851440429688,
+            463.1068115234375,
+            298.0961608886719
+          ]
+        },
+        {
+          "class_id": 62,
+          "score": 0.8583023548126221,
+          "bbox": [
+            292.6576232910156,
+            218.50575256347656,
+            352.7909851074219,
+            317.14239501953125
+          ]
+        },
+        {
+          "class_id": 86,
+          "score": 0.8088513612747192,
+          "bbox": [
+            166.46847534179688,
+            232.87022399902344,
+            186.74415588378906,
+            267.03363037109375
+          ]
+        },
+        {
+          "class_id": 62,
+          "score": 0.8056692481040955,
+          "bbox": [
+            366.27569580078125,
+            218.8564910888672,
+            418.35394287109375,
+            318.8080139160156
+          ]
+        },
+        {
+          "class_id": 86,
+          "score": 0.7526454925537109,
+          "bbox": [
+            550.0550537109375,
+            309.3288269042969,
+            585.0816650390625,
+            400.69219970703125
+          ]
+        },
+        {
+          "class_id": 64,
+          "score": 0.731575608253479,
+          "bbox": [
+            230.7438507080078,
+            177.14418029785156,
+            267.0430603027344,
+            213.15542602539062
+          ]
+        },
+        {
+          "class_id": 1,
+          "score": 0.6774874329566956,
+          "bbox": [
+            383.839599609375,
+            172.25047302246094,
+            401.160400390625,
+            207.90232849121094
+          ]
+        },
+        {
+          "class_id": 62,
+          "score": 0.6713652610778809,
+          "bbox": [
+            409.12640380859375,
+            217.5350341796875,
+            442.65789794921875,
+            306.8642272949219
+          ]
+        },
+        {
+          "class_id": 67,
+          "score": 0.6596558094024658,
+          "bbox": [
+            462.52301025390625,
+            353.80615234375,
+            639.7777099609375,
+            424.7031555175781
+          ]
+        },
+        {
+          "class_id": 85,
+          "score": 0.5581286549568176,
+          "bbox": [
+            448.9691467285156,
+            121.10828399658203,
+            461.03314208984375,
+            141.85272216796875
+          ]
+        },
+        {
+          "class_id": 67,
+          "score": 0.5489766001701355,
+          "bbox": [
+            318.9410095214844,
+            225.4525604248047,
+            449.36572265625,
+            318.7614440917969
+          ]
+        },
+        {
+          "class_id": 64,
+          "score": 0.5116985440254211,
+          "bbox": [
+            339.769287109375,
+            176.45565795898438,
+            368.37548828125,
+            222.00979614257812
+          ]
+        }
+      ],
+      "cpp_f32": [
+        {
+          "class_id": 72,
+          "class_name": "tv",
+          "score": 0.940821,
+          "bbox": [
+            5.51099,
+            166.127,
+            154.897,
+            262.811
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.885098,
+          "bbox": [
+            416.399,
+            156.63,
+            462.83,
+            298.235
+          ]
+        },
+        {
+          "class_id": 62,
+          "class_name": "chair",
+          "score": 0.860174,
+          "bbox": [
+            292.529,
+            218.614,
+            352.713,
+            316.795
+          ]
+        },
+        {
+          "class_id": 86,
+          "class_name": "vase",
+          "score": 0.803342,
+          "bbox": [
+            166.419,
+            232.961,
+            186.855,
+            267.092
+          ]
+        },
+        {
+          "class_id": 62,
+          "class_name": "chair",
+          "score": 0.802934,
+          "bbox": [
+            365.761,
+            218.76,
+            418.588,
+            318.838
+          ]
+        },
+        {
+          "class_id": 86,
+          "class_name": "vase",
+          "score": 0.761585,
+          "bbox": [
+            550.029,
+            309.465,
+            585.153,
+            400.7
+          ]
+        },
+        {
+          "class_id": 64,
+          "class_name": "potted plant",
+          "score": 0.727675,
+          "bbox": [
+            230.641,
+            177.265,
+            266.976,
+            213.121
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.678758,
+          "bbox": [
+            383.849,
+            172.207,
+            401.353,
+            208.088
+          ]
+        },
+        {
+          "class_id": 62,
+          "class_name": "chair",
+          "score": 0.661233,
+          "bbox": [
+            409.177,
+            217.714,
+            442.765,
+            306.462
+          ]
+        },
+        {
+          "class_id": 67,
+          "class_name": "dining table",
+          "score": 0.656114,
+          "bbox": [
+            462.586,
+            353.817,
+            639.783,
+            424.79
+          ]
+        },
+        {
+          "class_id": 67,
+          "class_name": "dining table",
+          "score": 0.562397,
+          "bbox": [
+            319.154,
+            226.165,
+            448.686,
+            318.77
+          ]
+        },
+        {
+          "class_id": 85,
+          "class_name": "clock",
+          "score": 0.552142,
+          "bbox": [
+            448.952,
+            121.124,
+            461.066,
+            141.872
+          ]
+        },
+        {
+          "class_id": 64,
+          "class_name": "potted plant",
+          "score": 0.504365,
+          "bbox": [
+            338.813,
+            176.436,
+            369.342,
+            224.901
+          ]
+        }
+      ],
+      "cpp_q8": [
+        {
+          "class_id": 72,
+          "class_name": "tv",
+          "score": 0.941614,
+          "bbox": [
+            5.49601,
+            166.088,
+            154.93,
+            262.734
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.877818,
+          "bbox": [
+            415.863,
+            156.739,
+            463.111,
+            298.127
+          ]
+        },
+        {
+          "class_id": 62,
+          "class_name": "chair",
+          "score": 0.860684,
+          "bbox": [
+            292.479,
+            218.612,
+            352.714,
+            316.98
+          ]
+        },
+        {
+          "class_id": 62,
+          "class_name": "chair",
+          "score": 0.799667,
+          "bbox": [
+            365.838,
+            218.844,
+            418.751,
+            318.91
+          ]
+        },
+        {
+          "class_id": 86,
+          "class_name": "vase",
+          "score": 0.795204,
+          "bbox": [
+            166.398,
+            232.959,
+            186.851,
+            267.155
+          ]
+        },
+        {
+          "class_id": 86,
+          "class_name": "vase",
+          "score": 0.740546,
+          "bbox": [
+            550.027,
+            309.477,
+            585.081,
+            400.704
+          ]
+        },
+        {
+          "class_id": 64,
+          "class_name": "potted plant",
+          "score": 0.720342,
+          "bbox": [
+            230.545,
+            177.28,
+            266.931,
+            213.115
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.67417,
+          "bbox": [
+            383.908,
+            172.212,
+            401.425,
+            208.229
+          ]
+        },
+        {
+          "class_id": 67,
+          "class_name": "dining table",
+          "score": 0.673547,
+          "bbox": [
+            462.485,
+            353.816,
+            639.81,
+            424.832
+          ]
+        },
+        {
+          "class_id": 62,
+          "class_name": "chair",
+          "score": 0.659006,
+          "bbox": [
+            409.127,
+            217.771,
+            442.779,
+            306.472
+          ]
+        },
+        {
+          "class_id": 67,
+          "class_name": "dining table",
+          "score": 0.558166,
+          "bbox": [
+            319.28,
+            226.06,
+            449.269,
+            318.984
+          ]
+        },
+        {
+          "class_id": 85,
+          "class_name": "clock",
+          "score": 0.553168,
+          "bbox": [
+            448.958,
+            121.117,
+            461.104,
+            141.878
+          ]
+        },
+        {
+          "class_id": 64,
+          "class_name": "potted plant",
+          "score": 0.503248,
+          "bbox": [
+            338.835,
+            176.485,
+            369.225,
+            224.621
+          ]
+        }
+      ]
+    },
+    "coco_skater.jpg": {
+      "python": [
+        {
+          "class_id": 1,
+          "score": 0.9156963229179382,
+          "bbox": [
+            344.8497314453125,
+            170.3016357421875,
+            419.26190185546875,
+            357.8831787109375
+          ]
+        },
+        {
+          "class_id": 41,
+          "score": 0.9075666069984436,
+          "bbox": [
+            301.552490234375,
+            317.6614990234375,
+            362.75054931640625,
+            361.822998046875
+          ]
+        },
+        {
+          "class_id": 1,
+          "score": 0.8835914731025696,
+          "bbox": [
+            254.83493041992188,
+            224.21185302734375,
+            303.4921875,
+            320.42169189453125
+          ]
+        },
+        {
+          "class_id": 2,
+          "score": 0.8642932176589966,
+          "bbox": [
+            255.77125549316406,
+            272.0034484863281,
+            311.950439453125,
+            331.4872131347656
+          ]
+        },
+        {
+          "class_id": 1,
+          "score": 0.7844604253768921,
+          "bbox": [
+            76.58333587646484,
+            233.14524841308594,
+            104.87122344970703,
+            282.9259033203125
+          ]
+        },
+        {
+          "class_id": 1,
+          "score": 0.7200667858123779,
+          "bbox": [
+            67.01254272460938,
+            238.66851806640625,
+            82.32886505126953,
+            280.43115234375
+          ]
+        },
+        {
+          "class_id": 1,
+          "score": 0.7050712704658508,
+          "bbox": [
+            206.30844116210938,
+            228.20156860351562,
+            219.28878784179688,
+            264.3797302246094
+          ]
+        },
+        {
+          "class_id": 1,
+          "score": 0.6820728182792664,
+          "bbox": [
+            97.63072967529297,
+            235.5569305419922,
+            118.55653381347656,
+            280.94293212890625
+          ]
+        },
+        {
+          "class_id": 1,
+          "score": 0.6433834433555603,
+          "bbox": [
+            239.185791015625,
+            227.3786163330078,
+            250.20596313476562,
+            259.2110900878906
+          ]
+        },
+        {
+          "class_id": 1,
+          "score": 0.6089494824409485,
+          "bbox": [
+            625.1561889648438,
+            222.8663787841797,
+            640.0151977539062,
+            270.3431396484375
+          ]
+        },
+        {
+          "class_id": 1,
+          "score": 0.5221800804138184,
+          "bbox": [
+            312.2619323730469,
+            223.13990783691406,
+            327.2183532714844,
+            263.44000244140625
+          ]
+        }
+      ],
+      "cpp_f32": [
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.916425,
+          "bbox": [
+            344.728,
+            170.305,
+            419.309,
+            357.934
+          ]
+        },
+        {
+          "class_id": 41,
+          "class_name": "skateboard",
+          "score": 0.903509,
+          "bbox": [
+            301.391,
+            317.572,
+            362.939,
+            361.796
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.881673,
+          "bbox": [
+            254.701,
+            224.146,
+            303.764,
+            320.534
+          ]
+        },
+        {
+          "class_id": 2,
+          "class_name": "bicycle",
+          "score": 0.865058,
+          "bbox": [
+            255.537,
+            272.016,
+            311.889,
+            331.484
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.792165,
+          "bbox": [
+            75.7624,
+            233.181,
+            105.247,
+            282.967
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.72182,
+          "bbox": [
+            66.815,
+            238.673,
+            82.4213,
+            280.188
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.712461,
+          "bbox": [
+            206.317,
+            228.359,
+            219.435,
+            264.226
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.683248,
+          "bbox": [
+            97.7419,
+            235.901,
+            118.859,
+            280.879
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.640923,
+          "bbox": [
+            239.149,
+            227.493,
+            250.369,
+            259.094
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.626039,
+          "bbox": [
+            625.187,
+            222.764,
+            640,
+            270.347
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.515206,
+          "bbox": [
+            312.189,
+            222.954,
+            327.493,
+            263.404
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.507054,
+          "bbox": [
+            419.382,
+            229.918,
+            433.7,
+            265.78
+          ]
+        }
+      ],
+      "cpp_q8": [
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.916203,
+          "bbox": [
+            344.741,
+            170.183,
+            419.206,
+            358.096
+          ]
+        },
+        {
+          "class_id": 41,
+          "class_name": "skateboard",
+          "score": 0.900871,
+          "bbox": [
+            301.376,
+            317.557,
+            362.896,
+            361.732
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.881199,
+          "bbox": [
+            254.665,
+            224.173,
+            303.797,
+            320.669
+          ]
+        },
+        {
+          "class_id": 2,
+          "class_name": "bicycle",
+          "score": 0.865914,
+          "bbox": [
+            255.538,
+            271.952,
+            311.908,
+            331.444
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.782997,
+          "bbox": [
+            75.7195,
+            233.171,
+            105.322,
+            282.94
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.718237,
+          "bbox": [
+            66.7887,
+            238.651,
+            82.5071,
+            280.234
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.714899,
+          "bbox": [
+            206.322,
+            228.355,
+            219.473,
+            264.231
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.676601,
+          "bbox": [
+            97.5963,
+            235.855,
+            118.888,
+            280.925
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.632613,
+          "bbox": [
+            239.126,
+            227.43,
+            250.311,
+            259.097
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.620378,
+          "bbox": [
+            625.185,
+            222.836,
+            640,
+            270.319
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.511508,
+          "bbox": [
+            312.191,
+            222.863,
+            327.515,
+            263.354
+          ]
+        }
+      ]
+    },
+    "coco_street.jpg": {
+      "python": [
+        {
+          "class_id": 1,
+          "score": 0.9560278654098511,
+          "bbox": [
+            7.376041412353516,
+            166.64244079589844,
+            131.75634765625,
+            394.04339599609375
+          ]
+        },
+        {
+          "class_id": 1,
+          "score": 0.9540343284606934,
+          "bbox": [
+            508.29925537109375,
+            171.23252868652344,
+            633.3081665039062,
+            385.7345886230469
+          ]
+        },
+        {
+          "class_id": 1,
+          "score": 0.9508243799209595,
+          "bbox": [
+            326.17437744140625,
+            173.62774658203125,
+            397.4432373046875,
+            372.3775634765625
+          ]
+        },
+        {
+          "class_id": 28,
+          "score": 0.7623515129089355,
+          "bbox": [
+            560.091796875,
+            89.29521942138672,
+            640.025634765625,
+            158.8675537109375
+          ]
+        },
+        {
+          "class_id": 10,
+          "score": 0.5748928785324097,
+          "bbox": [
+            340.055908203125,
+            45.428810119628906,
+            398.8692626953125,
+            103.1451644897461
+          ]
+        }
+      ],
+      "cpp_f32": [
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.954403,
+          "bbox": [
+            7.05134,
+            166.737,
+            131.823,
+            394.123
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.954316,
+          "bbox": [
+            508.17,
+            171.251,
+            633.369,
+            385.634
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.950655,
+          "bbox": [
+            326.156,
+            173.592,
+            397.523,
+            372.469
+          ]
+        },
+        {
+          "class_id": 28,
+          "class_name": "umbrella",
+          "score": 0.738499,
+          "bbox": [
+            560.091,
+            89.3275,
+            640,
+            158.878
+          ]
+        },
+        {
+          "class_id": 10,
+          "class_name": "traffic light",
+          "score": 0.553603,
+          "bbox": [
+            340.097,
+            45.4289,
+            398.891,
+            103.143
+          ]
+        }
+      ],
+      "cpp_q8": [
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.954435,
+          "bbox": [
+            508.188,
+            171.235,
+            633.412,
+            385.656
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.95425,
+          "bbox": [
+            7.24332,
+            166.73,
+            131.732,
+            394.106
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "person",
+          "score": 0.948219,
+          "bbox": [
+            326.189,
+            173.576,
+            397.504,
+            372.46
+          ]
+        },
+        {
+          "class_id": 28,
+          "class_name": "umbrella",
+          "score": 0.736172,
+          "bbox": [
+            560.134,
+            89.3265,
+            640,
+            158.98
+          ]
+        },
+        {
+          "class_id": 10,
+          "class_name": "traffic light",
+          "score": 0.559033,
+          "bbox": [
+            340.107,
+            45.4124,
+            398.877,
+            103.197
+          ]
+        }
+      ]
+    }
+  },
+  "match_summary": {
+    "bus.jpg::cpp_f32": {
+      "image": "bus.jpg",
+      "impl": "cpp_f32",
+      "py_total": 5,
+      "cpp_total": 5,
+      "matched": 5,
+      "mean_score_delta": 0.000984649051666242,
+      "max_score_delta": 0.0018509091567993075,
+      "mean_iou": 0.9982321932005865,
+      "min_iou": 0.9972562332965229,
+      "pairs": [
+        {
+          "class_id": 6,
+          "py_score": 0.9717015624046326,
+          "cpp_score": 0.970298,
+          "score_delta": 0.0014035624046325745,
+          "iou": 0.9979333045223002
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.9480829834938049,
+          "cpp_score": 0.948622,
+          "score_delta": 0.0005390165061950336,
+          "iou": 0.999125961115621
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.9362624287605286,
+          "cpp_score": 0.936298,
+          "score_delta": 3.5571239471399174e-05,
+          "iou": 0.998610007582985
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.9375559091567993,
+          "cpp_score": 0.935705,
+          "score_delta": 0.0018509091567993075,
+          "iou": 0.9972562332965229
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.8928161859512329,
+          "cpp_score": 0.891722,
+          "score_delta": 0.0010941859512328955,
+          "iou": 0.9982354594855034
+        }
+      ]
+    },
+    "bus.jpg::cpp_q8": {
+      "image": "bus.jpg",
+      "impl": "cpp_q8",
+      "py_total": 5,
+      "cpp_total": 5,
+      "matched": 5,
+      "mean_score_delta": 0.0008360853889465281,
+      "max_score_delta": 0.0021195624046325134,
+      "mean_iou": 0.9983646024474044,
+      "min_iou": 0.997830777771323,
+      "pairs": [
+        {
+          "class_id": 6,
+          "py_score": 0.9717015624046326,
+          "cpp_score": 0.969582,
+          "score_delta": 0.0021195624046325134,
+          "iou": 0.9989572670482868
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.9480829834938049,
+          "cpp_score": 0.948633,
+          "score_delta": 0.0005500165061950169,
+          "iou": 0.997830777771323
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.9375559091567993,
+          "cpp_score": 0.938013,
+          "score_delta": 0.0004570908432006693,
+          "iou": 0.9980121377493077
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.9362624287605286,
+          "cpp_score": 0.937135,
+          "score_delta": 0.0008725712394714868,
+          "iou": 0.998827701629366
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.8928161859512329,
+          "cpp_score": 0.892635,
+          "score_delta": 0.0001811859512329539,
+          "iou": 0.998195128038739
+        }
+      ]
+    },
+    "coco_cats.jpg::cpp_f32": {
+      "image": "coco_cats.jpg",
+      "impl": "cpp_f32",
+      "py_total": 5,
+      "cpp_total": 5,
+      "matched": 5,
+      "mean_score_delta": 0.005628751033020007,
+      "max_score_delta": 0.012031279624938995,
+      "mean_iou": 0.9981694481074814,
+      "min_iou": 0.9966913044296795,
+      "pairs": [
+        {
+          "class_id": 17,
+          "py_score": 0.9603008031845093,
+          "cpp_score": 0.960048,
+          "score_delta": 0.00025280318450926487,
+          "iou": 0.9991385084274608
+        },
+        {
+          "class_id": 17,
+          "py_score": 0.9335694909095764,
+          "cpp_score": 0.932832,
+          "score_delta": 0.0007374909095764215,
+          "iou": 0.997899549734188
+        },
+        {
+          "class_id": 75,
+          "py_score": 0.8975501656532288,
+          "cpp_score": 0.902094,
+          "score_delta": 0.004543834346771192,
+          "iou": 0.9981595757875961
+        },
+        {
+          "class_id": 75,
+          "py_score": 0.727892279624939,
+          "cpp_score": 0.715861,
+          "score_delta": 0.012031279624938995,
+          "iou": 0.9966913044296795
+        },
+        {
+          "class_id": 63,
+          "py_score": 0.6725846529006958,
+          "cpp_score": 0.683163,
+          "score_delta": 0.010578347099304164,
+          "iou": 0.9989583021584826
+        }
+      ]
+    },
+    "coco_cats.jpg::cpp_q8": {
+      "image": "coco_cats.jpg",
+      "impl": "cpp_q8",
+      "py_total": 5,
+      "cpp_total": 5,
+      "matched": 5,
+      "mean_score_delta": 0.011529754669189462,
+      "max_score_delta": 0.04162534709930421,
+      "mean_iou": 0.997334012333907,
+      "min_iou": 0.9959317821296417,
+      "pairs": [
+        {
+          "class_id": 17,
+          "py_score": 0.9603008031845093,
+          "cpp_score": 0.959657,
+          "score_delta": 0.0006438031845092951,
+          "iou": 0.9972278906953354
+        },
+        {
+          "class_id": 17,
+          "py_score": 0.9335694909095764,
+          "cpp_score": 0.93555,
+          "score_delta": 0.0019805090904235767,
+          "iou": 0.9981701848333662
+        },
+        {
+          "class_id": 75,
+          "py_score": 0.8975501656532288,
+          "cpp_score": 0.90098,
+          "score_delta": 0.0034298343467712433,
+          "iou": 0.9971766719587488
+        },
+        {
+          "class_id": 75,
+          "py_score": 0.727892279624939,
+          "cpp_score": 0.717923,
+          "score_delta": 0.009969279624938987,
+          "iou": 0.9959317821296417
+        },
+        {
+          "class_id": 63,
+          "py_score": 0.6725846529006958,
+          "cpp_score": 0.71421,
+          "score_delta": 0.04162534709930421,
+          "iou": 0.9981635320524428
+        }
+      ]
+    },
+    "coco_indoor.jpg::cpp_f32": {
+      "image": "coco_indoor.jpg",
+      "impl": "cpp_f32",
+      "py_total": 4,
+      "cpp_total": 4,
+      "matched": 4,
+      "mean_score_delta": 0.016653220909118638,
+      "max_score_delta": 0.04446205025482175,
+      "mean_iou": 0.995949028390944,
+      "min_iou": 0.9942569306509127,
+      "pairs": [
+        {
+          "class_id": 65,
+          "py_score": 0.9606183171272278,
+          "cpp_score": 0.957298,
+          "score_delta": 0.003320317127227801,
+          "iou": 0.9981214156730936
+        },
+        {
+          "class_id": 64,
+          "py_score": 0.868493914604187,
+          "cpp_score": 0.858133,
+          "score_delta": 0.010360914604186977,
+          "iou": 0.9947976317434004
+        },
+        {
+          "class_id": 64,
+          "py_score": 0.843324601650238,
+          "cpp_score": 0.834855,
+          "score_delta": 0.008469601650238023,
+          "iou": 0.9966201354963692
+        },
+        {
+          "class_id": 44,
+          "py_score": 0.6438709497451782,
+          "cpp_score": 0.688333,
+          "score_delta": 0.04446205025482175,
+          "iou": 0.9942569306509127
+        }
+      ]
+    },
+    "coco_indoor.jpg::cpp_q8": {
+      "image": "coco_indoor.jpg",
+      "impl": "cpp_q8",
+      "py_total": 4,
+      "cpp_total": 4,
+      "matched": 4,
+      "mean_score_delta": 0.019038062345504786,
+      "max_score_delta": 0.04605505025482182,
+      "mean_iou": 0.9941183534476538,
+      "min_iou": 0.9905146392063938,
+      "pairs": [
+        {
+          "class_id": 65,
+          "py_score": 0.9606183171272278,
+          "cpp_score": 0.961358,
+          "score_delta": 0.0007396828727722626,
+          "iou": 0.9972330584065817
+        },
+        {
+          "class_id": 64,
+          "py_score": 0.868493914604187,
+          "cpp_score": 0.852827,
+          "score_delta": 0.01566691460418701,
+          "iou": 0.9928454470274157
+        },
+        {
+          "class_id": 64,
+          "py_score": 0.843324601650238,
+          "cpp_score": 0.829634,
+          "score_delta": 0.013690601650238055,
+          "iou": 0.9958802691502239
+        },
+        {
+          "class_id": 44,
+          "py_score": 0.6438709497451782,
+          "cpp_score": 0.689926,
+          "score_delta": 0.04605505025482182,
+          "iou": 0.9905146392063938
+        }
+      ]
+    },
+    "coco_kitchen.jpg::cpp_f32": {
+      "image": "coco_kitchen.jpg",
+      "impl": "cpp_f32",
+      "py_total": 12,
+      "cpp_total": 12,
+      "matched": 12,
+      "mean_score_delta": 0.012627289350827539,
+      "max_score_delta": 0.029592064807891894,
+      "mean_iou": 0.9905790893185852,
+      "min_iou": 0.9778322651873985,
+      "pairs": [
+        {
+          "class_id": 1,
+          "py_score": 0.9577370285987854,
+          "cpp_score": 0.957026,
+          "score_delta": 0.0007110285987853571,
+          "iou": 0.9980197974578541
+        },
+        {
+          "class_id": 51,
+          "py_score": 0.9163899421691895,
+          "cpp_score": 0.916473,
+          "score_delta": 8.305783081052898e-05,
+          "iou": 0.9979658579398094
+        },
+        {
+          "class_id": 51,
+          "py_score": 0.8741320371627808,
+          "cpp_score": 0.88143,
+          "score_delta": 0.007297962837219285,
+          "iou": 0.9978339500810294
+        },
+        {
+          "class_id": 51,
+          "py_score": 0.7906683087348938,
+          "cpp_score": 0.790638,
+          "score_delta": 3.030873489384689e-05,
+          "iou": 0.9789817909688194
+        },
+        {
+          "class_id": 64,
+          "py_score": 0.6574227213859558,
+          "cpp_score": 0.670479,
+          "score_delta": 0.013056278614044237,
+          "iou": 0.9981316599692369
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.6839103698730469,
+          "cpp_score": 0.665097,
+          "score_delta": 0.018813369873046826,
+          "iou": 0.9778322651873985
+        },
+        {
+          "class_id": 51,
+          "py_score": 0.6574934720993042,
+          "cpp_score": 0.647661,
+          "score_delta": 0.009832472099304157,
+          "iou": 0.9935172348789623
+        },
+        {
+          "class_id": 81,
+          "py_score": 0.6242597699165344,
+          "cpp_score": 0.647642,
+          "score_delta": 0.023382230083465627,
+          "iou": 0.9929839168770478
+        },
+        {
+          "class_id": 51,
+          "py_score": 0.607845664024353,
+          "cpp_score": 0.588752,
+          "score_delta": 0.019093664024352974,
+          "iou": 0.9889250901172633
+        },
+        {
+          "class_id": 47,
+          "py_score": 0.5865457057952881,
+          "cpp_score": 0.566313,
+          "score_delta": 0.02023270579528813,
+          "iou": 0.981031638822946
+        },
+        {
+          "class_id": 79,
+          "py_score": 0.5703690648078918,
+          "cpp_score": 0.540777,
+          "score_delta": 0.029592064807891894,
+          "iou": 0.9924857912978369
+        },
+        {
+          "class_id": 50,
+          "py_score": 0.5197123289108276,
+          "cpp_score": 0.51031,
+          "score_delta": 0.009402328910827595,
+          "iou": 0.9892400782248172
+        }
+      ]
+    },
+    "coco_kitchen.jpg::cpp_q8": {
+      "image": "coco_kitchen.jpg",
+      "impl": "cpp_q8",
+      "py_total": 12,
+      "cpp_total": 12,
+      "matched": 12,
+      "mean_score_delta": 0.009431056823412581,
+      "max_score_delta": 0.02442336987304683,
+      "mean_iou": 0.9906100684188716,
+      "min_iou": 0.9815019904876836,
+      "pairs": [
+        {
+          "class_id": 1,
+          "py_score": 0.9577370285987854,
+          "cpp_score": 0.957851,
+          "score_delta": 0.00011397140121460758,
+          "iou": 0.9993818896389255
+        },
+        {
+          "class_id": 51,
+          "py_score": 0.9163899421691895,
+          "cpp_score": 0.914489,
+          "score_delta": 0.0019009421691894568,
+          "iou": 0.9967594214866513
+        },
+        {
+          "class_id": 51,
+          "py_score": 0.8741320371627808,
+          "cpp_score": 0.880815,
+          "score_delta": 0.006682962837219253,
+          "iou": 0.9957210786155849
+        },
+        {
+          "class_id": 51,
+          "py_score": 0.7906683087348938,
+          "cpp_score": 0.795172,
+          "score_delta": 0.004503691265106191,
+          "iou": 0.9846563543062538
+        },
+        {
+          "class_id": 64,
+          "py_score": 0.6574227213859558,
+          "cpp_score": 0.663699,
+          "score_delta": 0.006276278614044228,
+          "iou": 0.9955124090407594
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.6839103698730469,
+          "cpp_score": 0.659487,
+          "score_delta": 0.02442336987304683,
+          "iou": 0.98587876828145
+        },
+        {
+          "class_id": 51,
+          "py_score": 0.6574934720993042,
+          "cpp_score": 0.654226,
+          "score_delta": 0.003267472099304225,
+          "iou": 0.9906805898308981
+        },
+        {
+          "class_id": 81,
+          "py_score": 0.6242597699165344,
+          "cpp_score": 0.638572,
+          "score_delta": 0.014312230083465605,
+          "iou": 0.9873063758612846
+        },
+        {
+          "class_id": 51,
+          "py_score": 0.607845664024353,
+          "cpp_score": 0.58938,
+          "score_delta": 0.018465664024353012,
+          "iou": 0.9892201508566717
+        },
+        {
+          "class_id": 47,
+          "py_score": 0.5865457057952881,
+          "cpp_score": 0.56643,
+          "score_delta": 0.020115705795288097,
+          "iou": 0.9815019904876836
+        },
+        {
+          "class_id": 79,
+          "py_score": 0.5703690648078918,
+          "cpp_score": 0.561899,
+          "score_delta": 0.008470064807891808,
+          "iou": 0.9906823137726744
+        },
+        {
+          "class_id": 50,
+          "py_score": 0.5197123289108276,
+          "cpp_score": 0.515072,
+          "score_delta": 0.004640328910827662,
+          "iou": 0.9900194788476214
+        }
+      ]
+    },
+    "coco_living_room.jpg::cpp_f32": {
+      "image": "coco_living_room.jpg",
+      "impl": "cpp_f32",
+      "py_total": 13,
+      "cpp_total": 13,
+      "matched": 12,
+      "mean_score_delta": 0.005751261796633406,
+      "max_score_delta": 0.013420399829864538,
+      "mean_iou": 0.9890923866260651,
+      "min_iou": 0.9705031780448148,
+      "pairs": [
+        {
+          "class_id": 72,
+          "py_score": 0.9445816874504089,
+          "cpp_score": 0.940821,
+          "score_delta": 0.003760687450408917,
+          "iou": 0.9985495880417614
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.877151608467102,
+          "cpp_score": 0.885098,
+          "score_delta": 0.007946391532898,
+          "iou": 0.9705031780448148
+        },
+        {
+          "class_id": 62,
+          "py_score": 0.8583023548126221,
+          "cpp_score": 0.860174,
+          "score_delta": 0.0018716451873779238,
+          "iou": 0.9919777116296699
+        },
+        {
+          "class_id": 86,
+          "py_score": 0.8088513612747192,
+          "cpp_score": 0.803342,
+          "score_delta": 0.005509361274719238,
+          "iou": 0.9878515852287935
+        },
+        {
+          "class_id": 62,
+          "py_score": 0.8056692481040955,
+          "cpp_score": 0.802934,
+          "score_delta": 0.0027352481040954224,
+          "iou": 0.9845804477263285
+        },
+        {
+          "class_id": 86,
+          "py_score": 0.7526454925537109,
+          "cpp_score": 0.761585,
+          "score_delta": 0.008939507446289019,
+          "iou": 0.9956600749516072
+        },
+        {
+          "class_id": 64,
+          "py_score": 0.731575608253479,
+          "cpp_score": 0.727675,
+          "score_delta": 0.003900608253479043,
+          "iou": 0.9910535383897582
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.6774874329566956,
+          "cpp_score": 0.678758,
+          "score_delta": 0.0012705670433044158,
+          "iou": 0.982156764637285
+        },
+        {
+          "class_id": 62,
+          "py_score": 0.6713652610778809,
+          "cpp_score": 0.661233,
+          "score_delta": 0.0101322610778809,
+          "iou": 0.9888567758262604
+        },
+        {
+          "class_id": 67,
+          "py_score": 0.6596558094024658,
+          "cpp_score": 0.656114,
+          "score_delta": 0.0035418094024658453,
+          "iou": 0.9982395142612874
+        },
+        {
+          "class_id": 67,
+          "py_score": 0.5489766001701355,
+          "cpp_score": 0.562397,
+          "score_delta": 0.013420399829864538,
+          "iou": 0.9854825723889233
+        },
+        {
+          "class_id": 85,
+          "py_score": 0.5581286549568176,
+          "cpp_score": 0.552142,
+          "score_delta": 0.005986654956817605,
+          "iou": 0.9941968883862914
+        }
+      ]
+    },
+    "coco_living_room.jpg::cpp_q8": {
+      "image": "coco_living_room.jpg",
+      "impl": "cpp_q8",
+      "py_total": 13,
+      "cpp_total": 13,
+      "matched": 12,
+      "mean_score_delta": 0.007726364481290178,
+      "max_score_delta": 0.013891190597534187,
+      "mean_iou": 0.9891466503882554,
+      "min_iou": 0.9711559942078641,
+      "pairs": [
+        {
+          "class_id": 72,
+          "py_score": 0.9445816874504089,
+          "cpp_score": 0.941614,
+          "score_delta": 0.0029676874504089845,
+          "iou": 0.9977082415734208
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.877151608467102,
+          "cpp_score": 0.877818,
+          "score_delta": 0.0006663915328979364,
+          "iou": 0.9888734810702218
+        },
+        {
+          "class_id": 62,
+          "py_score": 0.8583023548126221,
+          "cpp_score": 0.860684,
+          "score_delta": 0.0023816451873779343,
+          "iou": 0.9930578936870978
+        },
+        {
+          "class_id": 62,
+          "py_score": 0.8056692481040955,
+          "cpp_score": 0.799667,
+          "score_delta": 0.006002248104095442,
+          "iou": 0.983098079623697
+        },
+        {
+          "class_id": 86,
+          "py_score": 0.8088513612747192,
+          "cpp_score": 0.795204,
+          "score_delta": 0.013647361274719216,
+          "iou": 0.9852762363154094
+        },
+        {
+          "class_id": 86,
+          "py_score": 0.7526454925537109,
+          "cpp_score": 0.740546,
+          "score_delta": 0.0120994925537109,
+          "iou": 0.9974327435479095
+        },
+        {
+          "class_id": 64,
+          "py_score": 0.731575608253479,
+          "cpp_score": 0.720342,
+          "score_delta": 0.011233608253478966,
+          "iou": 0.9866552519796874
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.6774874329566956,
+          "cpp_score": 0.67417,
+          "score_delta": 0.0033174329566955096,
+          "iou": 0.9711559942078641
+        },
+        {
+          "class_id": 67,
+          "py_score": 0.6596558094024658,
+          "cpp_score": 0.673547,
+          "score_delta": 0.013891190597534187,
+          "iou": 0.9976516806093376
+        },
+        {
+          "class_id": 62,
+          "py_score": 0.6713652610778809,
+          "cpp_score": 0.659006,
+          "score_delta": 0.012359261077880879,
+          "iou": 0.9894018203939173
+        },
+        {
+          "class_id": 67,
+          "py_score": 0.5489766001701355,
+          "cpp_score": 0.558166,
+          "score_delta": 0.009189399829864553,
+          "iou": 0.9878227994690735
+        },
+        {
+          "class_id": 85,
+          "py_score": 0.5581286549568176,
+          "cpp_score": 0.553168,
+          "score_delta": 0.004960654956817634,
+          "iou": 0.9916255821814293
+        }
+      ]
+    },
+    "coco_skater.jpg::cpp_f32": {
+      "image": "coco_skater.jpg",
+      "impl": "cpp_f32",
+      "py_total": 11,
+      "cpp_total": 12,
+      "matched": 11,
+      "mean_score_delta": 0.004728752810738298,
+      "max_score_delta": 0.017089517559051526,
+      "mean_iou": 0.9818770728918275,
+      "min_iou": 0.9579603307333647,
+      "pairs": [
+        {
+          "class_id": 1,
+          "py_score": 0.9156963229179382,
+          "cpp_score": 0.916425,
+          "score_delta": 0.0007286770820618127,
+          "iou": 0.9974482007154267
+        },
+        {
+          "class_id": 41,
+          "py_score": 0.9075666069984436,
+          "cpp_score": 0.903509,
+          "score_delta": 0.004057606998443597,
+          "iou": 0.9917001069876958
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.8835914731025696,
+          "cpp_score": 0.881673,
+          "score_delta": 0.00191847310256954,
+          "iou": 0.9898970760255751
+        },
+        {
+          "class_id": 2,
+          "py_score": 0.8642932176589966,
+          "cpp_score": 0.865058,
+          "score_delta": 0.0007647823410034116,
+          "iou": 0.9944958900113718
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.7844604253768921,
+          "cpp_score": 0.792165,
+          "score_delta": 0.007704574623107918,
+          "iou": 0.9579603307333647
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.7200667858123779,
+          "cpp_score": 0.72182,
+          "score_delta": 0.0017532141876220875,
+          "iou": 0.9757073016177231
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.7050712704658508,
+          "cpp_score": 0.712461,
+          "score_delta": 0.007389729534149181,
+          "iou": 0.979803786998085
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.6820728182792664,
+          "cpp_score": 0.683248,
+          "score_delta": 0.001175181720733609,
+          "iou": 0.9718248775318034
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.6433834433555603,
+          "cpp_score": 0.640923,
+          "score_delta": 0.0024604433555602823,
+          "iou": 0.9751742049179221
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.6089494824409485,
+          "cpp_score": 0.626039,
+          "score_delta": 0.017089517559051526,
+          "iou": 0.9946847212439618
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.5221800804138184,
+          "cpp_score": 0.515206,
+          "score_delta": 0.006974080413818307,
+          "iou": 0.9719513050271734
+        }
+      ]
+    },
+    "coco_skater.jpg::cpp_q8": {
+      "image": "coco_skater.jpg",
+      "impl": "cpp_q8",
+      "py_total": 11,
+      "cpp_total": 11,
+      "matched": 11,
+      "mean_score_delta": 0.005698121805017639,
+      "max_score_delta": 0.011428517559051499,
+      "mean_iou": 0.9807390096872289,
+      "min_iou": 0.9548483858793159,
+      "pairs": [
+        {
+          "class_id": 1,
+          "py_score": 0.9156963229179382,
+          "cpp_score": 0.916203,
+          "score_delta": 0.0005066770820617572,
+          "iou": 0.9960321060241953
+        },
+        {
+          "class_id": 41,
+          "py_score": 0.9075666069984436,
+          "cpp_score": 0.900871,
+          "score_delta": 0.006695606998443626,
+          "iou": 0.9903842398653129
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.8835914731025696,
+          "cpp_score": 0.881199,
+          "score_delta": 0.0023924731025696255,
+          "iou": 0.9874005302507575
+        },
+        {
+          "class_id": 2,
+          "py_score": 0.8642932176589966,
+          "cpp_score": 0.865914,
+          "score_delta": 0.0016207823410033795,
+          "iou": 0.9935342573352229
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.7844604253768921,
+          "cpp_score": 0.782997,
+          "score_delta": 0.0014634253768920358,
+          "iou": 0.9548483858793159
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.7200667858123779,
+          "cpp_score": 0.718237,
+          "score_delta": 0.0018297858123779154,
+          "iou": 0.9695303030538416
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.7050712704658508,
+          "cpp_score": 0.714899,
+          "score_delta": 0.009827729534149121,
+          "iou": 0.9768646076508468
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.6820728182792664,
+          "cpp_score": 0.676601,
+          "score_delta": 0.0054718182792663494,
+          "iou": 0.9760889999154618
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.6433834433555603,
+          "cpp_score": 0.632613,
+          "score_delta": 0.010770443355560322,
+          "iou": 0.9802169129571953
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.6089494824409485,
+          "cpp_score": 0.620378,
+          "score_delta": 0.011428517559051499,
+          "iou": 0.9958959429651415
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.5221800804138184,
+          "cpp_score": 0.511508,
+          "score_delta": 0.010672080413818397,
+          "iou": 0.9673328206622274
+        }
+      ]
+    },
+    "coco_street.jpg::cpp_f32": {
+      "image": "coco_street.jpg",
+      "impl": "cpp_f32",
+      "py_total": 5,
+      "cpp_total": 5,
+      "matched": 5,
+      "mean_score_delta": 0.00944366166229249,
+      "max_score_delta": 0.02385251290893553,
+      "mean_iou": 0.9979929487448367,
+      "min_iou": 0.9961015224770096,
+      "pairs": [
+        {
+          "class_id": 1,
+          "py_score": 0.9560278654098511,
+          "cpp_score": 0.954403,
+          "score_delta": 0.0016248654098510729,
+          "iou": 0.9961015224770096
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.9540343284606934,
+          "cpp_score": 0.954316,
+          "score_delta": 0.00028167153930669375,
+          "iou": 0.9979283372576797
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.9508243799209595,
+          "cpp_score": 0.950655,
+          "score_delta": 0.00016937992095944487,
+          "iou": 0.997986225768875
+        },
+        {
+          "class_id": 28,
+          "py_score": 0.7623515129089355,
+          "cpp_score": 0.738499,
+          "score_delta": 0.02385251290893553,
+          "iou": 0.9990555463855012
+        },
+        {
+          "class_id": 10,
+          "py_score": 0.5748928785324097,
+          "cpp_score": 0.553603,
+          "score_delta": 0.02128987853240971,
+          "iou": 0.9988931118351176
+        }
+      ]
+    },
+    "coco_street.jpg::cpp_q8": {
+      "image": "coco_street.jpg",
+      "impl": "cpp_q8",
+      "py_total": 5,
+      "cpp_total": 5,
+      "matched": 5,
+      "mean_score_delta": 0.009364661662292462,
+      "max_score_delta": 0.0261795129089355,
+      "mean_iou": 0.9978335379073829,
+      "min_iou": 0.9970919115721657,
+      "pairs": [
+        {
+          "class_id": 1,
+          "py_score": 0.9540343284606934,
+          "cpp_score": 0.954435,
+          "score_delta": 0.000400671539306674,
+          "iou": 0.9979057657092242
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.9560278654098511,
+          "cpp_score": 0.95425,
+          "score_delta": 0.0017778654098510316,
+          "iou": 0.998079665269291
+        },
+        {
+          "class_id": 1,
+          "py_score": 0.9508243799209595,
+          "cpp_score": 0.948219,
+          "score_delta": 0.0026053799209594386,
+          "iou": 0.9982693132649857
+        },
+        {
+          "class_id": 28,
+          "py_score": 0.7623515129089355,
+          "cpp_score": 0.736172,
+          "score_delta": 0.0261795129089355,
+          "iou": 0.9970919115721657
+        },
+        {
+          "class_id": 10,
+          "py_score": 0.5748928785324097,
+          "cpp_score": 0.559033,
+          "score_delta": 0.015859878532409666,
+          "iou": 0.9978210337212479
+        }
+      ]
+    }
+  }
+}

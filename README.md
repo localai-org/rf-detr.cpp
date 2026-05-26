@@ -5,21 +5,25 @@ C++/ggml inference for [Roboflow RF-DETR](https://github.com/roboflow/rf-detr).
 Project layout mirrors [vibevoice.cpp](https://github.com/mudler/vibevoice.cpp).
 See `docs/superpowers/specs/2026-05-25-rfdetr-cpp-design.md` for the design.
 
-## Performance
+## Benchmark results
 
-End-to-end CPU inference on AMD Ryzen 9 9950X3D, F32, single batch,
-`--threads 8` — matches PyTorch (oneDNN-backed `aten::matmul`) at the
-optimal thread count:
+End-to-end CPU inference on AMD Ryzen 9 9950X3D (F32, single batch,
+`--threads 8`) — matches PyTorch (oneDNN-backed `aten::matmul`) and ships
+in 1/3 the disk footprint via Q8_0 quantization:
 
-| impl                              | median ms/image | speedup vs Python |
-|-----------------------------------|----------------:|------------------:|
-| Python rfdetr (PyTorch + oneDNN)  |             142 | 1.00x (reference) |
-| C++ rfdetr.cpp F32 (`--threads 8`)|             140 | ~1.0x             |
+![Latency comparison: PyTorch vs rfdetr.cpp F32 vs rfdetr.cpp Q8_0 across 7 COCO images](benchmarks/plots/latency_comparison.png)
 
-Build is configured with `-march=native` + ggml's tinyBLAS SGEMM
-(`GGML_LLAMAFILE=ON`) + OpenMP + a persistent gallocr that holds the graph
-scratch buffer across inferences — see [BENCHMARK.md](BENCHMARK.md) for
-flag-by-flag analysis.
+| impl                          | median ms/image | model size | relative speed | detection match vs PyTorch |
+|-------------------------------|----------------:|-----------:|---------------:|---------------------------:|
+| Python rfdetr (PyTorch+oneDNN) |          152.5 |     120 MB | 1.00× (ref)    | reference                  |
+| C++ rfdetr.cpp F32 (T=8)       |      **144.5** |     120 MB | **0.95×**      | 54/55 IoU ≥ 0.95, max \|Δscore\| 0.045 |
+| C++ rfdetr.cpp Q8_0 (T=8)      |      **145.5** |  **39 MB** | **0.95×**      | 54/55 IoU ≥ 0.95, max \|Δscore\| 0.046 |
+
+Numbers are means across 7 diverse COCO val2017 images, 15 iterations each,
+3 warmup. Build uses `-march=native` + ggml's tinyBLAS SGEMM
+(`GGML_LLAMAFILE=ON`) + OpenMP + a persistent ggml graph allocator. See
+[BENCHMARK.md](BENCHMARK.md) for the per-image breakdown, thread-scaling
+sweep, methodology, and reproduction recipe.
 
 ## Status
 

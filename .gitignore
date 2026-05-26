@@ -39,3 +39,8 @@ Thumbs.db
 tests/fixtures/generated/
 tests/fixtures/*.png
 tests/parity/bundles/
+
+# Benchmark images (not ours to redistribute — re-fetch with
+# scripts/bench_community.py or curl from images.cocodataset.org).
+# Bench results JSON and rendered plots ARE committed.
+benchmarks/images/
