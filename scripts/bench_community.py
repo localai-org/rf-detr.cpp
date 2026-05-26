@@ -218,6 +218,18 @@ def main() -> int:
     ap.add_argument("--skip-sweep", action="store_true")
     ap.add_argument("--skip-python", action="store_true",
                     help="skip the PyTorch arm of the benchmark (testing only)")
+    ap.add_argument("--variants", default="",
+                    help="Comma-separated detection variants to bench in "
+                         "addition to the quant-on-base headline (e.g. "
+                         "'nano,small,medium,large'). For each variant, "
+                         "models/rfdetr-{variant}-f32.gguf must exist. The "
+                         "results land under data['variants'][<variant>] "
+                         "with C++ F32 + PyTorch RFDETR{Variant}() timings "
+                         "on every image. Skips any variant whose GGUF is "
+                         "missing.")
+    ap.add_argument("--variant-sweep-image", default="coco_kitchen.jpg",
+                    help="image to use for the per-variant timing sweep "
+                         "(also used for detection counts in plots)")
     args = ap.parse_args()
 
     cli  = Path(args.cli)
@@ -278,7 +290,25 @@ def main() -> int:
         "cli": str(cli),
     }
 
-    data = {"meta": meta, "per_image": {}, "thread_sweep": {}, "detections": {}}
+    data = {"meta": meta, "per_image": {}, "thread_sweep": {},
+            "detections": {}, "variants": {}}
+
+    # Per-variant config. Always includes the "base" entry implicit in the
+    # quant headline; --variants adds more.
+    variant_specs = []
+    if args.variants:
+        for v in [s.strip().lower() for s in args.variants.split(",") if s.strip()]:
+            if v == "base":
+                # base is already exercised by the quant headline; record it
+                # here too for plotting symmetry.
+                pass
+            gguf = REPO / "models" / f"rfdetr-{v}-f32.gguf"
+            if not gguf.exists():
+                print(f"[variants] SKIP {v} -- missing {gguf}", file=sys.stderr)
+                continue
+            variant_specs.append((v, gguf))
+        meta["variants"] = [v for v, _ in variant_specs]
+        meta["variant_sweep_image"] = args.variant_sweep_image
 
     # -------- python: load model once, reuse --------
     py_model = None
@@ -404,6 +434,77 @@ def main() -> int:
 
         data["thread_sweep"] = sweep
         out_path.write_text(json.dumps(data, indent=2))
+
+    # -------- per-variant headline (Nano/Small/Medium/Large; Base implied) --------
+    # Each cell: C++ F32 + PyTorch RFDETR{Variant}() median latency on the
+    # variant_sweep_image. We don't re-loop over all images here -- the
+    # headline-per-image story is told by the quant per_image section.
+    # Schema: data['variants'][variant] = {
+    #     'cpp_f32': {min/median/mean/max...},
+    #     'python':  {min/median/mean/max...},
+    #     'detections': {'cpp_f32': [...], 'python': [...]},
+    #     'gguf_size_bytes': N,
+    # }
+    if variant_specs:
+        try:
+            from rfdetr import (
+                RFDETRNano, RFDETRSmall, RFDETRBase, RFDETRMedium, RFDETRLarge,
+            )
+            _PY_VARIANT_CLASSES = {
+                "nano":   RFDETRNano,
+                "small":  RFDETRSmall,
+                "base":   RFDETRBase,
+                "medium": RFDETRMedium,
+                "large":  RFDETRLarge,
+            }
+        except ImportError:
+            _PY_VARIANT_CLASSES = {}
+
+        sweep_img_path = idir / args.variant_sweep_image
+        if not sweep_img_path.exists():
+            sweep_img_path = images[0]
+
+        for v, gguf in variant_specs:
+            print(f"\n=== variant {v}: image={sweep_img_path.name} ===",
+                  file=sys.stderr)
+            cell: dict = {"variant": v,
+                          "image": sweep_img_path.name,
+                          "gguf_path": str(gguf),
+                          "gguf_size_bytes": gguf.stat().st_size}
+
+            # C++ F32
+            print(f"[cpp_f32 T={args.threads}]", file=sys.stderr)
+            cell["cpp_f32"] = time_one_cpp(cli, gguf, sweep_img_path,
+                                            args.iters, args.warmup, args.threads)
+            print(f"  median={cell['cpp_f32']['median_ms']:.1f} ms "
+                  f"min={cell['cpp_f32']['min_ms']:.1f} max={cell['cpp_f32']['max_ms']:.1f}",
+                  file=sys.stderr)
+
+            # Detection count from C++ F32 (used by the plot)
+            cell["detections"] = {}
+            cell["detections"]["cpp_f32"] = run_cpp_detect(
+                cli, gguf, sweep_img_path, args.threads)
+
+            # PyTorch arm (load + bench once per variant)
+            if not args.skip_python and _PY_VARIANT_CLASSES and v in _PY_VARIANT_CLASSES:
+                print(f"[python warmup={args.warmup}, iters={args.iters}]",
+                      file=sys.stderr)
+                py_model_v = _PY_VARIANT_CLASSES[v]()
+                ms_list, py_dets = time_one_python(py_model_v, sweep_img_path,
+                                                    args.iters, args.warmup)
+                cell["python"] = aggregate_python(ms_list)
+                cell["detections"]["python"] = py_dets
+                print(f"  median={cell['python']['median_ms']:.1f} ms "
+                      f"min={cell['python']['min_ms']:.1f} max={cell['python']['max_ms']:.1f}",
+                      file=sys.stderr)
+                # Release the Python model immediately so the next variant
+                # has memory headroom.
+                del py_model_v
+                gc.collect()
+
+            data["variants"][v] = cell
+            # Persist after each variant
+            out_path.write_text(json.dumps(data, indent=2))
 
     # -------- detection match summary --------
     match_summary = {}
