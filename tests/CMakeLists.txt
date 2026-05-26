@@ -156,3 +156,10 @@ target_link_libraries(test_parity_heads PRIVATE ggml)
 rfdetr_add_test(test_parity_e2e)
 target_link_libraries(test_parity_e2e PRIVATE ggml)
 
+# Plan 8 (final): Q8_0 quantized model sanity check.
+# Skips gracefully if models/rfdetr-base-q8_0.gguf isn't present.
+rfdetr_add_test(test_q8_quant)
+target_link_libraries(test_q8_quant PRIVATE ggml)
+target_compile_definitions(test_q8_quant PRIVATE
+    RFDETR_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+

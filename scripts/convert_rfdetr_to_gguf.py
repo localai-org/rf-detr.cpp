@@ -3,7 +3,12 @@
 
 Usage:
     python scripts/convert_rfdetr_to_gguf.py --variant base \
-        --output rfdetr-base-f16.gguf [--dtype f16|f32] [--dry-run]
+        --output rfdetr-base-f16.gguf [--dtype f16|f32|q8_0] [--dry-run]
+
+When --dtype is q8_0, only 2D weight tensors with both dims >= 64 are
+quantized; LayerNorm params, biases, embeddings, layer-scale gammas and conv
+kernels stay F32. This keeps the loader simple while still compressing the
+~30 MB of linear-projection weights that dominate model size.
 
 Format version: "2" (see docs/conversion.md).
 
@@ -110,7 +115,7 @@ def parse_args():
     p.add_argument("--variant", choices=sorted(VARIANTS.keys()), default="base")
     p.add_argument("--output", required=False,
                    help="Output GGUF path. Default: rfdetr-<variant>-<dtype>.gguf")
-    p.add_argument("--dtype", choices=["f16", "f32"], default="f16")
+    p.add_argument("--dtype", choices=["f16", "f32", "q8_0"], default="f16")
     p.add_argument("--checkpoint",
                    help="Optional path to a local rfdetr .pth. Default: download via rfdetr pkg.")
     p.add_argument("--dry-run", action="store_true",
@@ -293,13 +298,53 @@ def apply_transform(tensor, transform_tag):
     raise ValueError(f"unknown transform tag: {transform_tag}")
 
 
+def should_quantize_q8_0(gguf_name, arr):
+    """Q8_0 heuristic: only 2D weights with both dims >= 64.
+
+    Excludes:
+      * LayerNorm weights/biases and all biases (1D)
+      * Conv kernels (4D)
+      * Embeddings (cls_token, pos_embed, query_feat, refpoints) — 2D but used
+        as raw lookups, not as multiplicands in `mul_mat`
+      * Tiny linear weights (e.g. bbox head's final 256->4 layer) — small enough
+        that quantizing them barely saves bytes but hurts precision
+    """
+    if not gguf_name.endswith(".weight"):
+        return False
+    if arr.ndim != 2:
+        return False
+    if arr.shape[0] < 64 or arr.shape[1] < 64:
+        return False
+    # Embeddings: 2D but not used in mul_mat — they're indexed/broadcast
+    skiplist = {
+        "backbone.pos_embed",
+        "decoder.queries.feat",
+        "decoder.queries.refpoints",
+    }
+    if gguf_name in skiplist:
+        return False
+    # Q8_0 needs the innermost dim divisible by 32 (block size). In numpy
+    # row-major view, shape[-1] is the innermost; gguf reverses, so the
+    # logical innermost dim on disk corresponds to the first numpy axis.
+    # In practice all rfdetr 2D weights pass this check; guard anyway.
+    if arr.shape[-1] % 32 != 0:
+        return False
+    return True
+
+
 def write_gguf(out_path, variant_name, variant_cfg, name_map, state_dict, dtype_str):
     import numpy as np
     import gguf as gguf_mod
 
-    np_dtype = np.float16 if dtype_str == "f16" else np.float32
-    ggml_dtype = gguf_mod.GGMLQuantizationType.F16 if dtype_str == "f16" \
-                 else gguf_mod.GGMLQuantizationType.F32
+    if dtype_str == "f16":
+        default_np_dtype = np.float16
+        default_ggml_dtype = gguf_mod.GGMLQuantizationType.F16
+    elif dtype_str == "f32":
+        default_np_dtype = np.float32
+        default_ggml_dtype = gguf_mod.GGMLQuantizationType.F32
+    else:  # q8_0
+        default_np_dtype = np.float32
+        default_ggml_dtype = gguf_mod.GGMLQuantizationType.F32
 
     writer = gguf_mod.GGUFWriter(out_path, arch="rfdetr")
 
@@ -354,15 +399,32 @@ def write_gguf(out_path, variant_name, variant_cfg, name_map, state_dict, dtype_
 
     # --- Tensors ---
     n_written = 0
+    n_quantized = 0
     for gguf_name, (src_key, transform) in name_map.items():
         t = state_dict[src_key]
         # torch -> numpy
         arr = t.detach().cpu().numpy()
         arr = apply_transform(arr, transform)
-        # contiguous + dtype
-        arr = np.ascontiguousarray(arr).astype(np_dtype, copy=False)
-        writer.add_tensor(gguf_name, arr, raw_dtype=ggml_dtype)
+        arr = np.ascontiguousarray(arr)
+
+        if dtype_str == "q8_0" and should_quantize_q8_0(gguf_name, arr):
+            # Pre-quantize to Q8_0 bytes. The gguf writer infers the logical
+            # F32 shape from the uint8 byte shape via quant_shape_from_byte_shape.
+            arr_f32 = arr.astype(np.float32, copy=False)
+            q_bytes = gguf_mod.quants.quantize(
+                arr_f32, gguf_mod.GGMLQuantizationType.Q8_0)
+            writer.add_tensor(
+                gguf_name, q_bytes,
+                raw_dtype=gguf_mod.GGMLQuantizationType.Q8_0,
+            )
+            n_quantized += 1
+        else:
+            arr = arr.astype(default_np_dtype, copy=False)
+            writer.add_tensor(gguf_name, arr, raw_dtype=default_ggml_dtype)
         n_written += 1
+
+    if dtype_str == "q8_0":
+        print(f"[quantize] q8_0 tensors: {n_quantized}/{n_written}", file=sys.stderr)
 
     writer.write_header_to_file()
     writer.write_kv_data_to_file()

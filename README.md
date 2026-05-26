@@ -45,10 +45,24 @@ tighten the cumulative number.
 
 12/12 detections match in class, with no false positives or negatives.
 
+### Quantization (Q8_0)
+
+Pass `--dtype q8_0` to the converter to write a Q8_0 GGUF. Only 2D linear
+weights with both dims ≥ 64 are quantized; LayerNorm params, biases, conv
+kernels, layer-scale gammas, and embeddings stay F32.
+
+| Model               | Size  | Compression | Detections | Class mismatches |
+|---------------------|-------|-------------|------------|------------------|
+| rfdetr-base-f32     | 120 MB | 1.0x       | 12         | 0                |
+| rfdetr-base-q8_0    |  39 MB | 3.08x      | 12         | 0                |
+
+Same kitchen image; max score Δ < 0.02, max box Δ < 1 px. ggml's CPU backend
+handles F32 × Q8_0 `mul_mat` natively, so the loader and module code are
+unchanged — only the converter writes Q8_0 blocks.
+
 ### Roadmap
 
 - Backbone drift root-cause + fix
-- Q8_0 quantization
 - Variants beyond `base` (`nano`, `small`, `medium`, `large`)
 - GPU backends (CUDA / Metal / Vulkan)
 
@@ -67,7 +81,11 @@ ctest --test-dir build --output-on-failure
 ```
 # One-time: convert upstream rfdetr-base.pth → GGUF (requires .venv with rfdetr)
 python3 scripts/convert_rfdetr_to_gguf.py \
-    --output models/rfdetr-base-f32.gguf
+    --dtype f32 --output models/rfdetr-base-f32.gguf
+
+# Or Q8_0 (~39 MB, ~3.1x smaller, near-identical detections):
+python3 scripts/convert_rfdetr_to_gguf.py \
+    --dtype q8_0 --output models/rfdetr-base-q8_0.gguf
 
 # Detect
 ./build/bin/rfdetr-cli detect \
