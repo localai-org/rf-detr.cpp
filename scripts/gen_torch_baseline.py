@@ -354,6 +354,46 @@ def install_hooks(inner, captured: "OrderedDict[str, torch.Tensor]") -> list:
     return hooks
 
 
+def install_seg_decoder_intermediate_hook(inner, captured) -> list:
+    """For seg models the decoder needs to expose per-layer post-norm
+    outputs (the seg head iterates each layer's normalized output as the
+    `query_features` stream). The default install_hooks already captures
+    each `decoder.layer.{i}.output` (pre-final-norm), but the seg head sees
+    the FINAL norm applied per-layer.
+
+    We monkey-patch the TransformerDecoder.forward to grab `intermediate` —
+    the list of per-layer normed outputs.
+    """
+    hooks = []
+    dec = inner.transformer.decoder
+    orig_fwd = dec.forward
+
+    def wrapped(*args, **kwargs):
+        out = orig_fwd(*args, **kwargs)
+        # When `return_intermediate=True` the decoder returns
+        # [stacked_intermediate, stacked_refpoints]. Each stacked tensor is
+        # (n_layers, NQ, B, C) — we squeeze to per-layer captures.
+        if isinstance(out, (list, tuple)) and len(out) >= 1:
+            hs = out[0]
+            if torch.is_tensor(hs) and hs.dim() >= 1:
+                for i in range(hs.shape[0]):
+                    captured[f"decoder.layer.{i}.post_norm"] = hs[i].detach().clone()
+        return out
+
+    dec.forward = wrapped
+
+    class _Restore:
+        def __init__(self, mod, orig):
+            self.mod = mod
+            self.orig = orig
+
+        def remove(self):
+            self.mod.forward = self.orig
+
+    hooks.append(_Restore(dec, orig_fwd))
+    return hooks
+
+
 def install_seg_hooks(inner, captured: "OrderedDict[str, torch.Tensor]") -> list:
     """Install hooks specific to the SegmentationHead module.
 
@@ -380,39 +420,52 @@ def install_seg_hooks(inner, captured: "OrderedDict[str, torch.Tensor]") -> list
     sh = inner.segmentation_head
 
     # Wrap the seg head's forward to intercept resized + per-block intermediates.
+    # NOTE: LWDETR.forward calls the seg head TWICE when two_stage=True:
+    #   1. With the stacked decoder outputs `hs` (skip_blocks=False)
+    #   2. With `[hs_enc]` and skip_blocks=True (for the encoder branch)
+    #
+    # The inference output `pred_masks` is `outputs_masks[-1]` from CALL #1,
+    # NOT call #2 — so we only capture intermediates from the first call,
+    # and never overwrite them from the skip_blocks=True path.
     orig_forward = sh.forward
+    state = {"call_count": 0}
 
     def traced_forward(spatial_features, query_features, image_size, skip_blocks=False):
         import torch as _t
         import torch.nn.functional as _F
 
-        captured["seg.spatial_features.input"] = spatial_features.detach().clone()
+        state["call_count"] += 1
+        is_first_call = state["call_count"] == 1
+
+        if not skip_blocks and is_first_call:
+            captured["seg.spatial_features.input"] = spatial_features.detach().clone()
         target_size = (image_size[0] // sh.downsample_ratio,
                        image_size[1] // sh.downsample_ratio)
         sp = _F.interpolate(spatial_features, size=target_size,
                             mode="bilinear", align_corners=False)
-        captured["seg.spatial_features.resized"] = sp.detach().clone()
+        if not skip_blocks and is_first_call:
+            captured["seg.spatial_features.resized"] = sp.detach().clone()
 
         mask_logits = []
         if not skip_blocks:
             for i, (block, qf) in enumerate(zip(sh.blocks, query_features)):
                 sp = block(sp)
-                captured[f"seg.block.{i}.spatial_out"] = sp.detach().clone()
                 sp_proj = sh.spatial_features_proj(sp)
-                captured[f"seg.block.{i}.spatial_proj"] = sp_proj.detach().clone()
                 qf_p = sh.query_features_proj(sh.query_features_block(qf))
-                captured[f"seg.block.{i}.qf_proj"] = qf_p.detach().clone()
                 mk = _t.einsum("bchw,bnc->bnhw", sp_proj, qf_p) + sh.bias
-                captured[f"seg.masks.{i}"] = mk.detach().clone()
+                if is_first_call:
+                    captured[f"seg.block.{i}.spatial_out"] = sp.detach().clone()
+                    captured[f"seg.block.{i}.spatial_proj"] = sp_proj.detach().clone()
+                    captured[f"seg.block.{i}.qf_proj"] = qf_p.detach().clone()
+                    captured[f"seg.masks.{i}"] = mk.detach().clone()
                 mask_logits.append(mk)
         else:
             assert len(query_features) == 1
             qf_p = sh.query_features_proj(sh.query_features_block(query_features[0]))
-            captured["seg.block.0.qf_proj"] = qf_p.detach().clone()
             mk = _t.einsum("bchw,bnc->bnhw", sp, qf_p) + sh.bias
             mask_logits.append(mk)
 
-        if mask_logits:
+        if mask_logits and not skip_blocks and is_first_call:
             captured["seg.masks.final"] = mask_logits[-1].detach().clone()
         return mask_logits
 
@@ -501,6 +554,7 @@ def main() -> int:
 
     hooks = install_hooks(inner, captured)
     if args.seg:
+        hooks.extend(install_seg_decoder_intermediate_hook(inner, captured))
         hooks.extend(install_seg_hooks(inner, captured))
     print(f"Installed {len(hooks)} forward hooks.", file=sys.stderr)
 

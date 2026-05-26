@@ -156,6 +156,16 @@ target_link_libraries(test_parity_heads PRIVATE ggml)
 rfdetr_add_test(test_parity_e2e)
 target_link_libraries(test_parity_e2e PRIVATE ggml)
 
+# Plan C: segmentation head end-to-end parity vs the seg torch baseline.
+# Skips gracefully if either the rfdetr-seg-nano-f32 GGUF or the seg baseline
+# bundle isn't present. To regenerate:
+#   .venv/bin/python scripts/gen_torch_baseline.py --seg \
+#       --output tests/fixtures/baseline_torch_seg.gguf
+#   .venv/bin/python scripts/convert_rfdetr_to_gguf.py --variant seg-nano \
+#       --dtype f32 --output models/rfdetr-seg-nano-f32.gguf
+rfdetr_add_test(test_parity_segmentation)
+target_link_libraries(test_parity_segmentation PRIVATE ggml)
+
 # Plan 8 (final): Q8_0 quantized model sanity check.
 # Skips gracefully if models/rfdetr-base-q8_0.gguf isn't present.
 rfdetr_add_test(test_q8_quant)
