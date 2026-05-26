@@ -11,80 +11,59 @@ struct ggml_cgraph;
 
 namespace rfdetr {
 
-/* Outputs of the DINOv2 backbone.
+/* Outputs of the windowed DINOv2 backbone.
  *
- * - `final`: post-norm tensor ne=(dim, N+1) where N+1 is patches+CLS.
- * - `multi_scale`: 4 tap features at the indices in backbone.multi_scale_layers.
- *   Each tap is the block output BEFORE the final norm — ne=(dim, N+1).
- *   The projector strips CLS and projects to encoder.model_dim. */
+ * Each `multi_scale[j]` is a spatial feature map produced by tapping the
+ * windowed block output at out_feature_indices[j], applying the final
+ * LayerNorm, stripping the per-window CLS token, un-windowing, and reshaping
+ * to image-grid form.
+ *
+ * Shapes (ggml ne convention — ne[0] is the fastest axis):
+ *   multi_scale[j]: (W_patches, H_patches, dim, 1)
+ *                 = (40, 40, 384, 1) for rfdetr-base @ 560
+ *
+ * `final` is published for parity but is the same data the projector reads via
+ * multi_scale[3] (last tap). It is the LayerNorm of the last block's output
+ * in windowed token form: ne = (dim, tokens_per_window, n_windows, 1)
+ *                       = (384, 101, 16, 1) for rfdetr-base. */
 struct BackboneOutput {
     ggml_tensor* final = nullptr;
     std::array<ggml_tensor*, 4> multi_scale{nullptr, nullptr, nullptr, nullptr};
 };
 
-/* Build the patch_embed forward graph node.
+/* Run the windowed DINOv2 backbone for rfdetr-base.
  *
- * Input:  `input` — (1, H, W, 3) F32 image already mean/std normalized
- * Output: a token tensor (1, N_patches, dim) F32, where
- *           N_patches = (H / 14) * (W / 14)
+ *   input ne = (W, H, 3, 1) F32 — already mean/std normalized
  *
- * Publishes "backbone.patch_embed.output" via the trace callback. */
-ggml_tensor* dinov2_patch_embed(ggml_context* ctx, const Model& m,
-                                ggml_tensor* input);
-
-/* Concatenate the learnable CLS token to the front of the patch tokens and
- * add the positional embedding.
+ * Pipeline:
+ *   1. patch_embed (Conv2d k=14 s=14)               → (W_p, H_p, dim, 1)
+ *   2. flatten / transpose to tokens                 → (dim, N_patches, 1, 1)
+ *   3. prepend CLS                                   → (dim, N_patches+1, 1, 1)
+ *   4. add bicubic-interpolated pos_embed
+ *   5. window-partition (CLS broadcast)              → (dim, T, n_windows, 1)
+ *      T = tokens_per_window = (W_p/num_windows)^2 + 1
+ *   6. for each block i in [0, depth):
+ *      6a. norm1, attention (windowed if i in window_block_indexes else global)
+ *      6b. * layer_scale1, + residual
+ *      6c. norm2, mlp, * layer_scale2, + residual
+ *      Block output ne = (dim, T, n_windows, 1).
+ *      If i in out_feature_indices:
+ *        - apply final LayerNorm
+ *        - strip CLS
+ *        - un-window to (W_patches, H_patches, dim, 1)
+ *        - stash as multi_scale[level]
+ *   7. final LayerNorm of last block → BackboneOutput.final
  *
- * Input:  `tokens` — (dim, N_patches, 1, 1) F32
- * Output: a tensor of shape (dim, N_patches + 1, 1, 1) F32 with CLS at
- *         index 0 and positional offsets added to every position.
- *
- * Publishes "backbone.cls_pos_embed.output" via the trace callback. */
-ggml_tensor* dinov2_add_cls_and_pos_embed(ggml_context* ctx, const Model& m,
-                                          ggml_tensor* tokens);
-
-/* Build one DINOv2 transformer block (pre-LN style):
- *
- *   x = x + attn(norm1(x))
- *   x = x + mlp(norm2(x))
- *
- * Input/output shape: (1, N_patches, dim) F32.
- *
- * Publishes:
- *   "backbone.block.{idx}.norm1.output"
- *   "backbone.block.{idx}.attn.output"
- *   "backbone.block.{idx}.mlp.output"
- *   "backbone.block.{idx}.output"
- *
- * Plan 4 keeps global self-attention (window_size ignored). Plan 5 adds
- * window-attention switching. */
-ggml_tensor* dinov2_block(ggml_context* ctx, const Model& m,
-                          ggml_tensor* x, int block_idx);
-
-/* True iff block `i` uses global self-attention (vs windowed).
- *
- * RF-DETR / DINOv2 reuse the multi_scale_layers indices as global-attention
- * blocks: every block whose output gets tapped for the projector also gets
- * the full receptive field of global attention. The intermediate (windowed)
- * blocks attend within local W×W windows only.
- *
- * For the default base variant: globals = {2, 5, 8, 11}, windowed = the rest. */
-bool is_global_block(const Config& cfg, uint32_t i);
-
-/* Apply the final backbone LayerNorm (after the last block).
- *
- * Input/output: (dim, N+1, 1, 1) F32.
- *
- * Publishes "backbone.norm.output" via the trace callback. */
-ggml_tensor* dinov2_final_norm(ggml_context* ctx, const Model& m,
-                               ggml_tensor* x);
-
-/* Run the full DINOv2 backbone: patch_embed → CLS+pos_embed → N blocks →
- * final_norm. Publishes every per-block, multi-scale, and final checkpoint
- * via the trace callback.
- *
- * Returns `BackboneOutput` exposing both the final post-norm tensor and the
- * 4 multi-scale tap features. The projector (Plan 6a) consumes both. */
+ * Trace callbacks published:
+ *   backbone.patch_embed.output           — post window-partition embeddings
+ *                                           ne = (dim, T, n_windows, 1)
+ *   backbone.block.{i}.output (i = 0..11) — windowed block output
+ *                                           ne = (dim, T, n_windows, 1)
+ *   backbone.norm.output                  — final LN of last block's output
+ *                                           ne = (dim, T, n_windows, 1)
+ *   backbone.multiscale.level{0..3}       — image-grid feature maps
+ *                                           ne = (W_p, H_p, dim, 1)
+ */
 BackboneOutput dinov2_forward(ggml_context* ctx, const Model& m,
                               ggml_tensor* input);
 

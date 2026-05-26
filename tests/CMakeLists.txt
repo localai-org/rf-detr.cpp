@@ -115,6 +115,12 @@ add_custom_target(rfdetr_baseline_torch
 rfdetr_add_test(test_parity_torch)
 target_link_libraries(test_parity_torch PRIVATE ggml)
 
+# Plan 8: C++ windowed DinoV2 backbone vs torch parity baseline.
+# Skips gracefully if either the real rfdetr-base GGUF model or the torch
+# baseline isn't present.
+rfdetr_add_test(test_parity_backbone)
+target_link_libraries(test_parity_backbone PRIVATE ggml)
+
 # ---------------------------------------------------------------------------
 # DISABLED (Plan 7 transitional state):
 #

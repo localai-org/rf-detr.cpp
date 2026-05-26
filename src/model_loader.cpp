@@ -7,6 +7,7 @@
 #include "ggml-backend.h"
 #include "gguf.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -69,6 +70,84 @@ bool get_str_array(gguf_context* g, const char* key, std::vector<std::string>& o
         out.emplace_back(gguf_get_arr_str(g, kid, i));
     }
     return true;
+}
+
+/* Bicubic-resample a (dim, src*src) patch position embedding (row-major
+ * patch grid, dim-fastest) onto a (dim, dst*dst) grid. Matches PyTorch's
+ * F.interpolate(mode='bicubic', align_corners=False, antialias=True) up
+ * to float rounding — antialias is a downsample-only filter and is a no-op
+ * for the upsampling case (src < dst) used by rfdetr-base.
+ *
+ * The bicubic kernel is the Catmull-Rom-like weight used by PyTorch:
+ *   W(x) = (a+2)|x|^3 - (a+3)|x|^2 + 1            for |x| < 1
+ *   W(x) = a|x|^3 - 5a|x|^2 + 8a|x| - 4a          for 1 <= |x| < 2
+ *   W(x) = 0                                       otherwise
+ * with a = -0.75. Source coordinates use the "half-pixel" convention:
+ *   src = (dst_i + 0.5) * src / dst - 0.5
+ * and out-of-range source indices clamp to the boundary. */
+void bicubic_resample_patch_grid(const float* src, int src_side, int dim,
+                                 float* dst, int dst_side) {
+    constexpr float A = -0.75f;
+    auto kernel = [](float x) -> float {
+        const float ax = std::fabs(x);
+        if (ax < 1.0f) {
+            return (A + 2.0f) * ax * ax * ax - (A + 3.0f) * ax * ax + 1.0f;
+        }
+        if (ax < 2.0f) {
+            return A * ax * ax * ax - 5.0f * A * ax * ax + 8.0f * A * ax - 4.0f * A;
+        }
+        return 0.0f;
+    };
+    auto clamp_idx = [&](int i, int n) -> int {
+        if (i < 0) return 0;
+        if (i >= n) return n - 1;
+        return i;
+    };
+
+    /* Precompute per-output-coordinate 4-tap weights for x and y axes. */
+    std::vector<float> wx(dst_side * 4, 0.0f);
+    std::vector<int>   ix(dst_side * 4, 0);
+    std::vector<float> wy(dst_side * 4, 0.0f);
+    std::vector<int>   iy(dst_side * 4, 0);
+    auto fill_taps = [&](int dst_n, int src_n, float* w, int* idx) {
+        const float scale = (float)src_n / (float)dst_n;
+        for (int o = 0; o < dst_n; ++o) {
+            const float s = ((float)o + 0.5f) * scale - 0.5f;
+            const int s0 = (int)std::floor(s);
+            const float t = s - (float)s0;
+            for (int k = -1; k <= 2; ++k) {
+                const int taps_pos = o * 4 + (k + 1);
+                idx[taps_pos] = clamp_idx(s0 + k, src_n);
+                w[taps_pos]   = kernel((float)k - t);
+            }
+        }
+    };
+    fill_taps(dst_side, src_side, wx.data(), ix.data());
+    fill_taps(dst_side, src_side, wy.data(), iy.data());
+
+    /* For each (oy, ox) output pixel: sum_{ky, kx} wy[ky] * wx[kx] * src[iy[ky], ix[kx], d]
+     * for every d. Loop ordering keeps the dim accumulator hot. */
+    for (int oy = 0; oy < dst_side; ++oy) {
+        for (int ox = 0; ox < dst_side; ++ox) {
+            float* dst_row = dst + ((size_t)oy * dst_side + (size_t)ox) * dim;
+            for (int d = 0; d < dim; ++d) dst_row[d] = 0.0f;
+            for (int ky = 0; ky < 4; ++ky) {
+                const int sy = iy[oy * 4 + ky];
+                const float w_y = wy[oy * 4 + ky];
+                if (w_y == 0.0f) continue;
+                for (int kx = 0; kx < 4; ++kx) {
+                    const int sx = ix[ox * 4 + kx];
+                    const float w_x = wx[ox * 4 + kx];
+                    if (w_x == 0.0f) continue;
+                    const float w = w_x * w_y;
+                    const float* sp = src + ((size_t)sy * src_side + (size_t)sx) * dim;
+                    for (int d = 0; d < dim; ++d) {
+                        dst_row[d] += w * sp[d];
+                    }
+                }
+            }
+        }
+    }
 }
 
 }  // namespace
@@ -169,12 +248,35 @@ Model* model_load(const std::string& path, rfdetr_status* out_status) {
         m->tensors.emplace(name, t);
     }
 
+    /* Pre-allocate a slot for the bicubic-interpolated pos_embed in a
+     * separate ggml_context (gguf's meta ctx has a tight memory pool sized
+     * for the loaded tensor descriptors only). */
+    const int64_t inf_patches_per_side =
+        (int64_t)(c.image_size / c.patch_size);
+    const int64_t inf_tokens = inf_patches_per_side * inf_patches_per_side + 1;
+    {
+        ggml_init_params ep{};
+        ep.mem_size   = ggml_tensor_overhead() * 4;
+        ep.mem_buffer = nullptr;
+        ep.no_alloc   = true;
+        m->extras_ctx = ggml_init(ep);
+        if (!m->extras_ctx) return fail(RFDETR_ERR_MODEL_LOAD, "alloc extras_ctx");
+    }
+    ggml_tensor* pe_interp = ggml_new_tensor_2d(
+        m->extras_ctx, GGML_TYPE_F32,
+        (int64_t)c.backbone.dim, inf_tokens);
+    if (!pe_interp) return fail(RFDETR_ERR_MODEL_LOAD, "alloc pe_interp");
+    ggml_set_name(pe_interp, "backbone.pos_embed.interp");
+    m->backbone_pos_embed_interp = pe_interp;
+
     set(RFDETR_OK);
     return m;
 }
 
 void model_free(Model* m) {
     if (!m) return;
+    if (m->extras_buf) ggml_backend_buffer_free(m->extras_buf);
+    if (m->extras_ctx) ggml_free(m->extras_ctx);
     if (m->weights) ggml_backend_buffer_free(m->weights);
     if (m->gguf) gguf_free(m->gguf);
     if (m->meta) ggml_free(m->meta);
@@ -240,6 +342,73 @@ rfdetr_status model_realize_weights(Model& m, ggml_backend_t backend) {
     }
 
     std::fclose(fp);
+
+    /* Alloc the extras_ctx backend buffer if not already done. */
+    if (!m.extras_buf) {
+        m.extras_buf = ggml_backend_alloc_ctx_tensors(m.extras_ctx, backend);
+        if (!m.extras_buf) {
+            rfdetr_logf(RFDETR_LOG_ERROR,
+                        "model_realize_weights: extras buffer alloc failed");
+            return RFDETR_ERR_MODEL_LOAD;
+        }
+    }
+
+    /* Compute the bicubic-interpolated pos_embed for the inference image
+     * size. Layout: stored pos_embed ne = (dim, n_train_tokens) with
+     * n_train_tokens = 1 (CLS) + train_side^2. Output ne = (dim, n_inf_tokens)
+     * with n_inf_tokens = 1 + inf_side^2.
+     *
+     * Memory: the pos_embed tensor is dim-fastest (column-major). For each
+     * token index t, embedding[d, t] lives at offset t*dim + d. So treating
+     * the patch grid as `(dim, side*side)` is equivalent to (side, side, dim)
+     * in row-major / dim-fastest. */
+    {
+        auto it_pe = m.tensors.find("backbone.pos_embed");
+        if (it_pe == m.tensors.end() || !m.backbone_pos_embed_interp) {
+            rfdetr_logf(RFDETR_LOG_ERROR,
+                        "model_realize_weights: missing backbone.pos_embed slot");
+            return RFDETR_ERR_MODEL_LOAD;
+        }
+        ggml_tensor* pe = it_pe->second;
+        const int dim       = (int)m.config.backbone.dim;
+        const int train_side = (int)m.config.backbone.pos_embed_train_size;
+        const int inf_side   = (int)(m.config.image_size / m.config.patch_size);
+        const int n_train_tokens = train_side * train_side + 1;
+        const int n_inf_tokens   = inf_side   * inf_side   + 1;
+
+        if ((int64_t)pe->ne[0] != dim || (int64_t)pe->ne[1] != n_train_tokens) {
+            rfdetr_logf(RFDETR_LOG_ERROR,
+                        "model_realize_weights: pos_embed shape mismatch "
+                        "ne=(%lld, %lld), expected (%d, %d)",
+                        (long long)pe->ne[0], (long long)pe->ne[1],
+                        dim, n_train_tokens);
+            return RFDETR_ERR_MODEL_LOAD;
+        }
+
+        std::vector<float> pe_raw((size_t)dim * (size_t)n_train_tokens);
+        ggml_backend_tensor_get(pe, pe_raw.data(), 0,
+                                pe_raw.size() * sizeof(float));
+
+        std::vector<float> pe_out((size_t)dim * (size_t)n_inf_tokens);
+        /* Copy CLS pos embedding (token 0) unchanged. */
+        std::memcpy(pe_out.data(), pe_raw.data(),
+                    (size_t)dim * sizeof(float));
+
+        if (train_side == inf_side) {
+            std::memcpy(pe_out.data() + (size_t)dim, pe_raw.data() + (size_t)dim,
+                        (size_t)dim * train_side * train_side * sizeof(float));
+        } else {
+            bicubic_resample_patch_grid(
+                pe_raw.data() + (size_t)dim,   /* skip CLS row */
+                train_side, dim,
+                pe_out.data() + (size_t)dim,
+                inf_side);
+        }
+
+        ggml_backend_tensor_set(m.backbone_pos_embed_interp, pe_out.data(),
+                                0, pe_out.size() * sizeof(float));
+    }
+
     return RFDETR_OK;
 }
 

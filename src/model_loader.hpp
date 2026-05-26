@@ -81,6 +81,20 @@ struct Model {
 
     /* Populated by model_realize_weights. nullptr until then. */
     ::ggml_backend_buffer_t weights = nullptr;
+
+    /* Bicubic-interpolated backbone pos_embed for the inference resolution.
+     *
+     * The stored `backbone.pos_embed` tensor is the training-time embedding
+     * for a 37x37 patch grid (+ CLS) → 1370 tokens. At rfdetr-base inference
+     * the image is 560x560 → 40x40 = 1600 patches (+ CLS) → 1601 tokens.
+     * The HF DinoV2 embedding module bicubic-interpolates the stored grid
+     * at every forward call; we cache the result once at weight-realize time.
+     *
+     * Stored as a `(dim, N_inference_tokens)` F32 ggml tensor in `extras_ctx`
+     * (allocated separately from `meta` which has a fixed-size pool). */
+    ::ggml_context* extras_ctx = nullptr;
+    ::ggml_backend_buffer_t extras_buf = nullptr;
+    ::ggml_tensor* backbone_pos_embed_interp = nullptr;
 };
 
 /* Load a model from a GGUF file at `path`. Returns nullptr on error and sets
