@@ -73,8 +73,8 @@ void print_help() {
         "\n"
         "Usage:\n"
         "  rfdetr-cli detect  --model <gguf> --input <image> --output <json>\n"
-        "                     [--annotated <png>] [--threshold N] [--topk N]\n"
-        "                     [--classes id,id,...] [--threads N]\n"
+        "                     [--annotated <png>] [--masks <dir>] [--threshold N]\n"
+        "                     [--topk N] [--classes id,id,...] [--threads N]\n"
         "  rfdetr-cli info    --model <gguf> [--threads N]\n"
         "  rfdetr-cli bench   --model <gguf> --input <image> [--iters N] [--warmup N]\n"
         "                     [--threads N]\n"
@@ -103,6 +103,7 @@ ParseResult parse(int argc, char** argv) {
             else if (a == "--input")     { if (!eat_value(argc, argv, i, "--input",    r.detect.input,     r.error)) return r; }
             else if (a == "--output")    { if (!eat_value(argc, argv, i, "--output",   r.detect.output,    r.error)) return r; }
             else if (a == "--annotated") { if (!eat_value(argc, argv, i, "--annotated",r.detect.annotated, r.error)) return r; }
+            else if (a == "--masks")     { if (!eat_value(argc, argv, i, "--masks",    r.detect.masks_dir, r.error)) return r; }
             else if (a == "--threshold") {
                 std::string v; if (!eat_value(argc, argv, i, "--threshold", v, r.error)) return r;
                 if (!parse_float(v, r.detect.threshold, r.error, "--threshold")) return r;

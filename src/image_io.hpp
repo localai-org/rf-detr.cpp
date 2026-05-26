@@ -33,6 +33,12 @@ rfdetr_status rfdetr_preprocess(const rfdetr_image* img,
                                 const float mean[3], const float std_[3],
                                 float** out_data, int* out_w, int* out_h);
 
+/* Write a single-channel uint8 (grayscale) buffer as a PNG. Returns
+ * RFDETR_OK on success. `data` is row-major, size = width * height bytes. */
+rfdetr_status rfdetr_write_gray_png(const char* path,
+                                    const uint8_t* data,
+                                    int width, int height);
+
 #ifdef __cplusplus
 }
 #endif

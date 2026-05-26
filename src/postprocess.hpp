@@ -42,6 +42,32 @@ void rfdetr_select_detections(const float* class_logits,
                               int img_w, int img_h,
                               rfdetr_detection** out_detections, size_t* out_n);
 
+/* Score selection that additionally attaches a binary mask to each
+ * surviving detection.
+ *
+ * Inputs (same as rfdetr_select_detections plus):
+ *   masks_logits     [mask_w * mask_h * num_queries] — raw mask logits
+ *                    (W, H, N) flat layout in the same order ggml produces
+ *                    them (W fastest). May be nullptr if num_queries=0.
+ *   mask_w, mask_h   spatial extent of `masks_logits` (e.g. 78x78 for seg-nano
+ *                    at 312px input).
+ *   mask_threshold   sigmoid(logit) > threshold → foreground. Default 0.5.
+ *
+ * For each surviving detection the mask is bilinearly upsampled to
+ * (img_w, img_h) and thresholded; resulting bitmask is owned by the
+ * returned `rfdetr_detection[]` array (lifetime tied to it; freed by
+ * rfdetr_detections_free).
+ */
+void rfdetr_select_detections_with_masks(
+    const float* class_logits,
+    const float* bbox_cxcywh,
+    const float* masks_logits, int mask_w, int mask_h, float mask_threshold,
+    size_t num_queries, size_t num_classes,
+    float threshold, uint32_t top_k,
+    const uint32_t* class_filter, size_t class_filter_len,
+    int img_w, int img_h,
+    rfdetr_detection** out_detections, size_t* out_n);
+
 #ifdef __cplusplus
 }
 #endif

@@ -114,6 +114,17 @@ extern "C" rfdetr_status rfdetr_render(const rfdetr_image* img,
     return RFDETR_OK;
 }
 
+extern "C" rfdetr_status rfdetr_write_gray_png(const char* path,
+                                               const uint8_t* data,
+                                               int width, int height) {
+    if (!path || !data || width <= 0 || height <= 0) return RFDETR_ERR_INVALID_ARG;
+    if (!stbi_write_png(path, width, height, /*channels*/ 1, data, width)) {
+        rfdetr_logf(RFDETR_LOG_ERROR, "stbi_write_png failed for '%s'", path);
+        return RFDETR_ERR_IO;
+    }
+    return RFDETR_OK;
+}
+
 extern "C" rfdetr_status rfdetr_preprocess(const rfdetr_image* img,
                                            int target_w, int target_h,
                                            const float mean[3], const float std_[3],

@@ -149,12 +149,23 @@ extern "C" rfdetr_status rfdetr_detect(rfdetr_context* ctx,
     /* 3. Postprocess. class_logits is laid out (NC, NQ) column-major in
      * ggml-land; the host vector preserves that order with NC fastest-varying,
      * i.e. row-major (query, class) — what rfdetr_select_detections expects. */
-    rfdetr_select_detections(fout.class_logits.data(), fout.bbox_cxcywh.data(),
-                             (size_t)fout.num_queries, (size_t)fout.num_classes,
-                             params->threshold, params->top_k,
-                             params->class_filter, params->class_filter_len,
-                             rfdetr_image_width(img), rfdetr_image_height(img),
-                             out_detections, out_n);
+    if (!fout.masks.empty()) {
+        rfdetr_select_detections_with_masks(
+            fout.class_logits.data(), fout.bbox_cxcywh.data(),
+            fout.masks.data(), fout.mask_w, fout.mask_h, /*mask_threshold*/ 0.5f,
+            (size_t)fout.num_queries, (size_t)fout.num_classes,
+            params->threshold, params->top_k,
+            params->class_filter, params->class_filter_len,
+            rfdetr_image_width(img), rfdetr_image_height(img),
+            out_detections, out_n);
+    } else {
+        rfdetr_select_detections(fout.class_logits.data(), fout.bbox_cxcywh.data(),
+                                 (size_t)fout.num_queries, (size_t)fout.num_classes,
+                                 params->threshold, params->top_k,
+                                 params->class_filter, params->class_filter_len,
+                                 rfdetr_image_width(img), rfdetr_image_height(img),
+                                 out_detections, out_n);
+    }
 
     /* 4. Attach class names from the loaded config (best-effort) */
     if (out_detections && *out_detections) {

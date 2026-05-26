@@ -1,5 +1,6 @@
 #include "rfdetr.h"
 #include "cli.hpp"
+#include "image_io.hpp"
 
 #include "ggml.h"
 #include "gguf.h"
@@ -14,6 +15,7 @@
 #include <sstream>
 #include <string>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <thread>
 #include <vector>
 
@@ -107,7 +109,12 @@ static int cmd_detect(const rfdetr_cli::DetectArgs& a) {
             << ", \"bbox\": ["
             << dets[i].x1 << ", " << dets[i].y1 << ", "
             << dets[i].x2 << ", " << dets[i].y2
-            << "]}";
+            << "]";
+        if (dets[i].mask && dets[i].mask_width > 0 && dets[i].mask_height > 0) {
+            out << ", \"mask_width\": " << dets[i].mask_width
+                << ", \"mask_height\": " << dets[i].mask_height;
+        }
+        out << "}";
     }
     if (n > 0) out << "\n  ";
     out << "]\n}\n";
@@ -122,7 +129,36 @@ static int cmd_detect(const rfdetr_cli::DetectArgs& a) {
         }
     }
 
-    /* 7. Cleanup */
+    /* 7. Optional per-detection mask PNGs (seg models only). */
+    if (!a.masks_dir.empty()) {
+        /* Create the masks directory if it doesn't exist. */
+        struct stat st_buf;
+        if (::stat(a.masks_dir.c_str(), &st_buf) != 0) {
+            if (::mkdir(a.masks_dir.c_str(), 0755) != 0) {
+                std::fprintf(stderr, "failed to create masks dir '%s'\n",
+                             a.masks_dir.c_str());
+            }
+        }
+        size_t n_written = 0;
+        for (size_t i = 0; i < n; ++i) {
+            if (!dets[i].mask || dets[i].mask_width <= 0 || dets[i].mask_height <= 0) {
+                continue;
+            }
+            char path[1024];
+            std::snprintf(path, sizeof(path),
+                          "%s/det_%03zu_class%u_score%02d.png",
+                          a.masks_dir.c_str(),
+                          i, dets[i].class_id,
+                          (int)(dets[i].score * 100.0f));
+            rfdetr_status wst = rfdetr_write_gray_png(
+                path, dets[i].mask, dets[i].mask_width, dets[i].mask_height);
+            if (wst == RFDETR_OK) ++n_written;
+        }
+        std::fprintf(stderr, "wrote %zu mask PNGs to %s\n",
+                     n_written, a.masks_dir.c_str());
+    }
+
+    /* 8. Cleanup */
     rfdetr_detections_free(dets, n);
     rfdetr_image_free(img);
     rfdetr_free(ctx);

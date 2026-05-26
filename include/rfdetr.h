@@ -39,12 +39,26 @@ void rfdetr_set_log_callback(rfdetr_log_cb cb, void* user_data);
 typedef struct rfdetr_context rfdetr_context;
 typedef struct rfdetr_image   rfdetr_image;
 
-/* Detections */
+/* Detections.
+ *
+ * Mask fields (mask, mask_width, mask_height) are populated ONLY when the
+ * model has a segmentation head (RFDETRSeg* variants). For detection-only
+ * models they're set to {nullptr, 0, 0}.
+ *
+ * mask layout: row-major (y, x), 1 byte per pixel, 0=background, 255=foreground
+ * (thresholded). mask_width and mask_height are the ORIGINAL image dimensions
+ * (the seg-head output is upsampled to that resolution and then thresholded).
+ *
+ * Ownership: the mask buffer is allocated alongside the rfdetr_detection
+ * array and freed by rfdetr_detections_free. Do not free `mask` separately. */
 typedef struct {
     uint32_t    class_id;
     const char* class_name;  /* borrowed; lifetime tied to rfdetr_context */
     float       score;
     float       x1, y1, x2, y2;  /* pixel coords on the original image */
+    const uint8_t* mask;     /* row-major (y, x) binary mask, or NULL */
+    int         mask_width;  /* width in pixels of the mask, or 0 */
+    int         mask_height; /* height in pixels of the mask, or 0 */
 } rfdetr_detection;
 
 /* Init / detect parameters (forward-declared; full impl in Plan 2/3) */

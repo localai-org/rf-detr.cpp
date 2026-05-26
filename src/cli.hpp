@@ -12,6 +12,7 @@ struct DetectArgs {
     std::string input;
     std::string output;
     std::string annotated;
+    std::string masks_dir;        /* if non-empty, dump per-detection mask PNGs here */
     float       threshold = 0.5f;
     uint32_t    top_k     = 300;
     std::vector<uint32_t> classes;  /* allowlist */
