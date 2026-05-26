@@ -63,10 +63,22 @@ from pathlib import Path
 FORMAT_VERSION = "2"
 
 # Per-variant config that gets stamped into GGUF metadata.
-VARIANTS = {
-    "base": {
-        "image_size":             560,
-        "patch_size":             14,
+# All 5 detection variants share the same DINOv2-small backbone (dim=384,
+# depth=12, heads=6, ffn_dim=1536) and the same decoder model_dim (256),
+# num_queries (300), num_classes (91), and group_detr (13). They differ in:
+#   * image_size & patch_size (controls inference grid: image_size/patch_size)
+#   * num_windows (Base uses 4, all others use 2)
+#   * global_attn_indices (0-indexed block ids running global attention)
+#   * out_feature_indices (1-indexed HF stage names; stage k = layer k-1 output)
+#   * pos_embed_train_size (DinoV2 pretrain grid size; pos_embed has
+#     pos_embed_train_size^2 + 1 tokens)
+#   * decoder.layers (2/3/3/4/4 for Nano/Small/Base/Medium/Large)
+def _make_variant_cfg(*, image_size, patch_size, num_windows,
+                       global_attn_indices, out_feature_indices,
+                       pos_embed_train_size, dec_layers):
+    return {
+        "image_size":             image_size,
+        "patch_size":             patch_size,
         "num_queries":            300,
         "group_detr":             13,
         "num_classes":            91,
@@ -75,10 +87,10 @@ VARIANTS = {
             "depth":              12,
             "heads":              6,
             "ffn_dim":            1536,
-            "num_windows":        4,
-            "global_attn_indices": [2, 5, 8, 11],
-            "out_feature_indices": [2, 5, 8, 11],
-            "pos_embed_train_size": 37,
+            "num_windows":        num_windows,
+            "global_attn_indices": global_attn_indices,
+            "out_feature_indices": out_feature_indices,
+            "pos_embed_train_size": pos_embed_train_size,
         },
         "projector": {
             "in_dim":             1536,
@@ -87,7 +99,7 @@ VARIANTS = {
             "n_bottlenecks":      3,
         },
         "decoder": {
-            "layers":             3,
+            "layers":             dec_layers,
             "model_dim":          256,
             "ffn_dim":            2048,
             "self_attn_heads":    8,
@@ -98,8 +110,40 @@ VARIANTS = {
         "two_stage": {
             "n_groups":           13,
         },
-    },
-    # nano / small / medium / large added in a later plan
+    }
+
+
+VARIANTS = {
+    "nano": _make_variant_cfg(
+        image_size=384, patch_size=16, num_windows=2,
+        global_attn_indices=[3, 6, 9],
+        out_feature_indices=[3, 6, 9, 12],
+        pos_embed_train_size=24, dec_layers=2,
+    ),
+    "small": _make_variant_cfg(
+        image_size=512, patch_size=16, num_windows=2,
+        global_attn_indices=[3, 6, 9],
+        out_feature_indices=[3, 6, 9, 12],
+        pos_embed_train_size=32, dec_layers=3,
+    ),
+    "base": _make_variant_cfg(
+        image_size=560, patch_size=14, num_windows=4,
+        global_attn_indices=[2, 5, 8, 11],
+        out_feature_indices=[2, 5, 8, 11],
+        pos_embed_train_size=37, dec_layers=3,
+    ),
+    "medium": _make_variant_cfg(
+        image_size=576, patch_size=16, num_windows=2,
+        global_attn_indices=[3, 6, 9],
+        out_feature_indices=[3, 6, 9, 12],
+        pos_embed_train_size=36, dec_layers=4,
+    ),
+    "large": _make_variant_cfg(
+        image_size=704, patch_size=16, num_windows=2,
+        global_attn_indices=[3, 6, 9],
+        out_feature_indices=[3, 6, 9, 12],
+        pos_embed_train_size=44, dec_layers=4,
+    ),
 }
 
 # 91-slot COCO logit table for the `class_embed` head. The 80 COCO names sit
@@ -497,23 +541,28 @@ def main() -> int:
 
     try:
         import torch  # noqa: F401
-        from rfdetr import RFDETRBase
+        from rfdetr import (
+            RFDETRBase, RFDETRNano, RFDETRSmall, RFDETRMedium, RFDETRLarge,
+        )
     except ImportError as e:
         print(f"error: missing dependency ({e}). pip install -r scripts/requirements.txt",
               file=sys.stderr)
         return 2
+
+    _VARIANT_CLASSES = {
+        "nano":   RFDETRNano,
+        "small":  RFDETRSmall,
+        "base":   RFDETRBase,
+        "medium": RFDETRMedium,
+        "large":  RFDETRLarge,
+    }
 
     print(f"Loading rfdetr-{args.variant} ...", file=sys.stderr)
     if args.checkpoint:
         print(f"warning: --checkpoint ignored; rfdetr 1.7.0 uses model_config.pretrain_weights "
               f"(currently '{args.checkpoint}' is unused).", file=sys.stderr)
 
-    if args.variant != "base":
-        print(f"error: only 'base' is supported in this script (got {args.variant!r}); "
-              f"other variants come in a later plan.", file=sys.stderr)
-        return 4
-
-    rfdetr_model = RFDETRBase()
+    rfdetr_model = _VARIANT_CLASSES[args.variant]()
     inner = rfdetr_model.model.model
     sd = inner.state_dict()
 
