@@ -1,9 +1,8 @@
 #include "rfdetr_model.hpp"
 #include "dinov2.hpp"
 #include "projector.hpp"
-#include "encoder.hpp"
+#include "two_stage.hpp"
 #include "decoder.hpp"
-#include "heads.hpp"
 #include "trace.hpp"
 #include "common.hpp"
 
@@ -11,6 +10,12 @@
 
 namespace rfdetr {
 
+/* Plan 11 transitional state: backbone + projector + two_stage + decoder are
+ * v2-schema; heads are still v1 and the top-K + decoder-input plumbing isn't
+ * wired in graph yet. This whole-pipeline glue is being rebuilt in Plan 12.
+ *
+ * For now `rfdetr_model_forward` runs backbone+projector only and returns
+ * an empty output. Tests use the per-module forwards directly. */
 ForwardOutput rfdetr_model_forward(ggml_context* ctx, const Model& m,
                                    ggml_tensor* input) {
     ForwardOutput out;
@@ -24,18 +29,8 @@ ForwardOutput rfdetr_model_forward(ggml_context* ctx, const Model& m,
     ggml_tensor* projected = projector_forward(ctx, m, bb);
     if (!projected) return out;
 
-    ggml_tensor* enc = encoder_forward(ctx, m, projected);
-    if (!enc) return out;
-
-    ggml_tensor* dec = decoder_forward(ctx, m, enc);
-    if (!dec) return out;
-
-    out.class_logits = class_head_forward(ctx, m, dec);
-    out.bbox_pred    = bbox_head_forward(ctx, m, dec);
-
-    if (out.class_logits) publish("model.class_logits", out.class_logits);
-    if (out.bbox_pred)    publish("model.bbox_pred",    out.bbox_pred);
-
+    /* TODO Plan 12: two_stage top-K → decoder → heads → out.class_logits, out.bbox_pred. */
+    (void)ctx;
     return out;
 }
 

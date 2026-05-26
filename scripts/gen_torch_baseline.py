@@ -198,6 +198,42 @@ def install_hooks(inner, captured: "OrderedDict[str, torch.Tensor]") -> list:
             captured["two_stage.enc_output_norm.output"] = out.detach().clone()
     hooks.append(tr.enc_output_norm[0].register_forward_hook(enc_output_norm_hook))
 
+    # Capture the inputs to the decoder (post two-stage init): query_feat and the
+    # initial refpoints. Hook the *first* decoder layer's pre-call to grab the
+    # arguments that flow in. The decoder layer's forward receives (tgt, memory,
+    # ...) positionally; we want tgt and the reference_points kwarg.
+    if hasattr(tr.decoder, "layers") and len(tr.decoder.layers) > 0:
+        def make_dec_input_hook():
+            captured_flag = {"done": False}
+            def hook(_mod, inp, _out):
+                # forward_pre_hook would be cleaner, but we want the actual inputs
+                # post pre-hooks. Just stash once.
+                if captured_flag["done"]:
+                    return
+                if isinstance(inp, (list, tuple)) and len(inp) > 0 and torch.is_tensor(inp[0]):
+                    captured["decoder.input.tgt"] = inp[0].detach().clone()
+                captured_flag["done"] = True
+            return hook
+        hooks.append(tr.decoder.layers[0].register_forward_hook(make_dec_input_hook()))
+
+        # Use forward_pre_hook to grab the kwargs (reference_points) that the
+        # TransformerDecoderLayer.forward receives.
+        def dec_layer0_prehook(_mod, args, kwargs):
+            if isinstance(args, tuple) and len(args) >= 1 and torch.is_tensor(args[0]):
+                captured["decoder.input.tgt"] = args[0].detach().clone()
+            rp = kwargs.get("reference_points")
+            if torch.is_tensor(rp):
+                captured["decoder.input.reference_points"] = rp.detach().clone()
+            qp = kwargs.get("query_pos")
+            if torch.is_tensor(qp):
+                captured["decoder.input.query_pos"] = qp.detach().clone()
+            qse = kwargs.get("query_sine_embed")
+            if torch.is_tensor(qse):
+                captured["decoder.input.query_sine_embed"] = qse.detach().clone()
+            return None
+        hooks.append(tr.decoder.layers[0].register_forward_pre_hook(
+            dec_layer0_prehook, with_kwargs=True))
+
     # enc_out_class_embed[0]: class proposals (group 0).
     # In LWDETR.forward, the class proposals are computed AFTER transformer.forward
     # returns. But internally to transformer.forward, enc_out_class_embed[0] is also
@@ -220,6 +256,56 @@ def install_hooks(inner, captured: "OrderedDict[str, torch.Tensor]") -> list:
                 return hook
             hooks.append(layer.register_forward_hook(make_dec_hook(i)))
 
+            # Sub-module hooks for granular parity debugging.
+            def make_sa_hook(idx):
+                def hook(_mod, _inp, out):
+                    # nn.MultiheadAttention returns (out, attn_weights)
+                    t = _to_tensor(out)
+                    if t is not None:
+                        captured[f"decoder.layer.{idx}.self_attn.output"] = t.detach().clone()
+                return hook
+            hooks.append(layer.self_attn.register_forward_hook(make_sa_hook(i)))
+
+            def make_ca_hook(idx):
+                def hook(_mod, _inp, out):
+                    t = _to_tensor(out)
+                    if t is not None:
+                        captured[f"decoder.layer.{idx}.cross_attn.output"] = t.detach().clone()
+                return hook
+            hooks.append(layer.cross_attn.register_forward_hook(make_ca_hook(i)))
+
+            def make_n1_hook(idx):
+                def hook(_mod, _inp, out):
+                    t = _to_tensor(out)
+                    if t is not None:
+                        captured[f"decoder.layer.{idx}.norm1.output"] = t.detach().clone()
+                return hook
+            hooks.append(layer.norm1.register_forward_hook(make_n1_hook(i)))
+
+            def make_n2_hook(idx):
+                def hook(_mod, _inp, out):
+                    t = _to_tensor(out)
+                    if t is not None:
+                        captured[f"decoder.layer.{idx}.norm2.output"] = t.detach().clone()
+                return hook
+            hooks.append(layer.norm2.register_forward_hook(make_n2_hook(i)))
+
+            def make_l1_hook(idx):
+                def hook(_mod, _inp, out):
+                    t = _to_tensor(out)
+                    if t is not None:
+                        captured[f"decoder.layer.{idx}.linear1.output"] = t.detach().clone()
+                return hook
+            hooks.append(layer.linear1.register_forward_hook(make_l1_hook(i)))
+
+            def make_l2_hook(idx):
+                def hook(_mod, _inp, out):
+                    t = _to_tensor(out)
+                    if t is not None:
+                        captured[f"decoder.layer.{idx}.linear2.output"] = t.detach().clone()
+                return hook
+            hooks.append(layer.linear2.register_forward_hook(make_l2_hook(i)))
+
         # Final decoder norm
         if hasattr(tr.decoder, "norm"):
             def dec_norm_hook(_mod, _inp, out):
@@ -227,6 +313,19 @@ def install_hooks(inner, captured: "OrderedDict[str, torch.Tensor]") -> list:
                 if t is not None:
                     captured["decoder.norm.output"] = t.detach().clone()
             hooks.append(tr.decoder.norm.register_forward_hook(dec_norm_hook))
+
+        # ref_point_head: takes sine-cosine pos embed → query_pos. Capture both
+        # input and output of the MLP — its input is the gen_sineembed_for_position
+        # of the (cx,cy,w,h) refpoints, useful for verifying the sine embed
+        # implementation. The MLP's input is its first positional argument.
+        if hasattr(tr.decoder, "ref_point_head"):
+            def rph_hook(_mod, inp, out):
+                if isinstance(inp, (list, tuple)) and len(inp) > 0 and torch.is_tensor(inp[0]):
+                    captured["decoder.ref_point_head.input"] = inp[0].detach().clone()
+                t = _to_tensor(out)
+                if t is not None:
+                    captured["decoder.ref_point_head.output"] = t.detach().clone()
+            hooks.append(tr.decoder.ref_point_head.register_forward_hook(rph_hook))
 
     # ------------------------------------------------------------------
     # Heads (top-level on inner). LWDETR applies bbox_embed and class_embed on

@@ -135,6 +135,14 @@ target_link_libraries(test_parity_projector PRIVATE ggml)
 rfdetr_add_test(test_parity_two_stage)
 target_link_libraries(test_parity_two_stage PRIVATE ggml)
 
+# Plan 11: C++ LWDETR decoder vs torch parity baseline.
+# Module-isolated: feeds baseline projector.output (as flattened memory) and
+# decoder.input.{tgt,reference_points} into C++ decoder_forward. Diffs every
+# sub-module checkpoint (self_attn, norm1, cross_attn, norm2, linear1,
+# linear2, layer output) for each of the 3 layers + the final decoder.norm.
+rfdetr_add_test(test_parity_decoder)
+target_link_libraries(test_parity_decoder PRIVATE ggml)
+
 # ---------------------------------------------------------------------------
 # DISABLED (Plan 7 transitional state):
 #
