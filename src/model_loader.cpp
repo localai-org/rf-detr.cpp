@@ -76,55 +76,102 @@ bool get_str_array(gguf_context* g, const char* key, std::vector<std::string>& o
 /* Bicubic-resample a (dim, src*src) patch position embedding (row-major
  * patch grid, dim-fastest) onto a (dim, dst*dst) grid. Matches PyTorch's
  * F.interpolate(mode='bicubic', align_corners=False, antialias=True) up
- * to float rounding — antialias is a downsample-only filter and is a no-op
- * for the upsampling case (src < dst) used by rfdetr-base.
+ * to float rounding.
  *
- * The bicubic kernel is the Catmull-Rom-like weight used by PyTorch:
- *   W(x) = (a+2)|x|^3 - (a+3)|x|^2 + 1            for |x| < 1
- *   W(x) = a|x|^3 - 5a|x|^2 + 8a|x| - 4a          for 1 <= |x| < 2
- *   W(x) = 0                                       otherwise
- * with a = -0.75. Source coordinates use the "half-pixel" convention:
- *   src = (dst_i + 0.5) * src / dst - 0.5
- * and out-of-range source indices clamp to the boundary. */
+ * IMPORTANT: HF DinoV2's interpolate_pos_encoding uses antialias=True
+ * (see modeling_dinov2_with_registers.py). PyTorch's antialias path differs
+ * from its non-AA path in several ways even when upsampling (src < dst):
+ *
+ *  1. The bicubic kernel uses a = -0.5 (Keys, PIL-compatible) instead of the
+ *     a = -0.75 used by the non-AA path. See:
+ *     https://github.com/pytorch/pytorch/blob/v2.5.1/aten/src/ATen/native/cpu/UpSampleKernel.cpp#L1338
+ *     (HelperInterpCubic::aa_filter): "We are using -0.5 for bicubic,
+ *     antialiasing=true (compatibility with PIL) and using -0.75 for bicubic,
+ *     antialiasing=false (compatibility with Opencv)".
+ *
+ *  2. Center convention is `scale * (i + 0.5)` (not `scale * (i + 0.5) - 0.5`).
+ *     See _compute_indices_min_size_weights_aa at L752 in the same file.
+ *
+ *  3. Weights are normalized to sum to 1 across the support window.
+ *
+ *  4. Support window is `2.0 * max(scale, 1.0)`; for upsampling (scale<1)
+ *     this is 2.0 and the kernel argument is `(j + xmin - center + 0.5)`
+ *     (no inv_scale division).
+ *
+ *  5. Indices are computed via `xmin = (int)(center - support + 0.5)`,
+ *     `xmax = (int)(center + support + 0.5)`, BOTH clamped to [0, src_size].
+ *     Out-of-range source pixels do NOT contribute (no per-tap edge clamp).
+ *
+ * Kernel:
+ *   K(x) = ((A+2)|x| - (A+3))|x|^2 + 1                for |x| < 1
+ *   K(x) = ((A|x| - 5A)|x| + 8A)|x| - 4A              for 1 <= |x| < 2
+ *   K(x) = 0                                          otherwise
+ * with A = -0.5 for antialias=True. */
 void bicubic_resample_patch_grid(const float* src, int src_side, int dim,
                                  float* dst, int dst_side) {
-    constexpr float A = -0.75f;
+    constexpr float A = -0.5f;  // antialias=True path uses Keys, not Catmull-Rom
     auto kernel = [](float x) -> float {
         const float ax = std::fabs(x);
         if (ax < 1.0f) {
-            return (A + 2.0f) * ax * ax * ax - (A + 3.0f) * ax * ax + 1.0f;
+            return ((A + 2.0f) * ax - (A + 3.0f)) * ax * ax + 1.0f;
         }
         if (ax < 2.0f) {
-            return A * ax * ax * ax - 5.0f * A * ax * ax + 8.0f * A * ax - 4.0f * A;
+            return ((A * ax - 5.0f * A) * ax + 8.0f * A) * ax - 4.0f * A;
         }
         return 0.0f;
     };
-    auto clamp_idx = [&](int i, int n) -> int {
-        if (i < 0) return 0;
-        if (i >= n) return n - 1;
-        return i;
+
+    /* Precompute per-output-coordinate variable-tap weights for x and y axes.
+     * The max possible support count is ceil(2*max(scale,1))*2 + 1, but for
+     * upsample (scale<1) the support is 2.0 → at most 4 taps. We size for
+     * upsample only here because rfdetr-base always upsamples (37 → 40). */
+    auto fill_taps = [&](int dst_n, int src_n,
+                         std::vector<float>& w_out, std::vector<int>& idx_out,
+                         std::vector<int>& size_out) {
+        const float scale_d = (float)src_n / (float)dst_n;
+        /* PyTorch's AA path uses `double` internally for indices/weights,
+         * but the final cast happens via `static_cast<int64_t>(x + 0.5)`
+         * which is equivalent to floor(x + 0.5) for non-negative x — i.e.
+         * rounding to nearest. We mimic that. */
+        const float invscale = scale_d >= 1.0f ? 1.0f / scale_d : 1.0f;
+        const float support  = scale_d >= 1.0f ? 2.0f * scale_d : 2.0f;
+        const int   max_taps = (int)std::ceil(support) * 2 + 1;
+        w_out.assign((size_t)dst_n * (size_t)max_taps, 0.0f);
+        idx_out.assign((size_t)dst_n * (size_t)max_taps, 0);
+        size_out.assign(dst_n, 0);
+        for (int o = 0; o < dst_n; ++o) {
+            const float center = scale_d * ((float)o + 0.5f);
+            const int xmin_raw = (int)(center - support + 0.5f);
+            const int xmax_raw = (int)(center + support + 0.5f);
+            const int xmin = std::max(xmin_raw, 0);
+            const int xmax = std::min(xmax_raw, src_n);
+            const int xsize_unclipped = xmax - xmin;
+            const int xsize = std::min(std::max(xsize_unclipped, 0), max_taps);
+            float total = 0.0f;
+            for (int j = 0; j < xsize; ++j) {
+                const float w = kernel(((float)j + (float)xmin - center + 0.5f) * invscale);
+                w_out[(size_t)o * (size_t)max_taps + (size_t)j] = w;
+                idx_out[(size_t)o * (size_t)max_taps + (size_t)j] = xmin + j;
+                total += w;
+            }
+            if (total != 0.0f) {
+                for (int j = 0; j < xsize; ++j) {
+                    w_out[(size_t)o * (size_t)max_taps + (size_t)j] /= total;
+                }
+            }
+            size_out[o] = xsize;
+        }
+        return max_taps;
     };
 
-    /* Precompute per-output-coordinate 4-tap weights for x and y axes. */
-    std::vector<float> wx(dst_side * 4, 0.0f);
-    std::vector<int>   ix(dst_side * 4, 0);
-    std::vector<float> wy(dst_side * 4, 0.0f);
-    std::vector<int>   iy(dst_side * 4, 0);
-    auto fill_taps = [&](int dst_n, int src_n, float* w, int* idx) {
-        const float scale = (float)src_n / (float)dst_n;
-        for (int o = 0; o < dst_n; ++o) {
-            const float s = ((float)o + 0.5f) * scale - 0.5f;
-            const int s0 = (int)std::floor(s);
-            const float t = s - (float)s0;
-            for (int k = -1; k <= 2; ++k) {
-                const int taps_pos = o * 4 + (k + 1);
-                idx[taps_pos] = clamp_idx(s0 + k, src_n);
-                w[taps_pos]   = kernel((float)k - t);
-            }
-        }
-    };
-    fill_taps(dst_side, src_side, wx.data(), ix.data());
-    fill_taps(dst_side, src_side, wy.data(), iy.data());
+    std::vector<float> wx, wy;
+    std::vector<int>   ix, iy;
+    std::vector<int>   sx, sy;
+    const float scale_d = (float)src_side / (float)dst_side;
+    const float support_d = scale_d >= 1.0f ? 2.0f * scale_d : 2.0f;
+    const int   max_taps = (int)std::ceil(support_d) * 2 + 1;
+    fill_taps(dst_side, src_side, wx, ix, sx);
+    fill_taps(dst_side, src_side, wy, iy, sy);
 
     /* For each (oy, ox) output pixel: sum_{ky, kx} wy[ky] * wx[kx] * src[iy[ky], ix[kx], d]
      * for every d. Loop ordering keeps the dim accumulator hot. */
@@ -132,16 +179,18 @@ void bicubic_resample_patch_grid(const float* src, int src_side, int dim,
         for (int ox = 0; ox < dst_side; ++ox) {
             float* dst_row = dst + ((size_t)oy * dst_side + (size_t)ox) * dim;
             for (int d = 0; d < dim; ++d) dst_row[d] = 0.0f;
-            for (int ky = 0; ky < 4; ++ky) {
-                const int sy = iy[oy * 4 + ky];
-                const float w_y = wy[oy * 4 + ky];
+            const int ny = sy[oy];
+            const int nx = sx[ox];
+            for (int ky = 0; ky < ny; ++ky) {
+                const int sy_i = iy[(size_t)oy * (size_t)max_taps + (size_t)ky];
+                const float w_y = wy[(size_t)oy * (size_t)max_taps + (size_t)ky];
                 if (w_y == 0.0f) continue;
-                for (int kx = 0; kx < 4; ++kx) {
-                    const int sx = ix[ox * 4 + kx];
-                    const float w_x = wx[ox * 4 + kx];
+                for (int kx = 0; kx < nx; ++kx) {
+                    const int sx_i = ix[(size_t)ox * (size_t)max_taps + (size_t)kx];
+                    const float w_x = wx[(size_t)ox * (size_t)max_taps + (size_t)kx];
                     if (w_x == 0.0f) continue;
                     const float w = w_x * w_y;
-                    const float* sp = src + ((size_t)sy * src_side + (size_t)sx) * dim;
+                    const float* sp = src + ((size_t)sy_i * src_side + (size_t)sx_i) * dim;
                     for (int d = 0; d < dim; ++d) {
                         dst_row[d] += w * sp[d];
                     }
