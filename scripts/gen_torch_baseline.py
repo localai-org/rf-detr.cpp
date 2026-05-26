@@ -168,6 +168,22 @@ def install_hooks(inner, captured: "OrderedDict[str, torch.Tensor]") -> list:
         hooks.append(c2f.cv1.register_forward_hook(cv1_hook))
         hooks.append(c2f.cv2.register_forward_hook(cv2_hook))
         hooks.append(final_norm.register_forward_hook(final_norm_hook))
+
+        # Per-bottleneck output + internal cv1/cv2 (Plan 9 debug aid).
+        for j, bn in enumerate(c2f.m):
+            def make_bn_hook(idx):
+                def hook(_mod, _inp, out):
+                    if torch.is_tensor(out):
+                        captured[f"projector.bottleneck.{idx}.output"] = out.detach().clone()
+                return hook
+            hooks.append(bn.register_forward_hook(make_bn_hook(j)))
+            def make_inner_hook(idx, sub):
+                def hook(_mod, _inp, out):
+                    if torch.is_tensor(out):
+                        captured[f"projector.bottleneck.{idx}.{sub}.output"] = out.detach().clone()
+                return hook
+            hooks.append(bn.cv1.register_forward_hook(make_inner_hook(j, "cv1")))
+            hooks.append(bn.cv2.register_forward_hook(make_inner_hook(j, "cv2")))
     except (AttributeError, IndexError, TypeError) as e:
         print(f"# warning: projector sub-stage hooks failed: {e}", file=sys.stderr)
 

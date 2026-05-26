@@ -121,6 +121,13 @@ target_link_libraries(test_parity_torch PRIVATE ggml)
 rfdetr_add_test(test_parity_backbone)
 target_link_libraries(test_parity_backbone PRIVATE ggml)
 
+# Plan 9: C++ MultiScaleProjector vs torch parity baseline.
+# Phase 1 feeds the torch baseline's backbone multiscale outputs into the C++
+# projector (isolating the projector). Phase 2 runs backbone+projector end-
+# to-end and reports drift. Skips gracefully if either input is missing.
+rfdetr_add_test(test_parity_projector)
+target_link_libraries(test_parity_projector PRIVATE ggml)
+
 # ---------------------------------------------------------------------------
 # DISABLED (Plan 7 transitional state):
 #
