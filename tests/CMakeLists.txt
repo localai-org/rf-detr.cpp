@@ -179,3 +179,11 @@ target_link_libraries(test_kquant PRIVATE ggml)
 target_compile_definitions(test_kquant PRIVATE
     RFDETR_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
+# Per-variant load smoke-test: loads each of the 5 detection variants and
+# verifies the metadata round-trips. Skips per-variant gracefully if the
+# matching GGUF isn't present, so a fresh clone passes ctest before running
+# scripts/convert_all_variants.sh.
+rfdetr_add_test(test_variants)
+target_compile_definitions(test_variants PRIVATE
+    RFDETR_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+
