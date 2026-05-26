@@ -49,8 +49,15 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--image-size",
         type=int,
-        default=560,
-        help="Side length of square input (default 560 = rfdetr-base resolution).",
+        default=0,
+        help="Side length of square input (default depends on model: 560 for "
+             "rfdetr-base, 312 for rfdetr-seg-nano).",
+    )
+    p.add_argument(
+        "--seg",
+        action="store_true",
+        help="Use RFDETRSegNano (segmentation variant) instead of RFDETRBase. "
+             "Adds segmentation_head hook captures.",
     )
     return p.parse_args()
 
@@ -347,6 +354,84 @@ def install_hooks(inner, captured: "OrderedDict[str, torch.Tensor]") -> list:
     return hooks
 
 
+def install_seg_hooks(inner, captured: "OrderedDict[str, torch.Tensor]") -> list:
+    """Install hooks specific to the SegmentationHead module.
+
+    inner: the LWDETR module. inner.segmentation_head is the SegmentationHead.
+
+    The seg head forward iterates `zip(self.blocks, query_features)` where
+    `query_features` is the stacked decoder output (n_layers, B, NQ, C). For
+    each layer:
+      spatial_features = block(spatial_features)
+      spatial_proj     = spatial_features_proj(spatial_features)
+      qf               = query_features_block(qf); qf = query_features_proj(qf)
+      mask             = einsum("bchw,bnc->bnhw", spatial_proj, qf) + bias
+
+    We capture:
+      seg.spatial_features.input    — features[0].tensors (projector output)
+      seg.spatial_features.resized  — after F.interpolate
+      seg.block.{i}.spatial_out     — after block(spatial_features)
+      seg.block.{i}.spatial_proj    — after spatial_features_proj (1x1 conv)
+      seg.block.{i}.qf_proj         — after query_features_block + proj
+      seg.masks.{i}                 — per-layer mask logits
+      seg.masks.final               — masks[-1] (inference output)
+    """
+    hooks = []
+    sh = inner.segmentation_head
+
+    # Wrap the seg head's forward to intercept resized + per-block intermediates.
+    orig_forward = sh.forward
+
+    def traced_forward(spatial_features, query_features, image_size, skip_blocks=False):
+        import torch as _t
+        import torch.nn.functional as _F
+
+        captured["seg.spatial_features.input"] = spatial_features.detach().clone()
+        target_size = (image_size[0] // sh.downsample_ratio,
+                       image_size[1] // sh.downsample_ratio)
+        sp = _F.interpolate(spatial_features, size=target_size,
+                            mode="bilinear", align_corners=False)
+        captured["seg.spatial_features.resized"] = sp.detach().clone()
+
+        mask_logits = []
+        if not skip_blocks:
+            for i, (block, qf) in enumerate(zip(sh.blocks, query_features)):
+                sp = block(sp)
+                captured[f"seg.block.{i}.spatial_out"] = sp.detach().clone()
+                sp_proj = sh.spatial_features_proj(sp)
+                captured[f"seg.block.{i}.spatial_proj"] = sp_proj.detach().clone()
+                qf_p = sh.query_features_proj(sh.query_features_block(qf))
+                captured[f"seg.block.{i}.qf_proj"] = qf_p.detach().clone()
+                mk = _t.einsum("bchw,bnc->bnhw", sp_proj, qf_p) + sh.bias
+                captured[f"seg.masks.{i}"] = mk.detach().clone()
+                mask_logits.append(mk)
+        else:
+            assert len(query_features) == 1
+            qf_p = sh.query_features_proj(sh.query_features_block(query_features[0]))
+            captured["seg.block.0.qf_proj"] = qf_p.detach().clone()
+            mk = _t.einsum("bchw,bnc->bnhw", sp, qf_p) + sh.bias
+            mask_logits.append(mk)
+
+        if mask_logits:
+            captured["seg.masks.final"] = mask_logits[-1].detach().clone()
+        return mask_logits
+
+    # Install by monkey-patching forward; the caller's "hooks" list owns a
+    # restore-thunk.
+    sh.forward = traced_forward
+
+    class _RestoreFwd:
+        def __init__(self, mod, orig):
+            self.mod = mod
+            self.orig = orig
+
+        def remove(self):
+            self.mod.forward = self.orig
+
+    hooks.append(_RestoreFwd(sh, orig_forward))
+    return hooks
+
+
 def run_forward(inner, x: torch.Tensor):
     """Run LWDETR forward with a NestedTensor wrapping `x`. Returns the model out."""
     from rfdetr.utilities.tensors import NestedTensor
@@ -392,19 +477,31 @@ def write_baseline(
 def main() -> int:
     args = parse_args()
 
-    print("Loading rfdetr-base...", file=sys.stderr)
-    from rfdetr import RFDETRBase
-    m = RFDETRBase()
+    # Default image size depends on model variant.
+    image_size = args.image_size
+    if image_size <= 0:
+        image_size = 312 if args.seg else 560
+
+    if args.seg:
+        print("Loading rfdetr-seg-nano...", file=sys.stderr)
+        from rfdetr import RFDETRSegNano
+        m = RFDETRSegNano()
+    else:
+        print("Loading rfdetr-base...", file=sys.stderr)
+        from rfdetr import RFDETRBase
+        m = RFDETRBase()
     m.model.model.eval()
     inner = m.model.model  # LWDETR
 
-    x = make_input(args.input_seed, args.image_size)
+    x = make_input(args.input_seed, image_size)
     print(f"Input shape: {tuple(x.shape)}", file=sys.stderr)
 
     captured: "OrderedDict[str, torch.Tensor]" = OrderedDict()
     captured["preprocess.input"] = x.detach().clone()
 
     hooks = install_hooks(inner, captured)
+    if args.seg:
+        hooks.extend(install_seg_hooks(inner, captured))
     print(f"Installed {len(hooks)} forward hooks.", file=sys.stderr)
 
     print("Running forward...", file=sys.stderr)
