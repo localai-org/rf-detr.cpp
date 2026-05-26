@@ -187,3 +187,9 @@ rfdetr_add_test(test_variants)
 target_compile_definitions(test_variants PRIVATE
     RFDETR_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
+# Fine-tune check: load a custom-num_classes checkpoint and verify the
+# C-API reports the right class count. Skips gracefully if /tmp/custom5.gguf
+# isn't present (generate via scripts/build_custom_checkpoint.py +
+# scripts/convert_rfdetr_to_gguf.py --checkpoint).
+rfdetr_add_test(test_custom_classes)
+
