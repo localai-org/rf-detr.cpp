@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
+#include <thread>
 #include <vector>
 
 static void default_log_cb(rfdetr_log_level lvl, const char* msg, void* /*ud*/) {
@@ -20,11 +21,23 @@ static void default_log_cb(rfdetr_log_level lvl, const char* msg, void* /*ud*/) 
     std::fprintf(stderr, "[%s] %s\n", tag, msg);
 }
 
+/* Resolve --threads N:
+ *   - N > 0          → use N
+ *   - N == 0 (auto)  → use std::thread::hardware_concurrency() (>=1)
+ *   - N < 0          → clamped to 1
+ */
+static int resolve_n_threads(int requested) {
+    if (requested > 0) return requested;
+    unsigned hc = std::thread::hardware_concurrency();
+    if (hc == 0) hc = 1;
+    return (int)hc;
+}
+
 static int cmd_detect(const rfdetr_cli::DetectArgs& a) {
     /* 1. Initialize model context */
     rfdetr_params params{};
     params.model_path = a.model.c_str();
-    params.n_threads  = 1;  /* default; CLI doesn't expose --threads yet */
+    params.n_threads  = resolve_n_threads(a.n_threads);
 
     rfdetr_status init_st;
     rfdetr_context* ctx = rfdetr_init(&params, &init_st);
@@ -113,7 +126,7 @@ static int cmd_bench(const rfdetr_cli::BenchArgs& a) {
     /* 1. Initialize model context (load happens once). */
     rfdetr_params params{};
     params.model_path = a.model.c_str();
-    params.n_threads  = 1;
+    params.n_threads  = resolve_n_threads(a.n_threads);
 
     using clock = std::chrono::steady_clock;
     auto t_load_start = clock::now();
@@ -147,6 +160,7 @@ static int cmd_bench(const rfdetr_cli::BenchArgs& a) {
     std::printf("model:     %s\n", a.model.c_str());
     std::printf("image:     %s (%dx%d)\n", a.input.c_str(),
                 rfdetr_image_width(img), rfdetr_image_height(img));
+    std::printf("threads:   %d\n", params.n_threads);
     std::printf("load_ms:   %.2f\n", load_ms);
     std::printf("warmup:    %d\n", warmup);
     std::printf("iters:     %d\n", iters);
@@ -214,7 +228,7 @@ static int cmd_bench(const rfdetr_cli::BenchArgs& a) {
 static int cmd_info(const rfdetr_cli::InfoArgs& a) {
     rfdetr_params p{};
     p.model_path = a.model.c_str();
-    p.n_threads  = 1;
+    p.n_threads  = resolve_n_threads(a.n_threads);
 
     rfdetr_status st;
     rfdetr_context* ctx = rfdetr_init(&p, &st);

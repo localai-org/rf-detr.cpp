@@ -15,11 +15,12 @@ struct DetectArgs {
     float       threshold = 0.5f;
     uint32_t    top_k     = 300;
     std::vector<uint32_t> classes;  /* allowlist */
+    int         n_threads = 0;       /* 0 = auto (hardware_concurrency) */
 };
 
-struct InfoArgs    { std::string model; };
-struct BenchArgs   { std::string model; std::string input; int iters = 50; int warmup = 5; };
-struct CompareArgs { std::string baseline_dir; std::string image; std::string model; };
+struct InfoArgs    { std::string model; int n_threads = 0; };
+struct BenchArgs   { std::string model; std::string input; int iters = 50; int warmup = 5; int n_threads = 0; };
+struct CompareArgs { std::string baseline_dir; std::string image; std::string model; int n_threads = 0; };
 
 enum class Subcommand { None, Help, Detect, Info, Bench, Compare };
 

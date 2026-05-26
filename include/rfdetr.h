@@ -50,6 +50,9 @@ typedef struct {
 /* Init / detect parameters (forward-declared; full impl in Plan 2/3) */
 typedef struct {
     const char*   model_path;
+    /* CPU thread count for the ggml backend.
+     *   0 or negative → auto-detect (std::thread::hardware_concurrency(), clamped to 1).
+     *   >0            → use that many threads. */
     int           n_threads;
     rfdetr_log_cb log_cb;
     void*         log_user_data;

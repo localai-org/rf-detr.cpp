@@ -74,11 +74,14 @@ void print_help() {
         "Usage:\n"
         "  rfdetr-cli detect  --model <gguf> --input <image> --output <json>\n"
         "                     [--annotated <png>] [--threshold N] [--topk N]\n"
-        "                     [--classes id,id,...]\n"
-        "  rfdetr-cli info    --model <gguf>\n"
+        "                     [--classes id,id,...] [--threads N]\n"
+        "  rfdetr-cli info    --model <gguf> [--threads N]\n"
         "  rfdetr-cli bench   --model <gguf> --input <image> [--iters N] [--warmup N]\n"
-        "  rfdetr-cli compare --baseline <dir> --image <png> --model <gguf>\n"
-        "  rfdetr-cli --help\n");
+        "                     [--threads N]\n"
+        "  rfdetr-cli compare --baseline <dir> --image <png> --model <gguf> [--threads N]\n"
+        "  rfdetr-cli --help\n"
+        "\n"
+        "  --threads N   number of CPU threads for ggml (0 = auto, default 0).\n");
 }
 
 ParseResult parse(int argc, char** argv) {
@@ -109,6 +112,11 @@ ParseResult parse(int argc, char** argv) {
                 std::string v; if (!eat_value(argc, argv, i, "--classes", v, r.error)) return r;
                 if (!parse_classes(v, r.detect.classes, r.error)) return r;
             }
+            else if (a == "--threads") {
+                std::string v; if (!eat_value(argc, argv, i, "--threads", v, r.error)) return r;
+                uint32_t u; if (!parse_uint(v, u, r.error, "--threads")) return r;
+                r.detect.n_threads = (int)u;
+            }
             else {
                 r.error = "unknown flag: " + a;
                 return r;
@@ -125,6 +133,11 @@ ParseResult parse(int argc, char** argv) {
         for (int i = 2; i < argc; ++i) {
             std::string a = argv[i];
             if (a == "--model") { if (!eat_value(argc, argv, i, "--model", r.info.model, r.error)) return r; }
+            else if (a == "--threads") {
+                std::string v; if (!eat_value(argc, argv, i, "--threads", v, r.error)) return r;
+                uint32_t u; if (!parse_uint(v, u, r.error, "--threads")) return r;
+                r.info.n_threads = (int)u;
+            }
             else { r.error = "unknown flag: " + a; return r; }
         }
         if (r.info.model.empty()) { r.error = "info: --model is required"; return r; }
@@ -145,6 +158,11 @@ ParseResult parse(int argc, char** argv) {
                 std::string v; if (!eat_value(argc, argv, i, "--warmup", v, r.error)) return r;
                 uint32_t u; if (!parse_uint(v, u, r.error, "--warmup")) return r; r.bench.warmup = (int)u;
             }
+            else if (a == "--threads") {
+                std::string v; if (!eat_value(argc, argv, i, "--threads", v, r.error)) return r;
+                uint32_t u; if (!parse_uint(v, u, r.error, "--threads")) return r;
+                r.bench.n_threads = (int)u;
+            }
             else { r.error = "unknown flag: " + a; return r; }
         }
         if (r.bench.model.empty()) { r.error = "bench: --model is required"; return r; }
@@ -159,6 +177,11 @@ ParseResult parse(int argc, char** argv) {
             if      (a == "--baseline") { if (!eat_value(argc, argv, i, "--baseline", r.compare.baseline_dir, r.error)) return r; }
             else if (a == "--image")    { if (!eat_value(argc, argv, i, "--image",    r.compare.image,        r.error)) return r; }
             else if (a == "--model")    { if (!eat_value(argc, argv, i, "--model",    r.compare.model,        r.error)) return r; }
+            else if (a == "--threads") {
+                std::string v; if (!eat_value(argc, argv, i, "--threads", v, r.error)) return r;
+                uint32_t u; if (!parse_uint(v, u, r.error, "--threads")) return r;
+                r.compare.n_threads = (int)u;
+            }
             else { r.error = "unknown flag: " + a; return r; }
         }
         if (r.compare.baseline_dir.empty()) { r.error = "compare: --baseline is required"; return r; }

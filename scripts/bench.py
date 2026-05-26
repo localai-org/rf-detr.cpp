@@ -50,7 +50,8 @@ def parse_bench_stdout(text: str) -> dict:
     return out
 
 
-def run_cpp_bench(cli: Path, model: Path, image: Path, iters: int, warmup: int) -> dict:
+def run_cpp_bench(cli: Path, model: Path, image: Path, iters: int, warmup: int,
+                  threads: int | None = None) -> dict:
     cmd = [
         str(cli), "bench",
         "--model", str(model),
@@ -58,13 +59,16 @@ def run_cpp_bench(cli: Path, model: Path, image: Path, iters: int, warmup: int) 
         "--iters", str(iters),
         "--warmup", str(warmup),
     ]
+    if threads is not None:
+        cmd += ["--threads", str(threads)]
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if proc.returncode != 0:
         raise RuntimeError(f"C++ bench failed (rc={proc.returncode}):\n{proc.stderr}")
     return parse_bench_stdout(proc.stdout)
 
 
-def run_cpp_detect(cli: Path, model: Path, image: Path) -> list[dict]:
+def run_cpp_detect(cli: Path, model: Path, image: Path,
+                   threads: int | None = None) -> list[dict]:
     """One-shot detect; returns parsed detections list."""
     out_json = Path("/tmp") / f"_bench_detect_{os.getpid()}.json"
     cmd = [
@@ -74,6 +78,8 @@ def run_cpp_detect(cli: Path, model: Path, image: Path) -> list[dict]:
         "--output", str(out_json),
         "--threshold", "0.5",
     ]
+    if threads is not None:
+        cmd += ["--threads", str(threads)]
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if proc.returncode != 0:
         raise RuntimeError(f"C++ detect failed (rc={proc.returncode}):\n{proc.stderr}")
@@ -242,6 +248,8 @@ def main() -> int:
                     help="Path to a test image; pass multiple times.")
     ap.add_argument("--iters",   type=int, default=5)
     ap.add_argument("--warmup",  type=int, default=2)
+    ap.add_argument("--threads", type=int, default=None,
+                    help="C++ ggml thread count (default: CLI auto = hardware_concurrency).")
     ap.add_argument("--skip-q8", action="store_true")
     ap.add_argument("--out",     default=None, help="Write markdown report to this file.")
     args = ap.parse_args()
@@ -277,15 +285,15 @@ def main() -> int:
         row["python"] = py
 
         # C++ F32 timing + one detect for cross-check.
-        f32_t = run_cpp_bench(cli, f32, img, args.iters, args.warmup)
-        f32_d = run_cpp_detect(cli, f32, img)
+        f32_t = run_cpp_bench(cli, f32, img, args.iters, args.warmup, args.threads)
+        f32_d = run_cpp_detect(cli, f32, img, args.threads)
         row["cpp_f32"]     = f32_t
         row["cpp_f32_dets"] = f32_d
         row["cpp_f32_cmp"] = compare_detections(py["detections"], f32_d)
 
         if not args.skip_q8:
-            q8_t = run_cpp_bench(cli, q8, img, args.iters, args.warmup)
-            q8_d = run_cpp_detect(cli, q8, img)
+            q8_t = run_cpp_bench(cli, q8, img, args.iters, args.warmup, args.threads)
+            q8_d = run_cpp_detect(cli, q8, img, args.threads)
             row["cpp_q8"]     = q8_t
             row["cpp_q8_dets"] = q8_d
             row["cpp_q8_cmp"] = compare_detections(py["detections"], q8_d)

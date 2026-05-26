@@ -10,7 +10,22 @@
 #include <cstdlib>
 #include <new>
 #include <string>
+#include <thread>
 #include <vector>
+
+namespace {
+/* Resolve the requested thread count for the CPU backend:
+ *   - n > 0  → use n
+ *   - n == 0 → auto: std::thread::hardware_concurrency() (clamped to >= 1)
+ *   - n < 0  → clamp to 1
+ */
+int resolve_n_threads(int n) {
+    if (n > 0) return n;
+    unsigned hc = std::thread::hardware_concurrency();
+    if (hc == 0) hc = 1;
+    return (int)hc;
+}
+}  // namespace
 
 /* Opaque struct — defined here so external callers can only hold pointers. */
 struct rfdetr_context {
@@ -47,9 +62,10 @@ extern "C" rfdetr_context* rfdetr_init(const rfdetr_params* params, rfdetr_statu
         return nullptr;
     }
 
+    const int n_threads = resolve_n_threads(params->n_threads);
+
     rfdetr_status bk_st;
-    ggml_backend_t backend = rfdetr::init_backend(
-        params->n_threads > 0 ? params->n_threads : 1, &bk_st);
+    ggml_backend_t backend = rfdetr::init_backend(n_threads, &bk_st);
     if (!backend) {
         rfdetr::model_free(m);
         set(bk_st);
@@ -73,12 +89,13 @@ extern "C" rfdetr_context* rfdetr_init(const rfdetr_params* params, rfdetr_statu
     }
     ctx->model     = m;
     ctx->backend   = backend;
-    ctx->n_threads = params->n_threads > 0 ? params->n_threads : 1;
+    ctx->n_threads = n_threads;
 
-    rfdetr_logf(RFDETR_LOG_INFO, "rfdetr_init: loaded variant=%s, num_classes=%u, num_queries=%u",
+    rfdetr_logf(RFDETR_LOG_INFO, "rfdetr_init: loaded variant=%s, num_classes=%u, num_queries=%u, n_threads=%d",
                 m->config.variant.c_str(),
                 m->config.num_classes,
-                m->config.num_queries);
+                m->config.num_queries,
+                n_threads);
 
     set(RFDETR_OK);
     return ctx;
