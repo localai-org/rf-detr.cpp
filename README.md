@@ -141,6 +141,46 @@ scripts/convert_all_variants.sh
 See [BENCHMARK.md → "Variant comparison"](BENCHMARK.md#variant-comparison)
 for the full per-variant breakdown vs PyTorch.
 
+### Segmentation variants
+
+All 6 RF-DETR-Seg variants (SegNano / SegSmall / SegMedium / SegLarge /
+SegXLarge / Seg2XLarge) load through the same C++ pipeline. They wrap the
+detection backbone+decoder pipeline with a 4-block SegmentationHead that
+produces a per-query mask at `image_size / 4` resolution.
+
+| Variant       | Resolution | Patch | Decoder | Queries | GGUF F32 | Median ms @ T=8 |
+|---------------|-----------:|------:|--------:|--------:|---------:|----------------:|
+| Seg-Nano      |        312 |    12 |       4 |     100 |   124 MB |             117 |
+| Seg-Small     |        384 |    12 |       4 |     100 |   125 MB |             293 |
+| Seg-Medium    |        432 |    12 |       5 |     200 |   132 MB |             282 |
+
+Convert + bench a seg variant:
+
+```sh
+.venv/bin/python scripts/convert_rfdetr_to_gguf.py \
+    --variant seg-nano --dtype f32 \
+    --output models/rfdetr-seg-nano-f32.gguf
+
+.venv/bin/python scripts/bench_seg.py --threads 8 --iters 10
+```
+
+C++ vs PyTorch on a kitchen scene (coco_sample.jpg) at threshold 0.5:
+detections match in class + bbox (sub-pixel drift, |Δscore| ≤ 0.01) and
+the per-query masks match at IoU 0.997 / 99.98% pixel agreement (only
+~50 pixels differ on a 640x427 silhouette boundary, sub-pixel FP rounding).
+
+Output per-detection PNG masks via the CLI:
+
+```sh
+build/bin/rfdetr-cli detect --model models/rfdetr-seg-nano-f32.gguf \
+    --input /tmp/coco_sample.jpg --threshold 0.5 \
+    --masks /tmp/seg_masks --output /tmp/seg.json
+ls /tmp/seg_masks/
+# det_000_class1_score93.png   <- person
+# det_001_class51_score84.png  <- bowl
+# ...
+```
+
 ### Fine-tuning
 
 rfdetr.cpp is inference-only. To fine-tune RF-DETR on a custom dataset,
