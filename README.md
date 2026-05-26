@@ -60,6 +60,21 @@ Same kitchen image; max score Δ < 0.02, max box Δ < 1 px. ggml's CPU backend
 handles F32 × Q8_0 `mul_mat` natively, so the loader and module code are
 unchanged — only the converter writes Q8_0 blocks.
 
+### Benchmark vs upstream Python
+
+A cross-implementation benchmark (latency + detection cross-check) is
+documented in [BENCHMARK.md](BENCHMARK.md). On the same backbone and CPU,
+C++ detections match Python 1-1 (IoU > 0.99 mean, < 0.04 confidence drift,
+sub-pixel boxes); inference latency is currently slower (single-threaded
+ggml CPU vs PyTorch multi-threaded MKL).
+
+Reproduce with:
+
+```
+CUDA_VISIBLE_DEVICES="" .venv/bin/python scripts/bench.py \
+    --image path/to/img.jpg --iters 5 --warmup 2
+```
+
 ### Roadmap
 
 - Backbone drift root-cause + fix
