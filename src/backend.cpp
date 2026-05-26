@@ -97,11 +97,22 @@ bool blas_enabled_for_runtime() {
  * (e.g. Q×Kᵀ with ne10 = head_dim = 64) where the per-call cblas_sgemm
  * thread-pool overhead exceeds the SIMD win.
  *
- * Heuristic: require a minimum FLOP count (FLOPs ≈ 2 * ne0 * ne1 * ne10).
- * Tunable via RFDETR_BLAS_MIN_FLOPS (default 32M FLOPs ≈ a 128×128×128
- * GEMM). That admits the big backbone Q/K/V (250M), FFN (1B), and the
- * projector mul_mats while excluding small attention mul_mats and the
- * decoder's per-query projections. */
+ * Even worse, every BLAS-routed mul_mat forces a split between the BLAS
+ * backend and ggml's CPU backend. Each split's CPU-side compute spawns a
+ * fresh `#pragma omp parallel` region (see ggml_graph_compute in
+ * ggml-cpu.c), and the cumulative team-setup cost for hundreds of splits
+ * dwarfs whatever BLAS saves on each individual GEMM. On a typical ViT-B
+ * forward pass we'd get ~140 BLAS-routed mul_mats → ~280 splits → ~3x
+ * slowdown vs. a single CPU graph compute.
+ *
+ * Heuristic: require a very high minimum FLOP count so the cost amortizes.
+ * Tunable via RFDETR_BLAS_MIN_FLOPS. The default (2 GFLOPs) is calibrated
+ * so that on RF-DETR ViT-B *no* mul_mat passes — the sched is bypassed
+ * entirely (see backend_ctx_graph_compute's n_blas_nodes==0 fast-path)
+ * and we get the same throughput as RFDETR_BLAS=0. Users on hardware
+ * where BLAS dispatch genuinely wins (e.g. Apple Accelerate with much
+ * cheaper per-call overhead, or much larger models) can lower the
+ * threshold to opt in. */
 bool blas_worth_it(const ggml_tensor* op) {
     if (op->op != GGML_OP_MUL_MAT) return false;
     const ggml_tensor* src0 = op->src[0];
@@ -117,7 +128,7 @@ bool blas_worth_it(const ggml_tensor* op) {
             long v = std::atol(env);
             if (v > 0) return (int64_t)v;
         }
-        return (int64_t)32 * 1000 * 1000;
+        return (int64_t)2 * 1000 * 1000 * 1000;
     }();
 
     const int64_t flops = 2 * ne0 * ne1 * ne10;
@@ -213,17 +224,48 @@ int backend_ctx_graph_compute(BackendCtx& ctx, ::ggml_cgraph* graph) {
         ggml_backend_sched_reset(ctx.sched);
 
 #ifdef RFDETR_HAVE_BLAS
-        /* Pre-pass: for every mul_mat that doesn't pass our FLOP-based
-         * profitability check, pin it to the CPU backend. The sched will
-         * still route the big mul_mats (Q/K/V, FFN, projector) to BLAS but
-         * keep small attention ops on CPU where ggml's in-place dispatch
-         * is cheaper. */
+        /* Pre-pass: pin every node to the CPU backend EXCEPT the big mul_mats
+         * we explicitly want BLAS to handle.
+         *
+         * Why: the BLAS backend's supports_op() returns true for RESHAPE,
+         * VIEW, PERMUTE, TRANSPOSE in addition to MUL_MAT/OUT_PROD. When the
+         * sched assigns those view ops to BLAS (because BLAS is priority 0),
+         * its expansion passes pull adjacent ops along, and the resulting
+         * graph alternates BLAS↔CPU dozens of times. Every CPU split spawns
+         * a *disposable* threadpool (ggml_graph_compute does an
+         * `omp parallel num_threads(n)` per call). For a 1000+ node graph
+         * that produces ~280 splits, the OpenMP team setup/teardown
+         * dominates (≈3.7× slowdown vs. a single direct CPU call).
+         *
+         * Fix: explicitly route everything to CPU first, then opt-in only
+         * the mul_mats that pass blas_worth_it(). After this, the sched
+         * sees at most one BLAS split per chunky GEMM with CPU
+         * handling everything else — typically O(num_big_gemms) splits
+         * instead of O(num_view_ops). If no mul_mat passes the threshold
+         * (BLAS contributes nothing), we still pay only ~1 split (all on
+         * CPU) instead of 280. */
         const int n_nodes = ggml_graph_n_nodes(graph);
+        int n_blas_nodes = 0;
         for (int i = 0; i < n_nodes; ++i) {
             ggml_tensor* node = ggml_graph_node(graph, i);
-            if (node->op == GGML_OP_MUL_MAT && !blas_worth_it(node)) {
+            if (node->op == GGML_OP_MUL_MAT && blas_worth_it(node)) {
+                /* Leave for sched to assign — it will pick BLAS since BLAS
+                 * has higher priority and supports the op. */
+                ++n_blas_nodes;
+            } else {
                 ggml_backend_sched_set_tensor_backend(ctx.sched, node, ctx.cpu);
             }
+        }
+
+        /* If no node will go to BLAS, skip the sched entirely and run on
+         * the CPU backend directly. This avoids the sched's split-planning
+         * overhead and the per-split synchronization cost for the common
+         * case where BLAS won't help (small mul_mats, OpenBLAS-pthread on
+         * mid-sized models, etc.). */
+        if (n_blas_nodes == 0) {
+            ggml_status st = ggml_backend_graph_compute(ctx.cpu, graph);
+            ggml_backend_synchronize(ctx.cpu);
+            return (int)st;
         }
 #endif
 

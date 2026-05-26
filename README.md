@@ -26,9 +26,14 @@ The BLAS backend auto-activates only when the host library has an
 OpenMP-compatible parallelism mode (MKL, Accelerate, or
 `libopenblas0-openmp`) — it's auto-disabled when only OpenBLAS-pthread is
 available, because mixing it with ggml's OpenMP CPU pool causes thread
-oversubscription that strictly slows things down. On the benchmark host
-above (Ubuntu, OpenBLAS-pthread only) BLAS is therefore inactive.
-Override with `RFDETR_BLAS=1` to force-enable.
+oversubscription that strictly slows things down. By default
+(`RFDETR_BLAS_MIN_FLOPS=2G`) only mul_mats above 2 GFLOPs are routed to
+BLAS; on RF-DETR ViT-B that's zero ops, so we transparently bypass the
+sched and run a single direct CPU graph compute. Users can lower the
+threshold to opt in on hardware where per-call BLAS dispatch is cheap
+(Apple Accelerate, MKL, or a larger model). Override with `RFDETR_BLAS=1`
+/ `RFDETR_BLAS=0` to force enable/disable. See [BENCHMARK.md](BENCHMARK.md)
+for the per-split overhead analysis.
 
 ## Status
 

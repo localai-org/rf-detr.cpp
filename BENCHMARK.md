@@ -55,29 +55,46 @@ Explicit `GGML_AVX512` / `GGML_AVX512_VNNI` / `GGML_AVX512_BF16` flags are
 support. `GGML_NATIVE=ON` adapts per-host and still emits AVX-512 on capable
 machines, while gracefully degrading to AVX2 on older hardware.
 
-`GGML_BLAS` (OpenBLAS / MKL) is now wired through `ggml_backend_sched`
-(see `src/backend.cpp` — `init_backend_ctx` + `backend_ctx_graph_compute`),
-with per-mul_mat routing based on a FLOP threshold so only the big
-backbone Q/K/V / FFN GEMMs hit BLAS while small attention ops stay on the
-CPU backend. The wiring is auto-disabled at runtime when the host's BLAS
-is OpenBLAS-pthread (detected via `openblas_get_parallel()`): mixing
-OpenBLAS-pthread with ggml's OpenMP CPU pool causes thread-pool
-oversubscription that strictly slows the workload down.
+`GGML_BLAS` (OpenBLAS / MKL) is wired through `ggml_backend_sched`
+(see `src/backend.cpp` — `init_backend_ctx` + `backend_ctx_graph_compute`)
+with two important guards:
 
-To benefit from BLAS on Linux, install **`libopenblas0-openmp`** (instead
-of the default pthread variant) or link against MKL. On macOS, Accelerate
-is automatically selected and works out-of-the-box. The runtime can be
-overridden with:
+1. **Per-node pinning.** The BLAS backend's default `supports_op` claims
+   `RESHAPE / VIEW / PERMUTE / TRANSPOSE` in addition to `MUL_MAT`, so the
+   sched would otherwise alternate BLAS↔CPU on every reshape and produce
+   hundreds of single-op splits. We explicitly pin every node except the
+   BLAS-worthwhile mul_mats to the CPU backend.
+2. **No-op fast-path.** If after pinning no node would actually run on
+   BLAS, `backend_ctx_graph_compute` bypasses `ggml_backend_sched_*`
+   entirely and calls `ggml_backend_graph_compute(cpu, graph)` directly.
+   This avoids the sched's per-split bookkeeping and the disposable
+   threadpool / `#pragma omp parallel` region cost incurred on every
+   CPU split (which, accumulated over 100+ splits, was a ~3.7× regression).
+
+The default `RFDETR_BLAS_MIN_FLOPS` is 2 GFLOPs, chosen so that on
+RF-DETR ViT-B no mul_mat passes the threshold under default settings —
+i.e. we get a clean direct-compute path even with BLAS=1. Users on
+hardware where per-call BLAS dispatch is cheap (Apple Accelerate, MKL,
+much larger models) can lower the threshold to opt in.
+
+Auto-detect still skips BLAS entirely on OpenBLAS-pthread (detected via
+`openblas_get_parallel()`), where mixing pthread + ggml's OpenMP CPU
+pool causes thread-pool oversubscription that strictly slows the
+workload down.
+
+Runtime knobs:
 
 - `RFDETR_BLAS=1` — force BLAS on (useful when our auto-detect mis-fires)
 - `RFDETR_BLAS=0` — force BLAS off
 - `RFDETR_BLAS_THREADS=N` — BLAS-side thread count (default: same as
   `--threads`)
 - `RFDETR_BLAS_MIN_FLOPS=N` — FLOP threshold above which a mul_mat is
-  routed to BLAS (default 32M ≈ 128³). Larger values keep more ops on CPU.
+  routed to BLAS (default 2G). Lower this to dispatch more ops to BLAS;
+  on this workload + libgomp, no setting actually wins over direct CPU
+  compute, but the knob exists for other hardware combos.
 
-On the test host (OpenBLAS-pthread only available, no MKL), BLAS is
-auto-skipped and inference falls back to the tinyBLAS + NATIVE CPU path.
+On the test host (libopenblas0-openmp installed), the threshold causes
+all mul_mats to stay on the CPU path; throughput matches `RFDETR_BLAS=0`.
 
 ## Environment
 
