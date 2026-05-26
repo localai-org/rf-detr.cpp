@@ -76,6 +76,10 @@ FORMAT_VERSION = "2"
 def _make_variant_cfg(*, image_size, patch_size, num_windows,
                        global_attn_indices, out_feature_indices,
                        pos_embed_train_size, dec_layers):
+    # `num_classes` here is the COCO default. The actual value written to
+    # GGUF is derived from the loaded model's class_embed.weight.shape[0]
+    # (see main()), so fine-tuned checkpoints with a custom class count
+    # are stamped correctly without any code change.
     return {
         "image_size":             image_size,
         "patch_size":             patch_size,
@@ -414,7 +418,16 @@ should_quantize_q8_0 = should_quantize
 QUANT_DTYPES = {"q4_0", "q4_1", "q5_0", "q5_1", "q8_0"}
 
 
-def write_gguf(out_path, variant_name, variant_cfg, name_map, state_dict, dtype_str):
+def write_gguf(out_path, variant_name, variant_cfg, name_map, state_dict,
+               dtype_str, num_classes=None, class_names=None):
+    """Write the GGUF.
+
+    num_classes / class_names default to the COCO-91 baked into variant_cfg
+    (preserves behavior for pretrained models). For fine-tuned checkpoints
+    main() derives `num_classes` from class_embed.weight.shape[0] and passes
+    a class-count-matched class_names list (auto-generated "class_<idx>" if
+    no names are available).
+    """
     import numpy as np
     import gguf as gguf_mod
 
@@ -447,6 +460,21 @@ def write_gguf(out_path, variant_name, variant_cfg, name_map, state_dict, dtype_
 
     writer = gguf_mod.GGUFWriter(out_path, arch="rfdetr")
 
+    # Resolve num_classes / class_names: caller-supplied overrides win,
+    # else fall back to the variant_cfg COCO-91 defaults.
+    effective_num_classes = num_classes if num_classes is not None else variant_cfg["num_classes"]
+    if class_names is None:
+        if effective_num_classes == 91:
+            effective_class_names = COCO_CLASS_NAMES
+        else:
+            # Custom-class checkpoint with no name table — synthesize placeholders.
+            effective_class_names = [f"class_{i}" for i in range(effective_num_classes)]
+    else:
+        if len(class_names) != effective_num_classes:
+            raise ValueError(f"class_names length ({len(class_names)}) != "
+                             f"num_classes ({effective_num_classes})")
+        effective_class_names = list(class_names)
+
     # --- Top-level metadata ---
     writer.add_string("rfdetr.format.version", FORMAT_VERSION)
     writer.add_string("rfdetr.variant",         variant_name)
@@ -454,10 +482,11 @@ def write_gguf(out_path, variant_name, variant_cfg, name_map, state_dict, dtype_
     writer.add_uint32("rfdetr.patch_size",      variant_cfg["patch_size"])
     writer.add_uint32("rfdetr.num_queries",     variant_cfg["num_queries"])
     writer.add_uint32("rfdetr.group_detr",      variant_cfg["group_detr"])
-    writer.add_uint32("rfdetr.num_classes",     variant_cfg["num_classes"])
+    writer.add_uint32("rfdetr.num_classes",     effective_num_classes)
 
-    # class_names: 91-slot string array. gguf wants a Sequence[str].
-    writer.add_array("rfdetr.class_names", COCO_CLASS_NAMES)
+    # class_names: N-slot string array, where N == num_classes.
+    # gguf wants a Sequence[str].
+    writer.add_array("rfdetr.class_names", effective_class_names)
 
     # preprocess
     mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
@@ -558,11 +587,40 @@ def main() -> int:
     }
 
     print(f"Loading rfdetr-{args.variant} ...", file=sys.stderr)
-    if args.checkpoint:
-        print(f"warning: --checkpoint ignored; rfdetr 1.7.0 uses model_config.pretrain_weights "
-              f"(currently '{args.checkpoint}' is unused).", file=sys.stderr)
 
-    rfdetr_model = _VARIANT_CLASSES[args.variant]()
+    if args.checkpoint:
+        # Load a local fine-tuned checkpoint. The rfdetr saver writes
+        # {"model": state_dict, "args": {"num_classes": N, ...}, ...}; we
+        # read num_classes from args (or fall back to class_embed.bias.shape[0])
+        # and resize the model's classification head BEFORE load_state_dict so
+        # the shapes line up.
+        print(f"[checkpoint] loading {args.checkpoint}", file=sys.stderr)
+        ckpt = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
+        if not isinstance(ckpt, dict) or "model" not in ckpt:
+            print("error: checkpoint must be a dict with a 'model' state_dict key.",
+                  file=sys.stderr)
+            return 4
+        state = ckpt["model"]
+        ck_args = ckpt.get("args", {})
+        if isinstance(ck_args, dict):
+            nc = ck_args.get("num_classes")
+        else:
+            nc = getattr(ck_args, "num_classes", None)
+        if nc is None:
+            # Recover from the head tensor shape itself.
+            if "class_embed.bias" in state:
+                nc = int(state["class_embed.bias"].shape[0])
+                print(f"[checkpoint] inferred num_classes={nc} from class_embed.bias", file=sys.stderr)
+            else:
+                print("error: cannot determine num_classes from checkpoint.", file=sys.stderr)
+                return 4
+        nc = int(nc)
+        rfdetr_model = _VARIANT_CLASSES[args.variant](num_classes=nc)
+        rfdetr_model.model.model.load_state_dict(state, strict=False)
+        print(f"[checkpoint] loaded with num_classes={nc}", file=sys.stderr)
+    else:
+        rfdetr_model = _VARIANT_CLASSES[args.variant]()
+
     inner = rfdetr_model.model.model
     sd = inner.state_dict()
 
@@ -571,6 +629,16 @@ def main() -> int:
 
     variant_cfg = VARIANTS[args.variant]
     name_map    = build_tensor_name_map(variant_cfg)
+
+    # Derive num_classes from the live class_embed weight (truth source).
+    # This works for both the COCO pretrained models (91) and fine-tunes.
+    class_embed_w = sd.get("class_embed.weight")
+    if class_embed_w is None:
+        print("error: class_embed.weight missing from state_dict", file=sys.stderr)
+        return 5
+    actual_num_classes = int(class_embed_w.shape[0])
+    print(f"[convert] num_classes={actual_num_classes}, "
+          f"class_embed shape={tuple(class_embed_w.shape)}", file=sys.stderr)
 
     missing, unused = validate(sd, name_map)
     expected_count  = len(name_map)
@@ -596,7 +664,8 @@ def main() -> int:
 
     print(f"\nWriting GGUF -> {args.output} (dtype={args.dtype}) ...", file=sys.stderr)
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
-    n_written = write_gguf(args.output, args.variant, variant_cfg, name_map, sd, args.dtype)
+    n_written = write_gguf(args.output, args.variant, variant_cfg, name_map, sd,
+                           args.dtype, num_classes=actual_num_classes)
     print(f"[done] wrote {n_written} tensors to {args.output}", file=sys.stderr)
     return 0
 
