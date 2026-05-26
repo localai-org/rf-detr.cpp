@@ -12,6 +12,8 @@ typedef struct ggml_backend_sched* ggml_backend_sched_t;
 struct ggml_threadpool;
 typedef struct ggml_threadpool* ggml_threadpool_t;
 struct ggml_cgraph;
+struct ggml_gallocr;
+typedef struct ggml_gallocr* ggml_gallocr_t;
 
 namespace rfdetr {
 
@@ -47,6 +49,21 @@ struct BackendCtx {
      * pre-compute) is now amortized across the whole inference. */
     ggml_threadpool_t    threadpool = nullptr;
     int                  n_threads  = 1;
+
+    /* Persistent graph allocators for the two compute graphs in
+     * rfdetr_model_forward (graph A = backbone+projector+two_stage,
+     * graph B = decoder+heads).
+     *
+     * Without this, every inference allocates ~1.9 GB of scratch space for
+     * every intermediate tensor and then frees it — the free alone costs
+     * ~55 ms/inference (glibc munmaps the large mmap). gallocr packs
+     * intermediate tensors compactly (lifetime-aware reuse) AND keeps the
+     * underlying buffer alive across calls, so the kernel doesn't see
+     * mmap/munmap traffic on the steady-state loop.
+     *
+     * Lazily created on first use, freed in free_backend_ctx. */
+    ggml_gallocr_t       galloc_a    = nullptr;
+    ggml_gallocr_t       galloc_b    = nullptr;
 };
 
 /* Initialize the compute backend bundle. Always creates a CPU backend; if

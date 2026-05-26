@@ -8,6 +8,7 @@
 #include "common.hpp"
 
 #include "ggml.h"
+#include "ggml-alloc.h"
 #include "ggml-backend.h"
 
 #include <algorithm>
@@ -115,6 +116,10 @@ ForwardOutput rfdetr_model_forward(const Model& m,
     ggml_tensor* input_t = ggml_new_tensor_4d(gctxA, GGML_TYPE_F32,
                                               input_size, input_size, 3, 1);
     ggml_set_name(input_t, "input");
+    /* Mark as a graph input — the gallocr places input tensors at the
+     * beginning of the buffer in non-overlapping addresses, so it's safe
+     * to ggml_backend_tensor_set() into them before compute. */
+    ggml_set_input(input_t);
 
     BackboneOutput bb = dinov2_forward(gctxA, m, input_t);
     if (!bb.final) {
@@ -142,14 +147,37 @@ ForwardOutput rfdetr_model_forward(const Model& m,
     memory_tokens = ggml_reshape_3d(gctxA, memory_tokens, model_dim, N_tokens, 1);
     ggml_set_name(memory_tokens, "decoder.memory");
 
+    /* Mark outputs so the gallocr doesn't recycle their storage before we
+     * read them back. */
+    ggml_set_output(ts.cls_all);
+    ggml_set_output(ts.bbox_all);
+    ggml_set_output(memory_tokens);
+
     ggml_cgraph* graphA = ggml_new_graph_custom(gctxA, /*size*/ 16384, /*grads*/ false);
     ggml_build_forward_expand(graphA, ts.cls_all);
     ggml_build_forward_expand(graphA, ts.bbox_all);
     ggml_build_forward_expand(graphA, memory_tokens);
 
-    ggml_backend_buffer_t bufA = ggml_backend_alloc_ctx_tensors(gctxA, backend);
-    if (!bufA) {
-        rfdetr_logf(RFDETR_LOG_ERROR, "rfdetr_model_forward: alloc bufA failed");
+    /* Lazily create the per-graph gallocr the first time we run this graph,
+     * then reuse it on every subsequent inference. The gallocr packs
+     * intermediate tensors with lifetime-aware reuse (peak ~100 MB instead
+     * of the 1.9 GB that ggml_backend_alloc_ctx_tensors would consume) AND
+     * keeps the underlying compute buffer alive across calls — so we don't
+     * pay the ~55 ms/iter `free(1.9 GB)` munmap that was dominating
+     * non-compute overhead. */
+    if (!bctx.galloc_a) {
+        bctx.galloc_a = ggml_gallocr_new(
+            ggml_backend_get_default_buffer_type(backend));
+        if (!bctx.galloc_a) {
+            rfdetr_logf(RFDETR_LOG_ERROR,
+                        "rfdetr_model_forward: ggml_gallocr_new (A) failed");
+            ggml_free(gctxA);
+            return out;
+        }
+    }
+    if (!ggml_gallocr_alloc_graph(bctx.galloc_a, graphA)) {
+        rfdetr_logf(RFDETR_LOG_ERROR,
+                    "rfdetr_model_forward: ggml_gallocr_alloc_graph (A) failed");
         ggml_free(gctxA);
         return out;
     }
@@ -161,7 +189,6 @@ ForwardOutput rfdetr_model_forward(const Model& m,
     if (stA != GGML_STATUS_SUCCESS) {
         rfdetr_logf(RFDETR_LOG_ERROR,
                     "rfdetr_model_forward: graphA compute returned %d", (int)stA);
-        ggml_backend_buffer_free(bufA);
         ggml_free(gctxA);
         return out;
     }
@@ -176,7 +203,8 @@ ForwardOutput rfdetr_model_forward(const Model& m,
     ggml_backend_tensor_get(ts.bbox_all,    bbox_all.data(),    0, bbox_all.size()    * sizeof(float));
     ggml_backend_tensor_get(memory_tokens,  memory_flat.data(), 0, memory_flat.size() * sizeof(float));
 
-    ggml_backend_buffer_free(bufA);
+    /* gctxA owns the graph + tensor metadata. Tensor data lives in the
+     * gallocr's buffer (kept alive in BackendCtx). */
     ggml_free(gctxA);
 
     /* =====================================================================
@@ -252,12 +280,16 @@ ForwardOutput rfdetr_model_forward(const Model& m,
 
     ggml_tensor* tgt_in = ggml_new_tensor_3d(gctxB, GGML_TYPE_F32, model_dim, NQ, 1);
     ggml_set_name(tgt_in, "decoder.tgt");
+    ggml_set_input(tgt_in);
     ggml_tensor* mem_in = ggml_new_tensor_3d(gctxB, GGML_TYPE_F32, model_dim, N_tokens, 1);
     ggml_set_name(mem_in, "decoder.memory");
+    ggml_set_input(mem_in);
     ggml_tensor* rp_in  = ggml_new_tensor_3d(gctxB, GGML_TYPE_F32, 4, NQ, 1);
     ggml_set_name(rp_in, "decoder.refpoints");
+    ggml_set_input(rp_in);
     ggml_tensor* sine_in = ggml_new_tensor_3d(gctxB, GGML_TYPE_F32, 4 * d_half, NQ, 1);
     ggml_set_name(sine_in, "decoder.sine_embed");
+    ggml_set_input(sine_in);
 
     /* ref_point_head: 2-layer MLP `MLP(2*d_model=512, d_model=256, d_model, 2)`
      *   Linear(512, 256) → ReLU → Linear(256, 256). */
@@ -289,13 +321,28 @@ ForwardOutput rfdetr_model_forward(const Model& m,
         return out;
     }
 
+    ggml_set_output(cls_logits_t);
+    ggml_set_output(bbox_delta_t);
+
     ggml_cgraph* graphB = ggml_new_graph_custom(gctxB, /*size*/ 16384, /*grads*/ false);
     ggml_build_forward_expand(graphB, cls_logits_t);
     ggml_build_forward_expand(graphB, bbox_delta_t);
 
-    ggml_backend_buffer_t bufB = ggml_backend_alloc_ctx_tensors(gctxB, backend);
-    if (!bufB) {
-        rfdetr_logf(RFDETR_LOG_ERROR, "rfdetr_model_forward: alloc bufB failed");
+    /* Same lazy-init + reuse pattern as graphA. See the comment at galloc_a
+     * for the rationale (saves ~55 ms/iter of buffer-free overhead). */
+    if (!bctx.galloc_b) {
+        bctx.galloc_b = ggml_gallocr_new(
+            ggml_backend_get_default_buffer_type(backend));
+        if (!bctx.galloc_b) {
+            rfdetr_logf(RFDETR_LOG_ERROR,
+                        "rfdetr_model_forward: ggml_gallocr_new (B) failed");
+            ggml_free(gctxB);
+            return out;
+        }
+    }
+    if (!ggml_gallocr_alloc_graph(bctx.galloc_b, graphB)) {
+        rfdetr_logf(RFDETR_LOG_ERROR,
+                    "rfdetr_model_forward: ggml_gallocr_alloc_graph (B) failed");
         ggml_free(gctxB);
         return out;
     }
@@ -309,7 +356,6 @@ ForwardOutput rfdetr_model_forward(const Model& m,
     if (stB != GGML_STATUS_SUCCESS) {
         rfdetr_logf(RFDETR_LOG_ERROR,
                     "rfdetr_model_forward: graphB compute returned %d", (int)stB);
-        ggml_backend_buffer_free(bufB);
         ggml_free(gctxB);
         return out;
     }
@@ -322,7 +368,8 @@ ForwardOutput rfdetr_model_forward(const Model& m,
     ggml_backend_tensor_get(bbox_delta_t, bbox_delta.data(), 0,
                             bbox_delta.size() * sizeof(float));
 
-    ggml_backend_buffer_free(bufB);
+    /* gctxB owns the graph + tensor metadata. Tensor data lives in the
+     * gallocr's buffer (kept alive in BackendCtx). */
     ggml_free(gctxB);
 
     /* =====================================================================

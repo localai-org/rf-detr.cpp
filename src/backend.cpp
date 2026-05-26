@@ -2,6 +2,7 @@
 #include "common.hpp"
 
 #include "ggml.h"
+#include "ggml-alloc.h"
 #include "ggml-backend.h"
 #include "ggml-cpu.h"
 
@@ -226,6 +227,19 @@ BackendCtx init_backend_ctx(int n_threads, rfdetr_status* out_status) {
 }
 
 void free_backend_ctx(BackendCtx& ctx) {
+    /* Free the gallocrs BEFORE the backends. The gallocr owns the compute
+     * scratch buffers (allocated via the backend's buffer_type); freeing
+     * it after the backend would still be safe (the buffer keeps a ref to
+     * its buffer_type), but doing it first matches the construction order
+     * (gallocrs created lazily during forward, on top of the backend). */
+    if (ctx.galloc_a) {
+        ggml_gallocr_free(ctx.galloc_a);
+        ctx.galloc_a = nullptr;
+    }
+    if (ctx.galloc_b) {
+        ggml_gallocr_free(ctx.galloc_b);
+        ctx.galloc_b = nullptr;
+    }
     if (ctx.sched) {
         ggml_backend_sched_free(ctx.sched);
         ctx.sched = nullptr;
