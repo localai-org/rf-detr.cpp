@@ -1,6 +1,7 @@
 #include "model_loader.hpp"
 #include "common.hpp"
 #include "rfdetr.h"
+#include "two_stage.hpp"
 
 #include "ggml.h"
 #include "ggml-alloc.h"
@@ -256,7 +257,7 @@ Model* model_load(const std::string& path, rfdetr_status* out_status) {
     const int64_t inf_tokens = inf_patches_per_side * inf_patches_per_side + 1;
     {
         ggml_init_params ep{};
-        ep.mem_size   = ggml_tensor_overhead() * 4;
+        ep.mem_size   = ggml_tensor_overhead() * 8;
         ep.mem_buffer = nullptr;
         ep.no_alloc   = true;
         m->extras_ctx = ggml_init(ep);
@@ -268,6 +269,15 @@ Model* model_load(const std::string& path, rfdetr_status* out_status) {
     if (!pe_interp) return fail(RFDETR_ERR_MODEL_LOAD, "alloc pe_interp");
     ggml_set_name(pe_interp, "backbone.pos_embed.interp");
     m->backbone_pos_embed_interp = pe_interp;
+
+    /* Two-stage proposal grid: (4, inf_side * inf_side). Constant — depends
+     * only on the spatial grid (40x40 for rfdetr-base at 560 px). */
+    const int64_t inf_n = inf_patches_per_side * inf_patches_per_side;
+    ggml_tensor* prop = ggml_new_tensor_2d(m->extras_ctx, GGML_TYPE_F32,
+                                            /*ne0*/ 4, /*ne1*/ inf_n);
+    if (!prop) return fail(RFDETR_ERR_MODEL_LOAD, "alloc proposals_grid");
+    ggml_set_name(prop, "two_stage.proposals.grid");
+    m->proposals_grid = prop;
 
     set(RFDETR_OK);
     return m;
@@ -407,6 +417,19 @@ rfdetr_status model_realize_weights(Model& m, ggml_backend_t backend) {
 
         ggml_backend_tensor_set(m.backbone_pos_embed_interp, pe_out.data(),
                                 0, pe_out.size() * sizeof(float));
+    }
+
+    /* Populate the two-stage proposal grid. wh = 0.05 * 2^lvl, lvl=0 for the
+     * single P4 level rfdetr-base uses. */
+    if (m.proposals_grid) {
+        const int inf_side =
+            (int)(m.config.image_size / m.config.patch_size);
+        const size_t n = (size_t)inf_side * (size_t)inf_side;
+        std::vector<float> grid(n * 4);
+        compute_proposal_grid(inf_side, inf_side, /*wh_value*/ 0.05f,
+                              grid.data());
+        ggml_backend_tensor_set(m.proposals_grid, grid.data(),
+                                0, grid.size() * sizeof(float));
     }
 
     return RFDETR_OK;

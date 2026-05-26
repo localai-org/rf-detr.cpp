@@ -95,6 +95,11 @@ struct Model {
     ::ggml_context* extras_ctx = nullptr;
     ::ggml_backend_buffer_t extras_buf = nullptr;
     ::ggml_tensor* backbone_pos_embed_interp = nullptr;
+
+    /* Two-stage proposal grid (4, W_inf*H_inf) F32. Constant — depends only
+     * on the inference spatial extent. Populated by model_realize_weights and
+     * lives in extras_ctx alongside backbone_pos_embed_interp. */
+    ::ggml_tensor* proposals_grid = nullptr;
 };
 
 /* Load a model from a GGUF file at `path`. Returns nullptr on error and sets

@@ -128,6 +128,13 @@ target_link_libraries(test_parity_backbone PRIVATE ggml)
 rfdetr_add_test(test_parity_projector)
 target_link_libraries(test_parity_projector PRIVATE ggml)
 
+# Plan 10: C++ two-stage init module vs torch parity baseline.
+# Module-isolated: feeds the baseline's parity.projector.output directly into
+# C++ two_stage_forward. Skips gracefully if either the model or the baseline
+# isn't present.
+rfdetr_add_test(test_parity_two_stage)
+target_link_libraries(test_parity_two_stage PRIVATE ggml)
+
 # ---------------------------------------------------------------------------
 # DISABLED (Plan 7 transitional state):
 #

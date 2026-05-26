@@ -64,6 +64,7 @@ set(RFDETR_SOURCES
     src/dinov2.cpp
     src/transformer_ops.cpp
     src/projector.cpp
+    src/two_stage.cpp
     src/encoder.cpp
     src/decoder.cpp
     src/heads.cpp
