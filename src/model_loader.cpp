@@ -468,9 +468,25 @@ rfdetr_status model_realize_weights(Model& m, ggml_backend_t backend) {
             return RFDETR_ERR_MODEL_LOAD;
         }
 
+        /* pos_embed may be stored as F32 or F16 in the GGUF. Read the raw
+         * bytes (size = ggml_nbytes(pe), which accounts for the dtype) and
+         * convert F16 -> F32 in-place when needed. Without this conversion,
+         * reading dim*n_train_tokens*sizeof(float) bytes from an F16 tensor
+         * overruns its backing buffer and trips ggml's bounds check. */
         std::vector<float> pe_raw((size_t)dim * (size_t)n_train_tokens);
-        ggml_backend_tensor_get(pe, pe_raw.data(), 0,
-                                pe_raw.size() * sizeof(float));
+        if (pe->type == GGML_TYPE_F32) {
+            ggml_backend_tensor_get(pe, pe_raw.data(), 0, ggml_nbytes(pe));
+        } else if (pe->type == GGML_TYPE_F16) {
+            std::vector<ggml_fp16_t> pe_half((size_t)dim * (size_t)n_train_tokens);
+            ggml_backend_tensor_get(pe, pe_half.data(), 0, ggml_nbytes(pe));
+            ggml_fp16_to_fp32_row(pe_half.data(), pe_raw.data(), pe_raw.size());
+        } else {
+            rfdetr_logf(RFDETR_LOG_ERROR,
+                        "model_realize_weights: pos_embed has unsupported dtype %d "
+                        "(expected F32 or F16)",
+                        (int)pe->type);
+            return RFDETR_ERR_MODEL_LOAD;
+        }
 
         std::vector<float> pe_out((size_t)dim * (size_t)n_inf_tokens);
         /* Copy CLS pos embedding (token 0) unchanged. */

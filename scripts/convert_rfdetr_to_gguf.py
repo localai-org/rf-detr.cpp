@@ -512,10 +512,13 @@ def write_gguf(out_path, variant_name, variant_cfg, name_map, state_dict,
     import numpy as np
     import gguf as gguf_mod
 
-    # Per-dtype mapping table:
-    #   default_np_dtype / default_ggml_dtype apply to *unquantized* tensors
-    #   (biases, norms, embeddings, conv kernels, etc.). For quantized modes,
-    #   those stay F32 — only 2D linear weights get the block quantizer.
+    # Per-dtype mapping table. The rules below mirror what llama.cpp does:
+    #   * F32 mode: everything stays F32.
+    #   * F16 mode: only matmul-eligible weights (`should_quantize`) become F16;
+    #     biases, norms, embeddings, conv kernels, lookup tensors stay F32 so
+    #     ops like `ggml_concat(cls_token, activation)` and `ggml_add(bias, x)`
+    #     don't hit "operand dtype mismatch" at graph build.
+    #   * Block-quant modes: same matmul-only heuristic; non-matmul stays F32.
     quant_dtype_map = {
         "q4_0": gguf_mod.GGMLQuantizationType.Q4_0,
         "q4_1": gguf_mod.GGMLQuantizationType.Q4_1,
@@ -524,17 +527,9 @@ def write_gguf(out_path, variant_name, variant_cfg, name_map, state_dict,
         "q8_0": gguf_mod.GGMLQuantizationType.Q8_0,
     }
 
-    if dtype_str == "f16":
-        default_np_dtype = np.float16
-        default_ggml_dtype = gguf_mod.GGMLQuantizationType.F16
-        quant_ggml_dtype = None
-    elif dtype_str == "f32":
-        default_np_dtype = np.float32
-        default_ggml_dtype = gguf_mod.GGMLQuantizationType.F32
+    if dtype_str in ("f16", "f32"):
         quant_ggml_dtype = None
     elif dtype_str in QUANT_DTYPES:
-        default_np_dtype = np.float32
-        default_ggml_dtype = gguf_mod.GGMLQuantizationType.F32
         quant_ggml_dtype = quant_dtype_map[dtype_str]
     else:
         raise ValueError(f"unknown --dtype: {dtype_str}")
@@ -614,8 +609,17 @@ def write_gguf(out_path, variant_name, variant_cfg, name_map, state_dict,
                           variant_cfg["mask_downsample_ratio"])
 
     # --- Tensors ---
+    # F16 mode: same matmul-only heuristic used for block quantization
+    # (`should_quantize`) decides which tensors get cast to half precision.
+    # Non-matmul tensors (cls_token, pos_embed, biases, norms, conv kernels,
+    # tiny linears, raw lookups) stay F32. This avoids dtype mismatches in
+    # graph ops like `ggml_concat(cls_b, activation)` and `ggml_add(bias, x)`
+    # which require both operands to share a type, and matches llama.cpp's
+    # convention of quantizing only large matrix weights.
+    f16_cast_all = (dtype_str == "f16")
     n_written = 0
     n_quantized = 0
+    n_f16 = 0
     for gguf_name, (src_key, transform) in name_map.items():
         t = state_dict[src_key]
         # torch -> numpy
@@ -634,13 +638,26 @@ def write_gguf(out_path, variant_name, variant_cfg, name_map, state_dict,
                 raw_dtype=quant_ggml_dtype,
             )
             n_quantized += 1
+        elif f16_cast_all and should_quantize(gguf_name, arr):
+            # F16 mode: cast eligible matmul weights to half precision; keep
+            # everything else as F32.
+            arr = arr.astype(np.float16, copy=False)
+            writer.add_tensor(gguf_name, arr,
+                              raw_dtype=gguf_mod.GGMLQuantizationType.F16)
+            n_f16 += 1
         else:
-            arr = arr.astype(default_np_dtype, copy=False)
-            writer.add_tensor(gguf_name, arr, raw_dtype=default_ggml_dtype)
+            # F32 default path (also covers F16 mode's F32-kept tensors).
+            arr = arr.astype(np.float32, copy=False)
+            writer.add_tensor(gguf_name, arr,
+                              raw_dtype=gguf_mod.GGMLQuantizationType.F32)
         n_written += 1
 
     if quant_ggml_dtype is not None:
         print(f"[quantize] {dtype_str} tensors: {n_quantized}/{n_written}",
+              file=sys.stderr)
+    elif f16_cast_all:
+        print(f"[f16] tensors cast to F16: {n_f16}/{n_written} "
+              f"(others kept F32 for mixed-dtype graph ops)",
               file=sys.stderr)
 
     writer.write_header_to_file()

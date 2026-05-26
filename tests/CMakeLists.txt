@@ -189,6 +189,16 @@ target_link_libraries(test_kquant PRIVATE ggml)
 target_compile_definitions(test_kquant PRIVATE
     RFDETR_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
+# F16 model sanity + load test. Regression guard for a read-overrun bug
+# where the loader assumed pos_embed was F32 and crashed on F16 GGUFs.
+# Skips gracefully if models/rfdetr-base-f16.gguf isn't present. Generate:
+#   .venv/bin/python scripts/convert_rfdetr_to_gguf.py --variant base \
+#       --dtype f16 --output models/rfdetr-base-f16.gguf
+rfdetr_add_test(test_f16_model)
+target_link_libraries(test_f16_model PRIVATE ggml)
+target_compile_definitions(test_f16_model PRIVATE
+    RFDETR_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+
 # Per-variant load smoke-test: loads each of the 5 detection variants and
 # verifies the metadata round-trips. Skips per-variant gracefully if the
 # matching GGUF isn't present, so a fresh clone passes ctest before running
