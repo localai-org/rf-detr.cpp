@@ -56,6 +56,31 @@ ggml_tensor* decoder_forward(ggml_context* ctx, const Model& m,
                              ggml_tensor* query_pos,
                              int memory_H, int memory_W);
 
+/* Variant of decoder_forward that also returns per-layer post-norm outputs.
+ *
+ * For non-seg paths, the decoder only consumes the final layer (the bbox /
+ * class heads run on the stacked `hs[-1]`). The SegmentationHead, however,
+ * iterates each (block, decoder_layer_output) pair — so the seg path needs
+ * each layer's output AFTER the decoder.norm has been applied.
+ *
+ * Behavior matches `TransformerDecoder.forward(return_intermediate=True)` in
+ * rfdetr's transformer.py:475: append `self.norm(output)` after every layer.
+ *
+ * On success returns the same final-norm output as decoder_forward, and
+ * populates `*out_per_layer` with `m.config.decoder.layers` tensors (each
+ * ne=(256, NQ, 1)) — the i-th entry is the i-th layer's post-norm output.
+ *
+ * The caller must reserve space in `out_per_layer` for `decoder.layers`
+ * pointers BEFORE calling. */
+ggml_tensor* decoder_forward_with_intermediates(
+    ggml_context* ctx, const Model& m,
+    ggml_tensor* tgt,
+    ggml_tensor* memory,
+    ggml_tensor* refpoints,
+    ggml_tensor* query_pos,
+    int memory_H, int memory_W,
+    ggml_tensor** out_per_layer);
+
 /* Compute query_sine_embed for a (4, num_queries) refpoints buffer.
  *
  * Output layout: (4 * d_half, num_queries) F32 where d_half = 128. Token-major

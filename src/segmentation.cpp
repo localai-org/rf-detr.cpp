@@ -72,11 +72,15 @@ ggml_tensor* depthwise_conv_block(ggml_context* ctx,
     ggml_tensor* shortcut = x;
 
     /* 1. Depthwise 3x3 conv (stride 1, padding 1).
-     *    Kernel ne = (3, 3, 1, C), input ne = (W, H, C, B). */
-    ggml_tensor* y = ggml_conv_2d_dw(ctx, dw_w, x,
-                                     /*s0*/ 1, /*s1*/ 1,
-                                     /*p0*/ 1, /*p1*/ 1,
-                                     /*d0*/ 1, /*d1*/ 1);
+     *    Kernel ne = (3, 3, 1, C), input ne = (W, H, C, B).
+     *
+     * We use ggml_conv_2d_dw_direct (not _dw) because the latter funnels
+     * through ggml_im2col which forces F16 kernels. Our weights are F32 and
+     * the _direct path supports F32 directly. */
+    ggml_tensor* y = ggml_conv_2d_dw_direct(ctx, dw_w, x,
+                                            /*stride0*/ 1, /*stride1*/ 1,
+                                            /*pad0*/ 1, /*pad1*/ 1,
+                                            /*dilation0*/ 1, /*dilation1*/ 1);
     /* y ne = (W, H, C, B). Add per-channel bias via broadcast over (W, H). */
     {
         ggml_tensor* b_r = ggml_reshape_3d(ctx, dw_b, 1, 1, dw_b->ne[0]);

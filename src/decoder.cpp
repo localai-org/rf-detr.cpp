@@ -416,12 +416,14 @@ void compute_query_sine_embed(const float* refpoints, int num_queries,
     }
 }
 
-ggml_tensor* decoder_forward(ggml_context* ctx, const Model& m,
-                             ggml_tensor* tgt,
-                             ggml_tensor* memory,
-                             ggml_tensor* refpoints,
-                             ggml_tensor* query_pos,
-                             int memory_H, int memory_W) {
+static ggml_tensor* decoder_forward_impl(
+    ggml_context* ctx, const Model& m,
+    ggml_tensor* tgt,
+    ggml_tensor* memory,
+    ggml_tensor* refpoints,
+    ggml_tensor* query_pos,
+    int memory_H, int memory_W,
+    ggml_tensor** out_per_layer /* may be nullptr */) {
     if (!tgt || !memory || !refpoints || !query_pos) {
         rfdetr_logf(RFDETR_LOG_ERROR, "decoder_forward: null input");
         return nullptr;
@@ -453,28 +455,73 @@ ggml_tensor* decoder_forward(ggml_context* ctx, const Model& m,
         ctx, refpoints, /*ne0*/ 2, /*ne1*/ NQ,
         /*nb1*/ rp_row_size, /*offset*/ (size_t)2 * rp_esz));
 
-    /* The DefAttnArgs userdata lives one per layer (3 layers). Store them in
+    /* The DefAttnArgs userdata lives one per layer. Store them in
      * static thread-local storage so their address remains valid for the life
      * of the graph compute.
      *
      * NOTE: this means decoder_forward is not safe to call concurrently from
      * the same thread before the previous graph completes — that's fine for
      * the single-threaded inference path. */
-    static thread_local DefAttnArgs tls_args[8];  // 8 layers max; rfdetr-base uses 3
+    static thread_local DefAttnArgs tls_args[8];  // 8 layers max; seg-xlarge uses 6
+
+    ggml_tensor* nfw = fetch(m, "decoder.norm.weight");
+    ggml_tensor* nfb = fetch(m, "decoder.norm.bias");
+    if (!nfw || !nfb) return nullptr;
 
     ggml_tensor* x = tgt;
     for (uint32_t i = 0; i < m.config.decoder.layers; ++i) {
         x = decoder_layer(ctx, m, x, memory, query_pos, ref_xy, ref_wh,
                           (int)i, memory_H, memory_W, &tls_args[i]);
         if (!x) return nullptr;
+
+        /* For seg models, publish each layer's post-norm output. Matches
+         * `intermediate.append(self.norm(output))` in rfdetr's
+         * transformer.py TransformerDecoder.forward (return_intermediate=True).
+         * The final layer's post-norm output is also the regular
+         * `decoder.norm.output` (single source of truth). */
+        if (out_per_layer) {
+            ggml_tensor* xn = ops::layer_norm(ctx, x, nfw, nfb);
+            publish("decoder.layer." + std::to_string(i) + ".post_norm", xn);
+            out_per_layer[i] = xn;
+            /* Avoid recomputing the final norm: when this is the last layer
+             * we just reuse xn below. */
+            if (i + 1 == m.config.decoder.layers) {
+                publish("decoder.norm.output", xn);
+                return xn;
+            }
+        }
     }
 
-    ggml_tensor* nfw = fetch(m, "decoder.norm.weight");
-    ggml_tensor* nfb = fetch(m, "decoder.norm.bias");
-    if (!nfw || !nfb) return nullptr;
     x = ops::layer_norm(ctx, x, nfw, nfb);
     publish("decoder.norm.output", x);
     return x;
+}
+
+ggml_tensor* decoder_forward(ggml_context* ctx, const Model& m,
+                             ggml_tensor* tgt,
+                             ggml_tensor* memory,
+                             ggml_tensor* refpoints,
+                             ggml_tensor* query_pos,
+                             int memory_H, int memory_W) {
+    return decoder_forward_impl(ctx, m, tgt, memory, refpoints, query_pos,
+                                memory_H, memory_W, /*out_per_layer*/ nullptr);
+}
+
+ggml_tensor* decoder_forward_with_intermediates(
+    ggml_context* ctx, const Model& m,
+    ggml_tensor* tgt,
+    ggml_tensor* memory,
+    ggml_tensor* refpoints,
+    ggml_tensor* query_pos,
+    int memory_H, int memory_W,
+    ggml_tensor** out_per_layer) {
+    if (!out_per_layer) {
+        rfdetr_logf(RFDETR_LOG_ERROR,
+                    "decoder_forward_with_intermediates: null out_per_layer");
+        return nullptr;
+    }
+    return decoder_forward_impl(ctx, m, tgt, memory, refpoints, query_pos,
+                                memory_H, memory_W, out_per_layer);
 }
 
 }  // namespace rfdetr

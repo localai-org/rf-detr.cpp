@@ -4,6 +4,7 @@
 #include "two_stage.hpp"
 #include "decoder.hpp"
 #include "heads.hpp"
+#include "segmentation.hpp"
 #include "trace.hpp"
 #include "common.hpp"
 
@@ -152,11 +153,21 @@ ForwardOutput rfdetr_model_forward(const Model& m,
     ggml_set_output(ts.cls_all);
     ggml_set_output(ts.bbox_all);
     ggml_set_output(memory_tokens);
+    /* For seg models we also need the projector output (W, H, C, 1) on
+     * the host so we can re-stage it into graph B alongside the per-layer
+     * decoder outputs. */
+    const bool has_seg = m.config.has_segmentation_head;
+    if (has_seg) {
+        ggml_set_output(proj);
+    }
 
     ggml_cgraph* graphA = ggml_new_graph_custom(gctxA, /*size*/ 16384, /*grads*/ false);
     ggml_build_forward_expand(graphA, ts.cls_all);
     ggml_build_forward_expand(graphA, ts.bbox_all);
     ggml_build_forward_expand(graphA, memory_tokens);
+    if (has_seg) {
+        ggml_build_forward_expand(graphA, proj);
+    }
 
     /* Lazily create the per-graph gallocr the first time we run this graph,
      * then reuse it on every subsequent inference. The gallocr packs
@@ -202,6 +213,15 @@ ForwardOutput rfdetr_model_forward(const Model& m,
     ggml_backend_tensor_get(ts.cls_all,     cls_all.data(),     0, cls_all.size()     * sizeof(float));
     ggml_backend_tensor_get(ts.bbox_all,    bbox_all.data(),    0, bbox_all.size()    * sizeof(float));
     ggml_backend_tensor_get(memory_tokens,  memory_flat.data(), 0, memory_flat.size() * sizeof(float));
+
+    /* For seg models also fetch the projector output in its native
+     * (W, H, C, 1) ggml layout — needed as input to the seg head. */
+    std::vector<float> proj_data;
+    if (has_seg) {
+        proj_data.resize((size_t)feat_side * feat_side * model_dim);
+        ggml_backend_tensor_get(proj, proj_data.data(), 0,
+                                proj_data.size() * sizeof(float));
+    }
 
     /* gctxA owns the graph + tensor metadata. Tensor data lives in the
      * gallocr's buffer (kept alive in BackendCtx). */
@@ -291,6 +311,16 @@ ForwardOutput rfdetr_model_forward(const Model& m,
     ggml_set_name(sine_in, "decoder.sine_embed");
     ggml_set_input(sine_in);
 
+    /* For seg models: also stage the projector output in (W, H, C, 1) layout
+     * so the seg head can consume it without re-running the backbone. */
+    ggml_tensor* proj_in = nullptr;
+    if (has_seg) {
+        proj_in = ggml_new_tensor_4d(gctxB, GGML_TYPE_F32,
+                                     feat_side, feat_side, model_dim, 1);
+        ggml_set_name(proj_in, "seg.projector_in");
+        ggml_set_input(proj_in);
+    }
+
     /* ref_point_head: 2-layer MLP `MLP(2*d_model=512, d_model=256, d_model, 2)`
      *   Linear(512, 256) → ReLU → Linear(256, 256). */
     ggml_tensor* rph_w0 = fetch(m, "decoder.ref_point_head.layers.0.weight");
@@ -308,8 +338,20 @@ ForwardOutput rfdetr_model_forward(const Model& m,
     qpos = ggml_add(gctxB, qpos, rph_b1);
     ggml_set_name(qpos, "decoder.query_pos");
 
-    ggml_tensor* dec_out = decoder_forward(gctxB, m, tgt_in, mem_in, rp_in,
-                                           qpos, feat_side, feat_side);
+    ggml_tensor* dec_out = nullptr;
+    /* Per-layer post-norm outputs (only populated for seg models). The
+     * SegmentationHead iterates over zip(self.blocks, query_features) — each
+     * decoder layer's post-norm output is one stream. */
+    const int n_dec_layers = (int)m.config.decoder.layers;
+    std::vector<ggml_tensor*> dec_per_layer((size_t)n_dec_layers, nullptr);
+    if (has_seg) {
+        dec_out = decoder_forward_with_intermediates(
+            gctxB, m, tgt_in, mem_in, rp_in, qpos,
+            feat_side, feat_side, dec_per_layer.data());
+    } else {
+        dec_out = decoder_forward(gctxB, m, tgt_in, mem_in, rp_in,
+                                  qpos, feat_side, feat_side);
+    }
     if (!dec_out) {
         ggml_free(gctxB);
         return out;
@@ -321,12 +363,37 @@ ForwardOutput rfdetr_model_forward(const Model& m,
         return out;
     }
 
+    /* SegmentationHead. For seg models with N_dec layers, the head has 4
+     * DepthwiseConvBlocks that we iterate against the last 4 per-layer
+     * decoder outputs (when N_dec=4 that's all of them; when N_dec > 4 we
+     * keep zip-of-shortest semantics from PyTorch: zip(blocks, hs) walks 4
+     * layers because there are 4 blocks). */
+    ggml_tensor* seg_masks_t = nullptr;
+    if (has_seg) {
+        const int n_seg_iters = std::min(n_dec_layers, 4);
+        seg_masks_t = segmentation_forward(
+            gctxB, m,
+            proj_in,
+            dec_per_layer.data(),  // first n_seg_iters used
+            n_seg_iters,
+            /*image_h*/ input_size, /*image_w*/ input_size,
+            (int)m.config.mask_downsample_ratio);
+        if (!seg_masks_t) {
+            ggml_free(gctxB);
+            return out;
+        }
+        ggml_set_output(seg_masks_t);
+    }
+
     ggml_set_output(cls_logits_t);
     ggml_set_output(bbox_delta_t);
 
     ggml_cgraph* graphB = ggml_new_graph_custom(gctxB, /*size*/ 16384, /*grads*/ false);
     ggml_build_forward_expand(graphB, cls_logits_t);
     ggml_build_forward_expand(graphB, bbox_delta_t);
+    if (seg_masks_t) {
+        ggml_build_forward_expand(graphB, seg_masks_t);
+    }
 
     /* Same lazy-init + reuse pattern as graphA. See the comment at galloc_a
      * for the rationale (saves ~55 ms/iter of buffer-free overhead). */
@@ -351,6 +418,10 @@ ForwardOutput rfdetr_model_forward(const Model& m,
     ggml_backend_tensor_set(mem_in,  memory_flat.data(), 0, memory_flat.size() * sizeof(float));
     ggml_backend_tensor_set(rp_in,   decoder_refpoints.data(), 0, decoder_refpoints.size() * sizeof(float));
     ggml_backend_tensor_set(sine_in, sine_data.data(), 0, sine_data.size() * sizeof(float));
+    if (has_seg && proj_in) {
+        ggml_backend_tensor_set(proj_in, proj_data.data(), 0,
+                                proj_data.size() * sizeof(float));
+    }
 
     ggml_status stB = (ggml_status)backend_ctx_graph_compute(bctx, graphB);
     if (stB != GGML_STATUS_SUCCESS) {
@@ -367,6 +438,17 @@ ForwardOutput rfdetr_model_forward(const Model& m,
                             out.class_logits.size() * sizeof(float));
     ggml_backend_tensor_get(bbox_delta_t, bbox_delta.data(), 0,
                             bbox_delta.size() * sizeof(float));
+
+    if (seg_masks_t) {
+        /* seg_masks_t ne = (W_mask, H_mask, NQ, 1). Copy contiguous. */
+        const int W_mask = (int)seg_masks_t->ne[0];
+        const int H_mask = (int)seg_masks_t->ne[1];
+        out.mask_w = W_mask;
+        out.mask_h = H_mask;
+        out.masks.resize((size_t)W_mask * H_mask * NQ);
+        ggml_backend_tensor_get(seg_masks_t, out.masks.data(), 0,
+                                out.masks.size() * sizeof(float));
+    }
 
     /* gctxB owns the graph + tensor metadata. Tensor data lives in the
      * gallocr's buffer (kept alive in BackendCtx). */

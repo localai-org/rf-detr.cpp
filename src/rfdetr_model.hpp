@@ -20,11 +20,19 @@ namespace rfdetr {
  *                 RAW logits (apply sigmoid in postproc).
  *   bbox_cxcywh   shape (4, num_queries) row-major — (cx, cy, w, h) in [0, 1]
  *                 after bbox_reparam (delta combined with refpoints).
+ *   masks         (optional, only when has_segmentation_head=true) — flat raw
+ *                 mask logits in (W_mask, H_mask, num_queries) layout, with
+ *                 W_mask = image_size / mask_downsample_ratio and likewise H.
+ *                 Empty if the model has no seg head.
+ *   mask_w, mask_h spatial extent of `masks` (0/0 if no seg head).
  *
- * On failure both vectors are empty (and status is logged via rfdetr_logf). */
+ * On failure all vectors are empty (and status is logged via rfdetr_logf). */
 struct ForwardOutput {
     std::vector<float> class_logits;   // size = num_classes * num_queries
     std::vector<float> bbox_cxcywh;    // size = 4 * num_queries
+    std::vector<float> masks;          // size = mask_h * mask_w * num_queries (or 0)
+    int mask_h = 0;
+    int mask_w = 0;
     int num_queries = 0;
     int num_classes = 0;
 };
