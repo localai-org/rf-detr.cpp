@@ -5,11 +5,28 @@ C++/ggml inference for [Roboflow RF-DETR](https://github.com/roboflow/rf-detr).
 Project layout mirrors [vibevoice.cpp](https://github.com/mudler/vibevoice.cpp).
 See `docs/superpowers/specs/2026-05-25-rfdetr-cpp-design.md` for the design.
 
+## Performance
+
+End-to-end CPU inference on AMD Ryzen 9 9950X3D, F32, single batch:
+
+| impl                            | median ms/image | speedup vs Python |
+|---------------------------------|----------------:|------------------:|
+| Python rfdetr (PyTorch + oneDNN)|       158 - 181 | 1.00x (reference) |
+| C++ rfdetr.cpp F32 (`--threads 8`)|     396 - 431 | 0.37 - 0.46x      |
+| C++ rfdetr.cpp Q8_0 (`--threads 8`)|    408 - 425 | 0.38 - 0.44x      |
+
+Build is configured with `-march=native` + ggml's tinyBLAS SGEMM
+(`GGML_LLAMAFILE=ON`) + OpenMP — see [BENCHMARK.md](BENCHMARK.md) for
+flag-by-flag analysis. The remaining ~2.4x gap is oneDNN's hand-tuned
+prepacked AVX-512 GEMM micro-kernels (PyTorch) vs tinyBLAS's generic tiled
+SGEMM (ggml). Closing it further requires either a real BLAS backend wired
+through `ggml_backend_sched` or upstream kernel work in ggml.
+
 ## Status
 
 **End-to-end inference works on rfdetr-base.** Detections on real COCO
 images match the upstream Python rfdetr to within sub-pixel box drift and
-≤0.025 confidence drift on every detection above the 0.5 threshold.
+≤0.05 confidence drift on every detection above the 0.5 threshold.
 
 Module parity vs torch baseline (max_abs):
 
@@ -64,15 +81,15 @@ unchanged — only the converter writes Q8_0 blocks.
 
 A cross-implementation benchmark (latency + detection cross-check) is
 documented in [BENCHMARK.md](BENCHMARK.md). On the same backbone and CPU,
-C++ detections match Python 1-1 (IoU > 0.99 mean, < 0.04 confidence drift,
-sub-pixel boxes); inference latency is currently slower (single-threaded
-ggml CPU vs PyTorch multi-threaded MKL).
+C++ detections match Python 1-1 (IoU > 0.99 mean, < 0.05 confidence drift,
+sub-pixel boxes); inference latency is ~2.4x slower (ggml's tinyBLAS SGEMM
+vs oneDNN's prepacked AVX-512 GEMM in PyTorch).
 
 Reproduce with:
 
 ```
 CUDA_VISIBLE_DEVICES="" .venv/bin/python scripts/bench.py \
-    --image path/to/img.jpg --iters 5 --warmup 2
+    --image path/to/img.jpg --iters 5 --warmup 3 --threads 8
 ```
 
 ### Roadmap

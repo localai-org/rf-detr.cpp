@@ -39,9 +39,33 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
-# ggml (built but not yet used in this plan — wires the integration early)
+# ggml.
+#
+# CPU optimization flags applied by default (override on cmake command line if
+# you need a portable / non-AVX-512 / minimal build):
+#
+#   GGML_NATIVE=ON      -> compiles with `-march=native`, so the build adapts
+#                          to the host (AVX2 on Zen2/Skylake, AVX-512 on Zen4 /
+#                          Ice Lake / 9950X3D, etc.). Safe on any x86_64 host
+#                          because it never sets explicit feature flags the
+#                          local CPU doesn't have.
+#   GGML_LLAMAFILE=ON   -> enables ggml's tinyBLAS path (an AVX-512 / AVX2
+#                          tiled SGEMM for F32 x F32 mul_mat). Big win for the
+#                          F32 backbone hotspot, ~10-15% at T=8 and ~30% at
+#                          T=1. tinyBLAS gracefully falls back to AVX2 / scalar
+#                          if AVX-512 isn't available, so this is also safe on
+#                          older hosts.
+#   GGML_OPENMP=ON      -> ggml's default; relies on OpenMP for the thread pool
+#                          which has lower wake-up overhead than the pthread
+#                          fallback for this workload.
+#
+# Explicit GGML_AVX512* options are intentionally NOT set: -march=native already
+# tells the compiler to emit AVX-512 intrinsics when the host supports them,
+# and the explicit options would make the binary non-portable to non-AVX-512
+# machines.
 set(GGML_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
 set(GGML_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(GGML_LLAMAFILE      ON  CACHE BOOL "Enable tinyBLAS SGEMM kernels in ggml" FORCE)
 add_subdirectory(third_party/ggml EXCLUDE_FROM_ALL)
 
 # stb (header-only interface target)
