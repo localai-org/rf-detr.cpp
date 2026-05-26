@@ -107,6 +107,12 @@ cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
+The build automatically applies two patches to `third_party/ggml` at configure
+time (stored in `third_party/ggml-patches/`). These are local performance and
+debug-instrumentation improvements not yet upstreamed. Re-running CMake is a
+no-op once they're in place. Run `scripts/apply_ggml_patches.sh` manually if
+you want to inspect the patch flow.
+
 ## Convert + run
 
 ```

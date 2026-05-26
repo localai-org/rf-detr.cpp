@@ -66,6 +66,27 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(GGML_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
 set(GGML_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(GGML_LLAMAFILE      ON  CACHE BOOL "Enable tinyBLAS SGEMM kernels in ggml" FORCE)
+
+# Apply local ggml patches before we descend into the submodule. The patches
+# live in third_party/ggml-patches/ and are applied idempotently — re-running
+# CMake is a no-op once they're in place. See scripts/apply_ggml_patches.sh
+# for the logic; it can also be invoked standalone for debugging.
+execute_process(
+    COMMAND bash ${CMAKE_SOURCE_DIR}/scripts/apply_ggml_patches.sh
+    RESULT_VARIABLE _ggml_patch_result
+    OUTPUT_VARIABLE _ggml_patch_output
+    ERROR_VARIABLE  _ggml_patch_error
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE
+)
+if(NOT _ggml_patch_result EQUAL 0)
+    message(FATAL_ERROR
+        "Failed to apply ggml patches (exit ${_ggml_patch_result}):\n"
+        "stdout:\n${_ggml_patch_output}\n"
+        "stderr:\n${_ggml_patch_error}")
+endif()
+message(STATUS "${_ggml_patch_output}")
+
 add_subdirectory(third_party/ggml EXCLUDE_FROM_ALL)
 
 # stb (header-only interface target)
