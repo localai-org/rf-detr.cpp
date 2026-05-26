@@ -75,7 +75,10 @@ FORMAT_VERSION = "2"
 #   * decoder.layers (2/3/3/4/4 for Nano/Small/Base/Medium/Large)
 def _make_variant_cfg(*, image_size, patch_size, num_windows,
                        global_attn_indices, out_feature_indices,
-                       pos_embed_train_size, dec_layers):
+                       pos_embed_train_size, dec_layers,
+                       num_queries=300,
+                       segmentation_head=False,
+                       mask_downsample_ratio=4):
     # `num_classes` here is the COCO default. The actual value written to
     # GGUF is derived from the loaded model's class_embed.weight.shape[0]
     # (see main()), so fine-tuned checkpoints with a custom class count
@@ -83,9 +86,11 @@ def _make_variant_cfg(*, image_size, patch_size, num_windows,
     return {
         "image_size":             image_size,
         "patch_size":             patch_size,
-        "num_queries":            300,
+        "num_queries":            num_queries,
         "group_detr":             13,
         "num_classes":            91,
+        "segmentation_head":      segmentation_head,
+        "mask_downsample_ratio":  mask_downsample_ratio,
         "backbone": {
             "dim":                384,
             "depth":              12,
@@ -147,6 +152,53 @@ VARIANTS = {
         global_attn_indices=[3, 6, 9],
         out_feature_indices=[3, 6, 9, 12],
         pos_embed_train_size=44, dec_layers=4,
+    ),
+    # Segmentation variants. All share patch_size=12, num_classes=90 (HF
+    # class_embed.shape[0] = 91 incl. background — actual count derived at
+    # convert time), out_feature_indexes=[3,6,9,12], window_block_indexes =
+    # [0,1,2,4,5,7,8,10,11] → global indexes = [3,6,9]. SegNano has
+    # num_windows=1 (no windowing); the rest use num_windows=2.
+    "seg-nano": _make_variant_cfg(
+        image_size=312, patch_size=12, num_windows=1,
+        global_attn_indices=[3, 6, 9],
+        out_feature_indices=[3, 6, 9, 12],
+        pos_embed_train_size=26, dec_layers=4,
+        num_queries=100, segmentation_head=True,
+    ),
+    "seg-small": _make_variant_cfg(
+        image_size=384, patch_size=12, num_windows=2,
+        global_attn_indices=[3, 6, 9],
+        out_feature_indices=[3, 6, 9, 12],
+        pos_embed_train_size=32, dec_layers=4,
+        num_queries=100, segmentation_head=True,
+    ),
+    "seg-medium": _make_variant_cfg(
+        image_size=432, patch_size=12, num_windows=2,
+        global_attn_indices=[3, 6, 9],
+        out_feature_indices=[3, 6, 9, 12],
+        pos_embed_train_size=36, dec_layers=5,
+        num_queries=200, segmentation_head=True,
+    ),
+    "seg-large": _make_variant_cfg(
+        image_size=504, patch_size=12, num_windows=2,
+        global_attn_indices=[3, 6, 9],
+        out_feature_indices=[3, 6, 9, 12],
+        pos_embed_train_size=42, dec_layers=5,
+        num_queries=200, segmentation_head=True,
+    ),
+    "seg-xlarge": _make_variant_cfg(
+        image_size=624, patch_size=12, num_windows=2,
+        global_attn_indices=[3, 6, 9],
+        out_feature_indices=[3, 6, 9, 12],
+        pos_embed_train_size=52, dec_layers=6,
+        num_queries=300, segmentation_head=True,
+    ),
+    "seg-2xlarge": _make_variant_cfg(
+        image_size=768, patch_size=12, num_windows=2,
+        global_attn_indices=[3, 6, 9],
+        out_feature_indices=[3, 6, 9, 12],
+        pos_embed_train_size=64, dec_layers=6,
+        num_queries=300, segmentation_head=True,
     ),
 }
 
@@ -340,6 +392,35 @@ def build_tensor_name_map(variant_cfg):
     m["heads.bbox_embed.layers.2.weight"] = ("bbox_embed.layers.2.weight", None)
     m["heads.bbox_embed.layers.2.bias"]   = ("bbox_embed.layers.2.bias",   None)
 
+    # ---- Segmentation head (seg variants only) ----
+    if variant_cfg.get("segmentation_head", False):
+        SH = "segmentation_head."
+        # 4 × DepthwiseConvBlock
+        for b in range(4):
+            sp = SH + f"blocks.{b}."
+            dp = f"segmentation_head.blocks.{b}."
+            m[dp + "dwconv.weight"] = (sp + "dwconv.weight", None)
+            m[dp + "dwconv.bias"]   = (sp + "dwconv.bias",   None)
+            m[dp + "norm.weight"]   = (sp + "norm.weight",   None)
+            m[dp + "norm.bias"]     = (sp + "norm.bias",     None)
+            m[dp + "pwconv1.weight"] = (sp + "pwconv1.weight", None)
+            m[dp + "pwconv1.bias"]   = (sp + "pwconv1.bias",   None)
+        # spatial_features_proj (Conv2d 1x1)
+        m["segmentation_head.spatial_features_proj.weight"] = (SH + "spatial_features_proj.weight", None)
+        m["segmentation_head.spatial_features_proj.bias"]   = (SH + "spatial_features_proj.bias",   None)
+        # query_features_block (MLPBlock: LN + Linear + GELU + Linear)
+        m["segmentation_head.query_features_block.norm_in.weight"] = (SH + "query_features_block.norm_in.weight", None)
+        m["segmentation_head.query_features_block.norm_in.bias"]   = (SH + "query_features_block.norm_in.bias",   None)
+        m["segmentation_head.query_features_block.layers.0.weight"] = (SH + "query_features_block.layers.0.weight", None)
+        m["segmentation_head.query_features_block.layers.0.bias"]   = (SH + "query_features_block.layers.0.bias",   None)
+        m["segmentation_head.query_features_block.layers.2.weight"] = (SH + "query_features_block.layers.2.weight", None)
+        m["segmentation_head.query_features_block.layers.2.bias"]   = (SH + "query_features_block.layers.2.bias",   None)
+        # query_features_proj (Linear)
+        m["segmentation_head.query_features_proj.weight"] = (SH + "query_features_proj.weight", None)
+        m["segmentation_head.query_features_proj.bias"]   = (SH + "query_features_proj.bias",   None)
+        # scalar bias
+        m["segmentation_head.bias"] = (SH + "bias", None)
+
     return m
 
 
@@ -525,6 +606,13 @@ def write_gguf(out_path, variant_name, variant_cfg, name_map, state_dict,
     # two-stage
     writer.add_uint32("rfdetr.two_stage.n_groups", variant_cfg["two_stage"]["n_groups"])
 
+    # segmentation head (only emitted for seg-* variants)
+    is_seg = variant_cfg.get("segmentation_head", False)
+    writer.add_bool("rfdetr.has_segmentation_head", is_seg)
+    if is_seg:
+        writer.add_uint32("rfdetr.mask_downsample_ratio",
+                          variant_cfg["mask_downsample_ratio"])
+
     # --- Tensors ---
     n_written = 0
     n_quantized = 0
@@ -572,6 +660,8 @@ def main() -> int:
         import torch  # noqa: F401
         from rfdetr import (
             RFDETRBase, RFDETRNano, RFDETRSmall, RFDETRMedium, RFDETRLarge,
+            RFDETRSegNano, RFDETRSegSmall, RFDETRSegMedium, RFDETRSegLarge,
+            RFDETRSegXLarge, RFDETRSeg2XLarge,
         )
     except ImportError as e:
         print(f"error: missing dependency ({e}). pip install -r scripts/requirements.txt",
@@ -579,11 +669,17 @@ def main() -> int:
         return 2
 
     _VARIANT_CLASSES = {
-        "nano":   RFDETRNano,
-        "small":  RFDETRSmall,
-        "base":   RFDETRBase,
-        "medium": RFDETRMedium,
-        "large":  RFDETRLarge,
+        "nano":        RFDETRNano,
+        "small":       RFDETRSmall,
+        "base":        RFDETRBase,
+        "medium":      RFDETRMedium,
+        "large":       RFDETRLarge,
+        "seg-nano":    RFDETRSegNano,
+        "seg-small":   RFDETRSegSmall,
+        "seg-medium":  RFDETRSegMedium,
+        "seg-large":   RFDETRSegLarge,
+        "seg-xlarge":  RFDETRSegXLarge,
+        "seg-2xlarge": RFDETRSeg2XLarge,
     }
 
     print(f"Loading rfdetr-{args.variant} ...", file=sys.stderr)
