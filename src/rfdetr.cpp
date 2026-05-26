@@ -29,9 +29,9 @@ int resolve_n_threads(int n) {
 
 /* Opaque struct — defined here so external callers can only hold pointers. */
 struct rfdetr_context {
-    rfdetr::Model* model     = nullptr;
-    ggml_backend_t backend   = nullptr;
-    int            n_threads = 1;
+    rfdetr::Model*      model     = nullptr;
+    rfdetr::BackendCtx  bctx      {};
+    int                 n_threads = 1;
 };
 
 extern "C" rfdetr_context* rfdetr_init(const rfdetr_params* params, rfdetr_status* out_status) {
@@ -65,16 +65,19 @@ extern "C" rfdetr_context* rfdetr_init(const rfdetr_params* params, rfdetr_statu
     const int n_threads = resolve_n_threads(params->n_threads);
 
     rfdetr_status bk_st;
-    ggml_backend_t backend = rfdetr::init_backend(n_threads, &bk_st);
-    if (!backend) {
+    rfdetr::BackendCtx bctx = rfdetr::init_backend_ctx(n_threads, &bk_st);
+    if (!bctx.cpu) {
         rfdetr::model_free(m);
         set(bk_st);
         return nullptr;
     }
 
-    rfdetr_status rw_st = rfdetr::model_realize_weights(*m, backend);
+    /* Weights are realized on the CPU backend's host buffer; both CPU and
+     * BLAS backends use ggml's host buffer type, so the BLAS backend can
+     * read them in-place via the sched. */
+    rfdetr_status rw_st = rfdetr::model_realize_weights(*m, bctx.cpu);
     if (rw_st != RFDETR_OK) {
-        rfdetr::free_backend(backend);
+        rfdetr::free_backend_ctx(bctx);
         rfdetr::model_free(m);
         set(rw_st);
         return nullptr;
@@ -82,13 +85,13 @@ extern "C" rfdetr_context* rfdetr_init(const rfdetr_params* params, rfdetr_statu
 
     auto* ctx = new (std::nothrow) rfdetr_context();
     if (!ctx) {
-        rfdetr::free_backend(backend);
+        rfdetr::free_backend_ctx(bctx);
         rfdetr::model_free(m);
         set(RFDETR_ERR_OUT_OF_MEMORY);
         return nullptr;
     }
     ctx->model     = m;
-    ctx->backend   = backend;
+    ctx->bctx      = bctx;
     ctx->n_threads = n_threads;
 
     rfdetr_logf(RFDETR_LOG_INFO, "rfdetr_init: loaded variant=%s, num_classes=%u, num_queries=%u, n_threads=%d",
@@ -104,7 +107,7 @@ extern "C" rfdetr_context* rfdetr_init(const rfdetr_params* params, rfdetr_statu
 extern "C" void rfdetr_free(rfdetr_context* ctx) {
     if (!ctx) return;
     rfdetr::model_free(ctx->model);
-    rfdetr::free_backend(ctx->backend);
+    rfdetr::free_backend_ctx(ctx->bctx);
     delete ctx;
 }
 
@@ -116,7 +119,7 @@ extern "C" rfdetr_status rfdetr_detect(rfdetr_context* ctx,
     if (out_detections) *out_detections = nullptr;
     if (out_n)          *out_n = 0;
     if (!ctx || !img || !params || !out_detections || !out_n) return RFDETR_ERR_INVALID_ARG;
-    if (!ctx->model || !ctx->backend) return RFDETR_ERR_INVALID_ARG;
+    if (!ctx->model || !ctx->bctx.cpu) return RFDETR_ERR_INVALID_ARG;
 
     const rfdetr::Config& cfg = ctx->model->config;
     const int img_size = (int)cfg.image_size;
@@ -135,7 +138,7 @@ extern "C" rfdetr_status rfdetr_detect(rfdetr_context* ctx,
     /* 2. Full forward (2 graphs internally: backbone+projector+two_stage,
      *    then CPU top-K + decoder + heads). Returns host-side outputs. */
     rfdetr::ForwardOutput fout = rfdetr::rfdetr_model_forward(
-        *ctx->model, px_data, px_w, ctx->backend);
+        *ctx->model, px_data, px_w, ctx->bctx);
     std::free(px_data);
     px_data = nullptr;
     if (fout.class_logits.empty() || fout.bbox_cxcywh.empty()) {

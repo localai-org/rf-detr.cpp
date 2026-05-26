@@ -64,9 +64,22 @@ std::vector<int> top_k_by_max_class(const std::vector<float>& cls_all,
 ForwardOutput rfdetr_model_forward(const Model& m,
                                    const float* input_data, int input_size,
                                    ggml_backend_t backend) {
+    /* Thin shim for legacy / test paths: wrap the single backend in a
+     * BackendCtx with no BLAS, no sched. Goes through the same forward()
+     * code below but skips the sched dispatch. */
+    BackendCtx bctx{};
+    bctx.cpu = backend;
+    return rfdetr_model_forward(m, input_data, input_size, bctx);
+}
+
+ForwardOutput rfdetr_model_forward(const Model& m,
+                                   const float* input_data, int input_size,
+                                   BackendCtx& bctx) {
     ForwardOutput out;
     out.num_queries = (int)m.config.num_queries;
     out.num_classes = (int)m.config.num_classes;
+
+    ggml_backend_t backend = bctx.cpu;  // buffer alloc + tensor I/O backend
 
     if (!input_data || input_size <= 0 || !backend) {
         rfdetr_logf(RFDETR_LOG_ERROR, "rfdetr_model_forward: invalid args");
@@ -144,7 +157,7 @@ ForwardOutput rfdetr_model_forward(const Model& m,
     ggml_backend_tensor_set(input_t, input_data, 0,
                             (size_t)input_size * input_size * 3 * sizeof(float));
 
-    ggml_status stA = ggml_backend_graph_compute(backend, graphA);
+    ggml_status stA = (ggml_status)backend_ctx_graph_compute(bctx, graphA);
     if (stA != GGML_STATUS_SUCCESS) {
         rfdetr_logf(RFDETR_LOG_ERROR,
                     "rfdetr_model_forward: graphA compute returned %d", (int)stA);
@@ -152,7 +165,6 @@ ForwardOutput rfdetr_model_forward(const Model& m,
         ggml_free(gctxA);
         return out;
     }
-    ggml_backend_synchronize(backend);
 
     /* Read host-side. cls_all ne = (91, 1600, 1) — class fastest-varying:
      * memory layout (class, token) so cls[t * 91 + c] = score for token t,
@@ -293,7 +305,7 @@ ForwardOutput rfdetr_model_forward(const Model& m,
     ggml_backend_tensor_set(rp_in,   decoder_refpoints.data(), 0, decoder_refpoints.size() * sizeof(float));
     ggml_backend_tensor_set(sine_in, sine_data.data(), 0, sine_data.size() * sizeof(float));
 
-    ggml_status stB = ggml_backend_graph_compute(backend, graphB);
+    ggml_status stB = (ggml_status)backend_ctx_graph_compute(bctx, graphB);
     if (stB != GGML_STATUS_SUCCESS) {
         rfdetr_logf(RFDETR_LOG_ERROR,
                     "rfdetr_model_forward: graphB compute returned %d", (int)stB);
@@ -301,7 +313,6 @@ ForwardOutput rfdetr_model_forward(const Model& m,
         ggml_free(gctxB);
         return out;
     }
-    ggml_backend_synchronize(backend);
 
     /* Read host-side outputs. */
     out.class_logits.resize((size_t)NC * NQ);

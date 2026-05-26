@@ -16,11 +16,19 @@ End-to-end CPU inference on AMD Ryzen 9 9950X3D, F32, single batch:
 | C++ rfdetr.cpp Q8_0 (`--threads 8`)|    408 - 425 | 0.38 - 0.44x      |
 
 Build is configured with `-march=native` + ggml's tinyBLAS SGEMM
-(`GGML_LLAMAFILE=ON`) + OpenMP — see [BENCHMARK.md](BENCHMARK.md) for
-flag-by-flag analysis. The remaining ~2.4x gap is oneDNN's hand-tuned
-prepacked AVX-512 GEMM micro-kernels (PyTorch) vs tinyBLAS's generic tiled
-SGEMM (ggml). Closing it further requires either a real BLAS backend wired
-through `ggml_backend_sched` or upstream kernel work in ggml.
+(`GGML_LLAMAFILE=ON`) + OpenMP + an optional ggml BLAS backend
+(`RFDETR_GGML_BLAS=ON` by default) wired through `ggml_backend_sched` —
+see [BENCHMARK.md](BENCHMARK.md) for flag-by-flag analysis. The remaining
+~2.4x gap is oneDNN's hand-tuned prepacked AVX-512 GEMM micro-kernels
+(PyTorch) vs tinyBLAS's generic tiled SGEMM (ggml).
+
+The BLAS backend auto-activates only when the host library has an
+OpenMP-compatible parallelism mode (MKL, Accelerate, or
+`libopenblas0-openmp`) — it's auto-disabled when only OpenBLAS-pthread is
+available, because mixing it with ggml's OpenMP CPU pool causes thread
+oversubscription that strictly slows things down. On the benchmark host
+above (Ubuntu, OpenBLAS-pthread only) BLAS is therefore inactive.
+Override with `RFDETR_BLAS=1` to force-enable.
 
 ## Status
 
@@ -107,6 +115,14 @@ cmake -B build -DRFDETR_BUILD_TESTS=ON
 cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
+
+### Optional dependencies
+
+- **BLAS** — `libopenblas0-openmp` (Ubuntu/Debian), MKL, or Apple Accelerate.
+  Detected automatically at configure time; when found, ggml's BLAS backend
+  is built and wired through `ggml_backend_sched` for large F32 mul_mats.
+  When absent, the build falls through to the tinyBLAS path (still fast).
+  Pass `-DRFDETR_GGML_BLAS=OFF` to opt out entirely.
 
 ## Convert + run
 

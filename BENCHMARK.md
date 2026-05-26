@@ -55,10 +55,29 @@ Explicit `GGML_AVX512` / `GGML_AVX512_VNNI` / `GGML_AVX512_BF16` flags are
 support. `GGML_NATIVE=ON` adapts per-host and still emits AVX-512 on capable
 machines, while gracefully degrading to AVX2 on older hardware.
 
-`GGML_BLAS` (OpenBLAS / MKL) was tested and rejected: the inference graph
-isn't wired through the BLAS backend (the CPU backend handles `mul_mat`
-internally and the BLAS backend would need separate `ggml_backend_sched`
-plumbing), so it adds no speed and would add a system dependency.
+`GGML_BLAS` (OpenBLAS / MKL) is now wired through `ggml_backend_sched`
+(see `src/backend.cpp` — `init_backend_ctx` + `backend_ctx_graph_compute`),
+with per-mul_mat routing based on a FLOP threshold so only the big
+backbone Q/K/V / FFN GEMMs hit BLAS while small attention ops stay on the
+CPU backend. The wiring is auto-disabled at runtime when the host's BLAS
+is OpenBLAS-pthread (detected via `openblas_get_parallel()`): mixing
+OpenBLAS-pthread with ggml's OpenMP CPU pool causes thread-pool
+oversubscription that strictly slows the workload down.
+
+To benefit from BLAS on Linux, install **`libopenblas0-openmp`** (instead
+of the default pthread variant) or link against MKL. On macOS, Accelerate
+is automatically selected and works out-of-the-box. The runtime can be
+overridden with:
+
+- `RFDETR_BLAS=1` — force BLAS on (useful when our auto-detect mis-fires)
+- `RFDETR_BLAS=0` — force BLAS off
+- `RFDETR_BLAS_THREADS=N` — BLAS-side thread count (default: same as
+  `--threads`)
+- `RFDETR_BLAS_MIN_FLOPS=N` — FLOP threshold above which a mul_mat is
+  routed to BLAS (default 32M ≈ 128³). Larger values keep more ops on CPU.
+
+On the test host (OpenBLAS-pthread only available, no MKL), BLAS is
+auto-skipped and inference falls back to the tinyBLAS + NATIVE CPU path.
 
 ## Environment
 
@@ -138,9 +157,13 @@ After applying the LLAMAFILE + NATIVE optimizations, the residual gap is:
    the existing Q4_0_K_K_X_X repacks for quants) is the most likely win
    from here.
 
-Closing this further would require either (a) wiring up a real BLAS backend
-through `ggml_backend_sched`, (b) writing a custom oneDNN backend for ggml,
-or (c) upstream tinyBLAS kernel improvements.
+Closing this further would require either (a) writing a custom oneDNN
+backend for ggml, (b) upstream tinyBLAS kernel improvements with weight
+prepacking, or (c) running on a host with **OpenBLAS-OpenMP or MKL**, where
+the wired-up BLAS backend will activate automatically (see the "Build-time
+optimization flags" section above). On this benchmark host only the
+pthread variant of OpenBLAS is installed, so BLAS is auto-disabled and the
+numbers above reflect the tinyBLAS path only.
 
 ## Q8_0 notes
 

@@ -2,6 +2,7 @@
 #define RFDETR_MODEL_HPP
 
 #include "model_loader.hpp"
+#include "backend.hpp"
 
 #include <cstdint>
 #include <vector>
@@ -36,9 +37,16 @@ struct ForwardOutput {
  *   input_data: preprocessed F32 buffer, shape (image_size, image_size, 3, 1)
  *               (matches `rfdetr_preprocess` output). Already ImageNet-normalized.
  *   input_size: image_size (square, must equal model's `config.image_size`).
- *   backend:    backend the model weights were realized on.
+ *   bctx:       backend bundle (CPU + optional BLAS via sched) the model
+ *               weights were realized on (weights live on bctx.cpu's buffer).
  *
  * Returns empty vectors in the ForwardOutput on failure. */
+ForwardOutput rfdetr_model_forward(const Model& m,
+                                   const float* input_data, int input_size,
+                                   BackendCtx& bctx);
+
+/* Single-backend overload for tests / parity harnesses that don't need BLAS
+ * dispatch. Internally builds a transient BackendCtx with only `cpu` set. */
 ForwardOutput rfdetr_model_forward(const Model& m,
                                    const float* input_data, int input_size,
                                    ggml_backend_t backend);
