@@ -116,11 +116,37 @@ CUDA_VISIBLE_DEVICES="" .venv/bin/python scripts/bench.py \
     --image path/to/img.jpg --iters 5 --warmup 3 --threads 8
 ```
 
+### Detection variants
+
+All 5 RF-DETR detection variants (Nano / Small / Base / Medium / Large)
+load through the same C++ pipeline. They share the DINOv2-small backbone
+and differ only in input resolution and decoder layer count:
+
+| Variant | Resolution | Decoder layers | GGUF F32 | C++ F32 median ms @ T=8 |
+|---------|-----------:|---------------:|---------:|------------------------:|
+| Nano    |        384 |              2 |   113 MB |                    61.5 |
+| Small   |        512 |              3 |   119 MB |                   116.0 |
+| Base    |        560 |              3 |   119 MB |                   159.3 |
+| Medium  |        576 |              4 |   125 MB |                   149.6 |
+| Large   |        704 |              4 |   126 MB |                   237.8 |
+
+![Variants overview](benchmarks/plots/variants_overview.png)
+
+Generate all five F32 GGUFs in one shot:
+
+```sh
+scripts/convert_all_variants.sh
+```
+
+See [BENCHMARK.md → "Variant comparison"](BENCHMARK.md#variant-comparison)
+for the full per-variant breakdown vs PyTorch.
+
 ### Roadmap
 
 - Backbone drift root-cause + fix
-- Variants beyond `base` (`nano`, `small`, `medium`, `large`)
 - GPU backends (CUDA / Metal / Vulkan)
+- Segmentation variants (`RFDETRSeg*`)
+- Custom-checkpoint conversion (fine-tuned models)
 
 ## Build
 

@@ -263,6 +263,50 @@ into `benchmarks/plots/quant_tradeoffs.{png,svg}`.
 
 ---
 
+## Variant comparison
+
+All 5 RF-DETR detection variants share the same DINOv2-small backbone
+(dim=384, depth=12, heads=6, ffn_dim=1536), the same decoder model_dim
+(256), num_queries (300), num_classes (91), and group_detr (13). They
+differ only in input resolution, patch size, and decoder layer count.
+
+| Variant | Resolution | Patch | Decoder layers | GGUF F32 | C++ F32 median ms @ T=8 | PyTorch median ms @ T=8 |
+|---------|-----------:|------:|---------------:|---------:|------------------------:|------------------------:|
+| Nano    |        384 |    16 |              2 |   113 MB |                    61.5 |                    88.4 |
+| Small   |        512 |    16 |              3 |   119 MB |                   116.0 |                   120.5 |
+| Base    |        560 |    14 |              3 |   119 MB |                   159.3 |                   200.8 |
+| Medium  |        576 |    16 |              4 |   125 MB |                   149.6 |                   182.8 |
+| Large   |        704 |    16 |              4 |   126 MB |                   237.8 |                   228.7 |
+
+![Variants overview](benchmarks/plots/variants_overview.png)
+
+All five variants share the same converter (`scripts/convert_rfdetr_to_gguf.py`)
+and loader (`src/model_loader.cpp`) — the loader reads every shape and
+indexing field from GGUF metadata so the C++ inference graph adapts to
+the per-variant `image_size`, `patch_size`, `num_windows`,
+`global_attn_indices`, `out_feature_indices`, `pos_embed_train_size`, and
+`decoder.layers` without code changes. Verified by `tests/test_variants.cpp`.
+
+Numbers above are on `coco_kitchen.jpg`, T=8, 15 timed iterations after 3
+warmup. C++ F32 is faster than PyTorch on every variant except Large
+(where the two land within run-to-run variance). The size delta across
+variants is small (113-126 MB) because the backbone dominates the
+parameter count; the decoder layer count and pos_embed grid size are the
+only meaningful differences.
+
+To produce the variant GGUFs from PyTorch:
+
+```sh
+scripts/convert_all_variants.sh
+```
+
+The script skips any variant whose F32 GGUF already exists, so it's safe
+to re-run after a partial conversion. Each variant downloads its
+pretrained `.pth` (~30-130 MB) on first instantiation, cached at
+`~/.roboflow/models/`.
+
+---
+
 ## Methodology
 
 - **Timing**: `time.perf_counter()` on the Python side; `std::chrono::high_resolution_clock`
