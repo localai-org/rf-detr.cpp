@@ -73,6 +73,13 @@ bool get_str_array(gguf_context* g, const char* key, std::vector<std::string>& o
     return true;
 }
 
+bool get_bool(gguf_context* g, const char* key, bool& out) {
+    const int64_t kid = gguf_find_key(g, key);
+    if (kid < 0) return false;
+    out = gguf_get_val_bool(g, kid);
+    return true;
+}
+
 /* Bicubic-resample a (dim, src*src) patch position embedding (row-major
  * patch grid, dim-fastest) onto a (dim, dst*dst) grid. Matches PyTorch's
  * F.interpolate(mode='bicubic', align_corners=False, antialias=True) up
@@ -287,6 +294,23 @@ Model* model_load(const std::string& path, rfdetr_status* out_status) {
 
     if (!get_u32(gguf, "rfdetr.two_stage.n_groups", c.two_stage.n_groups))
         return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.two_stage.n_groups missing");
+
+    /* Segmentation head (optional). Pretrained detection variants converted
+     * before the seg field was added simply lack the key — that's not an
+     * error, just leaves has_segmentation_head=false. */
+    if (!get_bool(gguf, "rfdetr.has_segmentation_head", c.has_segmentation_head)) {
+        c.has_segmentation_head = false;
+    }
+    if (c.has_segmentation_head) {
+        if (!get_u32(gguf, "rfdetr.mask_downsample_ratio", c.mask_downsample_ratio)) {
+            return fail(RFDETR_ERR_MODEL_FORMAT,
+                        "rfdetr.mask_downsample_ratio missing for seg model");
+        }
+        if (c.mask_downsample_ratio == 0) {
+            return fail(RFDETR_ERR_MODEL_FORMAT,
+                        "rfdetr.mask_downsample_ratio must be > 0");
+        }
+    }
 
     // Tensor inventory (descriptors only — data not loaded)
     const int64_t n_tensors = gguf_get_n_tensors(gguf);
@@ -602,6 +626,30 @@ std::vector<std::string> expected_tensor_names(const Config& cfg) {
         const std::string ji = std::to_string(j);
         names.emplace_back("heads.bbox_embed.layers." + ji + ".weight");
         names.emplace_back("heads.bbox_embed.layers." + ji + ".bias");
+    }
+
+    // --- Segmentation head (RFDETRSeg* variants only) ---
+    if (cfg.has_segmentation_head) {
+        for (int b = 0; b < 4; ++b) {
+            const std::string p = "segmentation_head.blocks." + std::to_string(b) + ".";
+            names.emplace_back(p + "dwconv.weight");
+            names.emplace_back(p + "dwconv.bias");
+            names.emplace_back(p + "norm.weight");
+            names.emplace_back(p + "norm.bias");
+            names.emplace_back(p + "pwconv1.weight");
+            names.emplace_back(p + "pwconv1.bias");
+        }
+        names.emplace_back("segmentation_head.spatial_features_proj.weight");
+        names.emplace_back("segmentation_head.spatial_features_proj.bias");
+        names.emplace_back("segmentation_head.query_features_block.norm_in.weight");
+        names.emplace_back("segmentation_head.query_features_block.norm_in.bias");
+        names.emplace_back("segmentation_head.query_features_block.layers.0.weight");
+        names.emplace_back("segmentation_head.query_features_block.layers.0.bias");
+        names.emplace_back("segmentation_head.query_features_block.layers.2.weight");
+        names.emplace_back("segmentation_head.query_features_block.layers.2.bias");
+        names.emplace_back("segmentation_head.query_features_proj.weight");
+        names.emplace_back("segmentation_head.query_features_proj.bias");
+        names.emplace_back("segmentation_head.bias");
     }
 
     return names;

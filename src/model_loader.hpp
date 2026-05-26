@@ -64,6 +64,13 @@ struct Config {
     struct {
         uint32_t n_groups = 0;
     } two_stage;
+
+    /* Segmentation head: present only on RFDETRSeg* variants. When
+     * `has_segmentation_head` is true, the model has 35 additional tensors
+     * under `segmentation_head.*` and the forward pass emits per-query masks
+     * at (H / mask_downsample_ratio, W / mask_downsample_ratio). */
+    bool has_segmentation_head    = false;
+    uint32_t mask_downsample_ratio = 4;
 };
 
 /* Loaded model. Plan 2 populates `config` and `tensors` (ggml_tensor
