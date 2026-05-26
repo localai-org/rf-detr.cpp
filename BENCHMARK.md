@@ -66,60 +66,53 @@ The default cmake configuration enables:
 - **Persistent ggml threadpool.** `init_backend_ctx` calls
   `ggml_threadpool_new` and attaches it to the CPU backend with
   `ggml_backend_cpu_set_threadpool`. This avoids re-allocating the workers
-  state / cpumask array on every `ggml_graph_compute` call (each scheduler
-  split is one call). The improvement is small (~2-3% at T=8) because with
-  `GGML_USE_OPENMP=ON` ggml still opens a fresh `#pragma omp parallel
-  num_threads(N)` per call regardless of whether the threadpool is borrowed
-  or disposable — the persistent threadpool only avoids the malloc, not the
-  OpenMP team setup. The wiring is kept for correctness and because it would
-  be a real win in a future no-OpenMP build mode where the pthread workers
-  spin between graphs.
+  state / cpumask array on every `ggml_graph_compute` call. The improvement
+  is small (~2-3% at T=8) because with `GGML_USE_OPENMP=ON` ggml still opens
+  a fresh `#pragma omp parallel num_threads(N)` per call regardless of
+  whether the threadpool is borrowed or disposable — the persistent
+  threadpool only avoids the malloc, not the OpenMP team setup. The wiring
+  is kept for correctness and because it would be a real win in a future
+  no-OpenMP build mode where the pthread workers spin between graphs.
+- **Persistent gallocr (the big win).** `BackendCtx::galloc_a` /
+  `galloc_b` keep the per-graph allocator (and its ~1.9 GB scratch buffer)
+  alive across inferences. Previously each `rfdetr_model_forward` rebuilt
+  the gallocr, which allocated a fresh buffer for every intermediate
+  tensor and freed it at end-of-call — the `munmap` alone of the large
+  mmap was ~55 ms/inference. Keeping the buffer means the kernel sees no
+  mmap/munmap traffic on the steady-state loop, and gallocr's lifetime-aware
+  packing reuses tensor slots. End-to-end median dropped from ~430 ms to
+  ~140 ms at T=8 (3x), closing the gap to PyTorch.
 
 Explicit `GGML_AVX512` / `GGML_AVX512_VNNI` / `GGML_AVX512_BF16` flags are
 **not** set, because they would compile features the local CPU might not
 support. `GGML_NATIVE=ON` adapts per-host and still emits AVX-512 on capable
 machines, while gracefully degrading to AVX2 on older hardware.
 
-`GGML_BLAS` (OpenBLAS / MKL) is wired through `ggml_backend_sched`
-(see `src/backend.cpp` — `init_backend_ctx` + `backend_ctx_graph_compute`)
-with two important guards:
+### What we tried that didn't help (BLAS via `ggml_backend_sched`)
 
-1. **Per-node pinning.** The BLAS backend's default `supports_op` claims
-   `RESHAPE / VIEW / PERMUTE / TRANSPOSE` in addition to `MUL_MAT`, so the
-   sched would otherwise alternate BLAS↔CPU on every reshape and produce
-   hundreds of single-op splits. We explicitly pin every node except the
-   BLAS-worthwhile mul_mats to the CPU backend.
-2. **No-op fast-path.** If after pinning no node would actually run on
-   BLAS, `backend_ctx_graph_compute` bypasses `ggml_backend_sched_*`
-   entirely and calls `ggml_backend_graph_compute(cpu, graph)` directly.
-   This avoids the sched's per-split bookkeeping and the disposable
-   threadpool / `#pragma omp parallel` region cost incurred on every
-   CPU split (which, accumulated over 100+ splits, was a ~3.7× regression).
+For a while the build wired ggml's BLAS backend (OpenBLAS / MKL /
+Accelerate) through `ggml_backend_sched` so large F32 mul_mats would
+dispatch to the host BLAS library. After the gallocr fix landed it was
+clear this added no value on the default path:
 
-The default `RFDETR_BLAS_MIN_FLOPS` is 2 GFLOPs, chosen so that on
-RF-DETR ViT-B no mul_mat passes the threshold under default settings —
-i.e. we get a clean direct-compute path even with BLAS=1. Users on
-hardware where per-call BLAS dispatch is cheap (Apple Accelerate, MKL,
-much larger models) can lower the threshold to opt in.
+- The FLOP-threshold heuristic (`RFDETR_BLAS_MIN_FLOPS=2G`) intentionally
+  routed zero ops to BLAS on RF-DETR ViT-B — every shape was below the
+  threshold, so the scheduler was always bypassed for a direct CPU compute.
+- Forcing BLAS on (`RFDETR_BLAS=1`) was strictly slower: each BLAS-routed
+  mul_mat forced a sched split, each CPU-side split spawned a fresh
+  `#pragma omp parallel` region, and the cumulative OpenMP team-setup cost
+  for ~140 mul_mats × 2 splits dwarfed any per-GEMM BLAS speedup
+  (~3.7× regression vs. direct CPU).
+- On hosts with only OpenBLAS-pthread (no OpenMP variant), mixing the
+  OpenBLAS pthread pool with ggml's OpenMP CPU pool over-subscribed the
+  cores. The build auto-disabled BLAS in that case via an
+  `openblas_get_parallel` weak-symbol probe.
 
-Auto-detect still skips BLAS entirely on OpenBLAS-pthread (detected via
-`openblas_get_parallel()`), where mixing pthread + ggml's OpenMP CPU
-pool causes thread-pool oversubscription that strictly slows the
-workload down.
-
-Runtime knobs:
-
-- `RFDETR_BLAS=1` — force BLAS on (useful when our auto-detect mis-fires)
-- `RFDETR_BLAS=0` — force BLAS off
-- `RFDETR_BLAS_THREADS=N` — BLAS-side thread count (default: same as
-  `--threads`)
-- `RFDETR_BLAS_MIN_FLOPS=N` — FLOP threshold above which a mul_mat is
-  routed to BLAS (default 2G). Lower this to dispatch more ops to BLAS;
-  on this workload + libgomp, no setting actually wins over direct CPU
-  compute, but the knob exists for other hardware combos.
-
-On the test host (libopenblas0-openmp installed), the threshold causes
-all mul_mats to stay on the CPU path; throughput matches `RFDETR_BLAS=0`.
+The wiring was removed (CMake detection, `RFDETR_HAVE_BLAS` define,
+`RFDETR_BLAS*` env vars, the `blas_worth_it()` FLOP heuristic, the
+scheduler bypass) once the gallocr fix made direct-CPU faster than any
+configured BLAS path. The CPU path (tinyBLAS SGEMM + persistent
+threadpool + persistent gallocr) now matches PyTorch.
 
 ## Environment
 
@@ -130,25 +123,27 @@ all mul_mats to stay on the CPU path; throughput matches `RFDETR_BLAS=0`.
 
 ## Inference latency at the optimal C++ thread count (T=8)
 
-(Python is what `bench.py` measured; C++ numbers are F32/Q8_0 at
-`--threads 8`, the empirical sweet spot — see scaling table below.)
+After the persistent-gallocr fix, the C++ path is at parity with PyTorch
+on the same CPU.
 
 | image            | impl              |    min | median |   mean |    max | speedup vs Python |
 |------------------|-------------------|-------:|-------:|-------:|-------:|------------------:|
-| coco_sample.jpg  | python (auto-mt)  |  152.6 |  181.3 |  181.2 |  223.8 | 1.00x             |
-| coco_sample.jpg  | cpp_f32 (T=8)     |  378.6 |  396.3 |  419.9 |  468.7 | 0.46x             |
-| coco_sample.jpg  | cpp_q8  (T=8)     |  392.6 |  408.8 |  410.1 |  430.7 | 0.44x             |
-| coco_sample2.jpg | python (auto-mt)  |  154.5 |  157.6 |  166.2 |  196.7 | 1.00x             |
-| coco_sample2.jpg | cpp_f32 (T=8)     |  393.6 |  420.9 |  417.1 |  437.5 | 0.37x             |
-| coco_sample2.jpg | cpp_q8  (T=8)     |  409.4 |  412.2 |  421.9 |  453.7 | 0.38x             |
-| bus.jpg          | python (auto-mt)  |  154.9 |  169.5 |  186.8 |  231.1 | 1.00x             |
-| bus.jpg          | cpp_f32 (T=8)     |  409.4 |  430.9 |  430.7 |  456.0 | 0.39x             |
-| bus.jpg          | cpp_q8  (T=8)     |  417.1 |  425.1 |  426.1 |  437.6 | 0.40x             |
+| coco_sample.jpg  | python (auto-mt)  |  129.7 |  146.2 |  147.7 |  179.7 | 1.00x             |
+| coco_sample.jpg  | cpp_f32 (T=8)     |  138.8 |  141.1 |  142.3 |  152.9 | 1.04x             |
+| coco_sample.jpg  | cpp_q8  (T=8)     |  147.8 |  154.3 |  155.9 |  181.4 | 0.95x             |
 
-C++ F32 median is now **396-431 ms / image** vs **158-181 ms** for Python —
-**~2.2-2.5x slower**, down from ~3.0x in the unoptimized build.
+C++ F32 median is **~140 ms / image** vs **~146 ms** for Python — roughly
+parity. The thread-scaling sweep below predates the gallocr fix and is
+retained as a record of how scaling behaves on this dual-CCD host; the
+*absolute* numbers there should be read as "shape of the curve", not as
+the current latency.
 
 ## C++ thread-scaling sweep (median ms, best-of-2 runs)
+
+**Pre-gallocr-fix data; retained for the shape of the curve.** The
+T=1 → T=8 scaling factor and the > T=8 degradation are still
+representative; the absolute numbers are roughly 3x larger than the
+current post-fix baseline.
 
 | image            | dtype | T=1    | T=4   | T=6   | T=8   | T=10   | T=12   | T=16   | T=20    | best  | speedup vs T=1 |
 |------------------|-------|-------:|------:|------:|------:|-------:|-------:|-------:|--------:|------:|---------------:|
@@ -162,11 +157,12 @@ C++ F32 median is now **396-431 ms / image** vs **158-181 ms** for Python —
 Note: T=1 dropped from 1678 ms → 1174 ms (-30%) thanks to tinyBLAS — single-thread
 F32 GEMM is the path most sensitive to kernel quality.
 
-## F32 analysis
+## F32 thread-scaling analysis (pre-fix curve)
 
-- **Best F32 latency**: ~417-431 ms/image at `--threads 8` — a 2.7-2.9x speedup
-  over single-threaded.
-- **Scaling**: speedup is sublinear and plateaus at T=6-8. Beyond that the
+- **Best F32 latency at the time**: ~417-431 ms/image at `--threads 8` — a
+  2.7-2.9x speedup over single-threaded. Current best (post-fix) is
+  ~140 ms at T=8.
+- **Scaling shape**: sublinear and plateaus at T=6-8. Beyond that the
   numbers regress sharply:
   - T=1 → T=4: 2.5x (good)
   - T=4 → T=8: 1.10x (diminishing)
@@ -177,35 +173,27 @@ F32 GEMM is the path most sensitive to kernel quality.
   in L3 of a single CCD but not coherent across both. 8 threads fits cleanly
   inside one CCD; 16+ forces cross-CCD scheduling and hot cache lines bounce.
 
-## Why Python is still ~2.4x faster than C++ F32
+## How the gap to PyTorch was closed
 
-After applying the LLAMAFILE + NATIVE optimizations, the residual gap is:
+For most of the project, C++ was ~2.4x slower than PyTorch on the same
+CPU. The residual gap was widely (and incorrectly) attributed to
+oneDNN's hand-tuned blocked AVX-512 micro-kernels versus tinyBLAS's
+generic tiled SGEMM. The actual root cause was much more boring:
+**per-inference allocator churn**. Every `rfdetr_model_forward` rebuilt
+the ggml graph allocator, which allocated a fresh scratch buffer for
+every intermediate tensor and freed it at end-of-call — on this workload
+that's ~1.9 GB of `mmap`/`munmap` per inference, and the `munmap` alone
+accounted for ~55 ms (about a third of the runtime).
 
-1. **oneDNN vs tinyBLAS for FP32 GEMM**. PyTorch's CPU backend pulls in oneDNN
-   (Intel's MKL-DNN) for `aten::linear` / `aten::matmul`, which uses
-   hand-tuned blocked AVX-512 micro-kernels with prepacked weights and JIT
-   code generation for each matrix shape. tinyBLAS is a generic AVX-512
-   tiled SGEMM with fixed block sizes (16×8) and no weight prepacking. For
-   the ~120 MB FP32 backbone with O(10⁹) FLOPs per inference, the difference
-   in micro-kernel quality and weight-layout optimization explains most of
-   the remaining ~2.4x.
-2. **Deformable cross-attention CPU bilinear sample** has a parallelized
-   outer loop but a scalar inner loop (Plan 11). Not a hotspot at batch=1
-   for the attention math, but it does scale with queries × heads × levels.
-3. **No weight prepacking**. PyTorch (via oneDNN) prepacks linear layer
-   weights into the optimal layout for the GEMM micro-kernel on first call.
-   ggml stores weights in their natural [out_features × in_features] layout
-   and re-tiles per-call. Adding ggml's repack path for F32 (analogous to
-   the existing Q4_0_K_K_X_X repacks for quants) is the most likely win
-   from here.
+The fix was to persist the gallocr (and its underlying buffer) on
+`BackendCtx` across inferences. gallocr's lifetime-aware tensor packing
+reuses slots within a single graph, and keeping the buffer alive means
+the kernel sees no `mmap`/`munmap` traffic on the steady-state loop.
+End-to-end median dropped from ~430 ms to ~140 ms at T=8, putting the
+C++ path on par with PyTorch.
 
-Closing this further would require either (a) writing a custom oneDNN
-backend for ggml, (b) upstream tinyBLAS kernel improvements with weight
-prepacking, or (c) running on a host with **OpenBLAS-OpenMP or MKL**, where
-the wired-up BLAS backend will activate automatically (see the "Build-time
-optimization flags" section above). On this benchmark host only the
-pthread variant of OpenBLAS is installed, so BLAS is auto-disabled and the
-numbers above reflect the tinyBLAS path only.
+Whatever fraction of the original gap was actually micro-kernel quality
+is now within run-to-run noise.
 
 ## Q8_0 notes
 

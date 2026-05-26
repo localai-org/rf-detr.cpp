@@ -7,33 +7,19 @@ See `docs/superpowers/specs/2026-05-25-rfdetr-cpp-design.md` for the design.
 
 ## Performance
 
-End-to-end CPU inference on AMD Ryzen 9 9950X3D, F32, single batch:
+End-to-end CPU inference on AMD Ryzen 9 9950X3D, F32, single batch,
+`--threads 8` — matches PyTorch (oneDNN-backed `aten::matmul`) at the
+optimal thread count:
 
-| impl                            | median ms/image | speedup vs Python |
-|---------------------------------|----------------:|------------------:|
-| Python rfdetr (PyTorch + oneDNN)|       158 - 181 | 1.00x (reference) |
-| C++ rfdetr.cpp F32 (`--threads 8`)|     396 - 431 | 0.37 - 0.46x      |
-| C++ rfdetr.cpp Q8_0 (`--threads 8`)|    408 - 425 | 0.38 - 0.44x      |
+| impl                              | median ms/image | speedup vs Python |
+|-----------------------------------|----------------:|------------------:|
+| Python rfdetr (PyTorch + oneDNN)  |             142 | 1.00x (reference) |
+| C++ rfdetr.cpp F32 (`--threads 8`)|             140 | ~1.0x             |
 
 Build is configured with `-march=native` + ggml's tinyBLAS SGEMM
-(`GGML_LLAMAFILE=ON`) + OpenMP + an optional ggml BLAS backend
-(`RFDETR_GGML_BLAS=ON` by default) wired through `ggml_backend_sched` —
-see [BENCHMARK.md](BENCHMARK.md) for flag-by-flag analysis. The remaining
-~2.4x gap is oneDNN's hand-tuned prepacked AVX-512 GEMM micro-kernels
-(PyTorch) vs tinyBLAS's generic tiled SGEMM (ggml).
-
-The BLAS backend auto-activates only when the host library has an
-OpenMP-compatible parallelism mode (MKL, Accelerate, or
-`libopenblas0-openmp`) — it's auto-disabled when only OpenBLAS-pthread is
-available, because mixing it with ggml's OpenMP CPU pool causes thread
-oversubscription that strictly slows things down. By default
-(`RFDETR_BLAS_MIN_FLOPS=2G`) only mul_mats above 2 GFLOPs are routed to
-BLAS; on RF-DETR ViT-B that's zero ops, so we transparently bypass the
-sched and run a single direct CPU graph compute. Users can lower the
-threshold to opt in on hardware where per-call BLAS dispatch is cheap
-(Apple Accelerate, MKL, or a larger model). Override with `RFDETR_BLAS=1`
-/ `RFDETR_BLAS=0` to force enable/disable. See [BENCHMARK.md](BENCHMARK.md)
-for the per-split overhead analysis.
+(`GGML_LLAMAFILE=ON`) + OpenMP + a persistent gallocr that holds the graph
+scratch buffer across inferences — see [BENCHMARK.md](BENCHMARK.md) for
+flag-by-flag analysis.
 
 ## Status
 
@@ -95,8 +81,8 @@ unchanged — only the converter writes Q8_0 blocks.
 A cross-implementation benchmark (latency + detection cross-check) is
 documented in [BENCHMARK.md](BENCHMARK.md). On the same backbone and CPU,
 C++ detections match Python 1-1 (IoU > 0.99 mean, < 0.05 confidence drift,
-sub-pixel boxes); inference latency is ~2.4x slower (ggml's tinyBLAS SGEMM
-vs oneDNN's prepacked AVX-512 GEMM in PyTorch).
+sub-pixel boxes); inference latency matches PyTorch at the optimal thread
+count (~140 ms median vs ~142 ms).
 
 Reproduce with:
 
@@ -120,14 +106,6 @@ cmake -B build -DRFDETR_BUILD_TESTS=ON
 cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
-
-### Optional dependencies
-
-- **BLAS** — `libopenblas0-openmp` (Ubuntu/Debian), MKL, or Apple Accelerate.
-  Detected automatically at configure time; when found, ggml's BLAS backend
-  is built and wired through `ggml_backend_sched` for large F32 mul_mats.
-  When absent, the build falls through to the tinyBLAS path (still fast).
-  Pass `-DRFDETR_GGML_BLAS=OFF` to opt out entirely.
 
 ## Convert + run
 

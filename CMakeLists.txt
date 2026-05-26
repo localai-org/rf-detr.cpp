@@ -21,15 +21,6 @@ option(RFDETR_GGML_METAL   "Enable Metal backend in ggml"   OFF)
 option(RFDETR_GGML_VULKAN  "Enable Vulkan backend in ggml"  OFF)
 option(RFDETR_GGML_HIPBLAS "Enable HIPBLAS backend in ggml" OFF)
 
-# BLAS support — when ON, ggml's BLAS backend is built and linked, and rfdetr
-# wires it through ggml_backend_sched so large F32 mul_mat ops dispatch to the
-# host BLAS library (OpenBLAS / MKL / Accelerate). Default ON when a BLAS
-# implementation is detectable; gracefully degrades to the tinyBLAS path
-# otherwise.
-option(RFDETR_GGML_BLAS    "Enable BLAS backend in ggml (OpenBLAS / MKL / Accelerate)" ON)
-set(RFDETR_GGML_BLAS_VENDOR "OpenBLAS" CACHE STRING
-    "BLAS vendor passed to ggml (OpenBLAS / Intel10_64lp / Apple / Generic ...)")
-
 if(RFDETR_GGML_CUDA)
     set(GGML_CUDA    ON CACHE BOOL "" FORCE)
 endif()
@@ -41,42 +32,6 @@ if(RFDETR_GGML_VULKAN)
 endif()
 if(RFDETR_GGML_HIPBLAS)
     set(GGML_HIP     ON CACHE BOOL "" FORCE)
-endif()
-
-# BLAS detection. We probe with find_package BEFORE handing the option to ggml
-# so a missing library degrades silently instead of erroring the configure step.
-set(RFDETR_HAVE_BLAS OFF)
-if(RFDETR_GGML_BLAS)
-    if(RFDETR_GGML_BLAS_VENDOR STREQUAL "OpenBLAS")
-        # Prefer pkg-config: more reliable than CMake's FindBLAS for openblas,
-        # which sometimes reports the reference libblas instead.
-        find_package(PkgConfig QUIET)
-        if(PkgConfig_FOUND)
-            pkg_check_modules(OPENBLAS QUIET openblas)
-        endif()
-        if(OPENBLAS_FOUND OR EXISTS /usr/lib/x86_64-linux-gnu/libopenblas.so)
-            set(RFDETR_HAVE_BLAS ON)
-        endif()
-    endif()
-    if(NOT RFDETR_HAVE_BLAS)
-        # Fall back to CMake's generic FindBLAS — works for MKL / Accelerate.
-        set(BLA_VENDOR ${RFDETR_GGML_BLAS_VENDOR})
-        find_package(BLAS QUIET)
-        if(BLAS_FOUND)
-            set(RFDETR_HAVE_BLAS ON)
-        endif()
-    endif()
-endif()
-
-if(RFDETR_HAVE_BLAS)
-    message(STATUS "rfdetr: enabling ggml BLAS backend (vendor=${RFDETR_GGML_BLAS_VENDOR})")
-    set(GGML_BLAS         ON CACHE BOOL "" FORCE)
-    set(GGML_BLAS_VENDOR  ${RFDETR_GGML_BLAS_VENDOR} CACHE STRING "" FORCE)
-else()
-    if(RFDETR_GGML_BLAS)
-        message(STATUS "rfdetr: BLAS not found — falling back to tinyBLAS only")
-    endif()
-    set(GGML_BLAS         OFF CACHE BOOL "" FORCE)
 endif()
 
 # Output directories
@@ -149,12 +104,6 @@ target_include_directories(rfdetr
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(rfdetr PRIVATE rfdetr_stb ggml)
-
-if(RFDETR_HAVE_BLAS)
-    target_compile_definitions(rfdetr PRIVATE RFDETR_HAVE_BLAS=1)
-    # ggml's target_link_libraries already pulls ggml-blas into the umbrella
-    # `ggml` interface, so we don't need to link ggml-blas here directly.
-endif()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(rfdetr PRIVATE -Wall -Wextra -Wpedantic -Wno-unused-parameter)
