@@ -620,6 +620,195 @@ def plot_relative_latency(data: dict, out_dir: Path):
     plt.close(fig)
 
 
+# ============================================================================
+# Plot 6 — Variants overview (Nano/Small/Base/Medium/Large)
+# ============================================================================
+# Per-variant palette + hatching for visual distinctiveness. Same style spirit
+# as the quant palette but using a separate hue ramp so the two plots are
+# legible side-by-side.
+VARIANT_PALETTE = {
+    "nano":   "#A2D5F2",  # pale blue   (smallest)
+    "small":  "#7AB8E0",  # medium blue
+    "base":   "#0A84FF",  # vivid blue  (the parity baseline; matches cpp_f32)
+    "medium": "#5856D6",  # purple
+    "large":  "#AF52DE",  # vivid purple (largest)
+}
+VARIANT_HATCH = {
+    "nano":   "..",
+    "small":  "//",
+    "base":   "",       # baseline: no hatch (matches cpp_f32 in other plots)
+    "medium": "++",
+    "large":  "xx",
+}
+VARIANT_ORDER = ["nano", "small", "base", "medium", "large"]
+
+
+def plot_variants_overview(data: dict, out_dir: Path):
+    """Dual-panel plot: (left) median latency per variant for PyTorch vs C++ F32
+    on the variant_sweep_image; (right) GGUF size + detection count per variant
+    on that same image.
+
+    Skips if no `variants` block is present in the bench data (back-compat:
+    legacy bench_data.json files have only the base/quant headline).
+    """
+    variants_data = data.get("variants") or {}
+    if not variants_data and "base" not in (data.get("per_image") or {}):
+        print("  [skip] no variants data and no base fallback")
+        return
+
+    # The plan's variants section excludes Base from the explicit --variants
+    # loop (Base lives in per_image); recover Base's variant cell from the
+    # quant headline so the plot includes all five.
+    sweep_img = data.get("meta", {}).get("variant_sweep_image", "coco_kitchen.jpg")
+    per_image = data.get("per_image", {})
+    if "base" not in variants_data and sweep_img in per_image:
+        cell = per_image[sweep_img]
+        base_dets = data.get("detections", {}).get(sweep_img, {})
+        base_cell = {
+            "variant": "base",
+            "image": sweep_img,
+            "gguf_size_bytes": data["meta"]["models"]["f32_size_bytes"],
+            "cpp_f32": cell.get("cpp_f32", {}),
+            "detections": {
+                "cpp_f32": base_dets.get("cpp_f32", []),
+                "python":  base_dets.get("python", []),
+            },
+        }
+        if "python" in cell:
+            base_cell["python"] = cell["python"]
+        variants_data = {**variants_data, "base": base_cell}
+
+    # Filter to the variants we actually have, in canonical order
+    have = [v for v in VARIANT_ORDER if v in variants_data]
+    if not have:
+        print("  [skip] no recognized variants in data")
+        return
+
+    fig, (axL, axR) = plt.subplots(1, 2, figsize=(14, 5.4),
+                                    gridspec_kw={"width_ratios": [1.3, 1]})
+
+    # ---- Left: median latency per variant for PyTorch vs C++ F32 ----
+    x_idx = np.arange(len(have))
+    bar_w = 0.38
+
+    py_med  = []
+    cpp_med = []
+    py_lo,  py_hi  = [], []
+    cpp_lo, cpp_hi = [], []
+    for v in have:
+        cell = variants_data[v]
+        cpp = cell.get("cpp_f32", {})
+        py  = cell.get("python", {})
+        c_m = float(cpp.get("median_ms", 0))
+        c_min = float(cpp.get("min_ms", c_m))
+        c_max = float(cpp.get("max_ms", c_m))
+        cpp_med.append(c_m); cpp_lo.append(c_m - c_min); cpp_hi.append(c_max - c_m)
+        if py:
+            p_m = float(py.get("median_ms", 0))
+            p_min = float(py.get("min_ms", p_m))
+            p_max = float(py.get("max_ms", p_m))
+            py_med.append(p_m); py_lo.append(p_m - p_min); py_hi.append(p_max - p_m)
+        else:
+            py_med.append(np.nan); py_lo.append(0); py_hi.append(0)
+
+    # Plot PyTorch in neutral grey (same palette as latency_comparison)
+    bars_py = axL.bar(x_idx - bar_w/2, py_med, bar_w,
+                       color=PALETTE["python"], hatch=HATCH["python"],
+                       edgecolor="white", linewidth=0.8,
+                       label="PyTorch (rfdetr 1.7.0)", zorder=3)
+    axL.errorbar(x_idx - bar_w/2, py_med, yerr=[py_lo, py_hi],
+                 fmt="none", ecolor="#333333", elinewidth=0.9, capsize=3,
+                 capthick=0.9, zorder=4)
+    # Annotate
+    for xi, y, hi in zip(x_idx - bar_w/2, py_med, py_hi):
+        if not np.isnan(y):
+            axL.text(xi, y + hi + 4, f"{y:.0f}",
+                     ha="center", va="bottom", fontsize=9, color="#444")
+
+    # Plot C++ F32 in variant-distinct colors (matches the right panel)
+    cpp_colors  = [VARIANT_PALETTE[v] for v in have]
+    cpp_hatches = [VARIANT_HATCH[v]   for v in have]
+    bars_cpp = axL.bar(x_idx + bar_w/2, cpp_med, bar_w,
+                        color=cpp_colors, hatch=cpp_hatches,
+                        edgecolor="white", linewidth=0.8,
+                        label="rfdetr.cpp F32", zorder=3)
+    axL.errorbar(x_idx + bar_w/2, cpp_med, yerr=[cpp_lo, cpp_hi],
+                 fmt="none", ecolor="#333333", elinewidth=0.9, capsize=3,
+                 capthick=0.9, zorder=4)
+    for xi, y, hi in zip(x_idx + bar_w/2, cpp_med, cpp_hi):
+        axL.text(xi, y + hi + 4, f"{y:.0f}",
+                 ha="center", va="bottom", fontsize=9, color="#222",
+                 fontweight="bold")
+
+    axL.set_xticks(x_idx)
+    axL.set_xticklabels([v.capitalize() for v in have])
+    axL.set_ylabel("Median inference latency (ms / image)")
+    ymax = max([m + h for m, h in zip(cpp_med, cpp_hi) if not np.isnan(m)] +
+               [m + h for m, h in zip(py_med, py_hi)  if not np.isnan(m)])
+    axL.set_ylim(0, ymax * 1.18)
+    axL.set_title("Latency vs PyTorch (lower = faster)", fontsize=11, color="#222")
+    axL.grid(axis="y", linestyle=":", alpha=0.6, zorder=0)
+    axL.legend(loc="upper left", frameon=True, framealpha=0.95,
+               edgecolor="#cccccc")
+
+    # ---- Right: GGUF size + detection count per variant ----
+    sizes_mb = [variants_data[v].get("gguf_size_bytes", 0) / (1024 * 1024) for v in have]
+    det_counts = [len(variants_data[v].get("detections", {}).get("cpp_f32", []))
+                  for v in have]
+
+    # Size as a bar (with variant color)
+    axR.bar(x_idx, sizes_mb,
+            color=cpp_colors, hatch=cpp_hatches,
+            edgecolor="white", linewidth=0.8, zorder=3)
+    for xi, s in zip(x_idx, sizes_mb):
+        axR.text(xi, s + 2, f"{s:.0f} MB",
+                 ha="center", va="bottom", fontsize=10, color="#222",
+                 fontweight="bold")
+    axR.set_ylabel("GGUF F32 size (MB)", color="#222")
+    axR.set_ylim(0, max(sizes_mb) * 1.20)
+    axR.set_xticks(x_idx)
+    axR.set_xticklabels([v.capitalize() for v in have])
+    axR.grid(axis="y", linestyle=":", alpha=0.6, zorder=0)
+
+    # Overlay detection count as a secondary-axis line
+    axR2 = axR.twinx()
+    axR2.plot(x_idx, det_counts, "o-", color="#222",
+              linewidth=1.6, markersize=8, zorder=4,
+              label="detections found")
+    for xi, n in zip(x_idx, det_counts):
+        axR2.text(xi, n + 0.4, str(n),
+                  ha="center", va="bottom", fontsize=9.5,
+                  color="#222", fontweight="bold")
+    axR2.set_ylabel("Detections (≥ 0.5 score) on " + pretty_img(sweep_img),
+                    color="#222")
+    axR2.set_ylim(0, max(det_counts) * 1.4 if det_counts else 5)
+    axR2.grid(False)
+    axR2.tick_params(axis="y")
+    axR2.legend(loc="upper left", frameon=True, framealpha=0.95,
+                edgecolor="#cccccc", fontsize=9.5)
+
+    axR.set_title(f"Size & detections on {pretty_img(sweep_img)}",
+                  fontsize=11, color="#222")
+
+    cpu = data.get("meta", {}).get("platform", {}).get("cpu", "")
+    threads = data.get("meta", {}).get("threads_headline", "")
+    iters   = data.get("meta", {}).get("iters", "")
+    fig.suptitle(
+        "RF-DETR variants: latency × detection-count tradeoff (T=" + str(threads) + ")",
+        fontsize=15, fontweight="bold", y=0.99,
+    )
+    fig.text(
+        0.5, 0.935,
+        f"Median ms/image over {iters} timed iterations on {pretty_img(sweep_img)}. "
+        f"CPU: {cpu}.",
+        ha="center", fontsize=10, color="#555",
+    )
+
+    fig.tight_layout(rect=[0, 0, 1, 0.92])
+    save(fig, out_dir, "variants_overview")
+    plt.close(fig)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default=str(REPO / "benchmarks/results/bench_data.json"))
@@ -643,6 +832,9 @@ def main() -> int:
 
     print("plot: quant_tradeoffs")
     plot_quant_tradeoffs(data, out_dir)
+
+    print("plot: variants_overview")
+    plot_variants_overview(data, out_dir)
 
     print(f"done. plots in {out_dir}")
     return 0
