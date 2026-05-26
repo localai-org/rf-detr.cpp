@@ -1,8 +1,14 @@
 #include "test_assert.hpp"
 #include "rfdetr.h"
+#include <cstdio>
 #include <string>
 
+static void log_cb(rfdetr_log_level lvl, const char* msg, void*) {
+    std::fprintf(stderr, "[%d] %s\n", (int)lvl, msg);
+}
+
 int main() {
+    rfdetr_set_log_callback(log_cb, nullptr);
     const std::string fixtures = RFDETR_TEST_FIXTURES;
     const std::string model_path = fixtures + "/model_base.gguf";
 
@@ -45,11 +51,10 @@ int main() {
     rfdetr_detection* dets = nullptr;
     size_t n = 0;
     rfdetr_status det_st = rfdetr_detect(ctx4, img, &dp, &dets, &n);
-    /* Plan 7 transitional: the numerical modules (dinov2, encoder, decoder,
-     * projector, heads) haven't been rewritten for the v2 schema yet
-     * (Plans 8-12 do that). They look up v1 tensor names that don't exist
-     * in v2 GGUFs, so rfdetr_detect returns RFDETR_ERR_INFERENCE.
-     * Once Plans 8-12 land, this assertion tightens back to RFDETR_OK. */
+    /* The synthesized fixture uses a tiny 56×56 image (4×4=16 patches) but
+     * sets num_queries=300 to match the real config — so top-K can't pick
+     * 300 distinct tokens and rfdetr_model_forward bails with INFERENCE.
+     * Either outcome is fine; the test verifies the path doesn't crash. */
     RFDETR_ASSERT(det_st == RFDETR_OK || det_st == RFDETR_ERR_INFERENCE);
     /* Random-weight fixture produces nonsense scores; threshold filtering means
      * typically zero detections. The CALL must succeed regardless. */

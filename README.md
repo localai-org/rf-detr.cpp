@@ -7,39 +7,50 @@ See `docs/superpowers/specs/2026-05-25-rfdetr-cpp-design.md` for the design.
 
 ## Status
 
-**Plan 7 schema rewrite landed; Plans 8-12 in progress (transitional).**
+**End-to-end inference works on rfdetr-base.** Detections on real COCO
+images match the upstream Python rfdetr to within sub-pixel box drift and
+≤0.025 confidence drift on every detection above the 0.5 threshold.
 
-This project is currently in the middle of an architectural pivot to
-exactly match rfdetr 1.7.0 (real upstream). What works today:
+Module parity vs torch baseline (max_abs):
 
-- GGUF schema (format version 2) matches real rfdetr-base
-- `scripts/convert_rfdetr_to_gguf.py` produces a real
-  `models/rfdetr-base-f32.gguf` from the upstream PyTorch checkpoint
-- `rfdetr-cli info models/rfdetr-base-f32.gguf` loads and introspects
-  the real model (486 tensors, 91 classes, 300 queries, image_size 560)
-- Fixture generator, loader, and C-API init/free path are all on the
-  new schema
+| Module     | max_abs   | Notes |
+|------------|-----------|-------|
+| Backbone   | ~1.14     | Structural; compounding accumulator drift TBD |
+| Projector  | ~1e-5     | C2f single-scale (P4) |
+| Two-stage  | ~3e-6     | Group-0 enc_output + reparam |
+| Decoder    | ~5e-5     | 3 layers, deformable cross-attn |
+| Heads      | ~2e-6     | Shared class_embed + 3-layer bbox MLP |
+| E2E logits | ~3.4      | Cumulative — driven by backbone drift |
 
-What's red:
+The class-rank ordering is preserved end-to-end despite the backbone gap,
+which is why detections survive intact. Fixing the backbone drift will
+tighten the cumulative number.
 
-- Numerical modules (`dinov2`, `encoder`, `decoder`, `projector`, `heads`)
-  still implement the v1 (aspirational) architecture and don't run against
-  v2 weights. `rfdetr_detect` returns `RFDETR_ERR_INFERENCE` until Plans
-  8-12 rewrite them.
-- `test_parity_full_forward` and its numpy reference are disabled until
-  Plan 13 swaps in a torch baseline matching real upstream.
-- `rfdetr-cli detect` runs the loader successfully but fails at inference.
+### Verified detection example (COCO val 397133, kitchen scene)
 
-Roadmap:
+| Class       | C++ score | rfdetr score | Δ box (px) |
+|-------------|-----------|--------------|------------|
+| person      | 0.956     | 0.958        | < 0.2      |
+| bowl        | 0.916     | 0.916        | < 0.1      |
+| bowl        | 0.885     | 0.874        | < 0.2      |
+| bowl        | 0.791     | 0.791        | < 0.2      |
+| potted plant| 0.661     | 0.657        | < 0.1      |
+| person      | 0.659     | 0.684        | < 0.5      |
+| bowl        | 0.651     | 0.657        | < 0.4      |
+| sink        | 0.637     | 0.624        | < 0.2      |
+| bowl        | 0.595     | 0.608        | < 0.1      |
+| oven        | 0.574     | 0.570        | < 0.7      |
+| cup         | 0.571     | 0.587        | < 0.4      |
+| spoon       | 0.509     | 0.520        | < 0.1      |
 
-- **Plan 8**: backbone redesign (separate Q/K/V, layer-scale, DINOv2-small)
-- **Plan 9**: delete standalone encoder; two-stage init
-- **Plan 10**: conv-based projector (C2f)
-- **Plan 11**: deformable cross-attention (the biggest single change)
-- **Plan 12**: heads redesign + 91 classes
-- **Plan 13**: torch parity baseline (replaces numpy reference)
-- **Plan 14**: Q8_0 quantization
-- **Plan 15**: real E2E demo on a COCO image
+12/12 detections match in class, with no false positives or negatives.
+
+### Roadmap
+
+- Backbone drift root-cause + fix
+- Q8_0 quantization
+- Variants beyond `base` (`nano`, `small`, `medium`, `large`)
+- GPU backends (CUDA / Metal / Vulkan)
 
 ## Build
 
@@ -49,6 +60,22 @@ cd rt-detr.cpp
 cmake -B build -DRFDETR_BUILD_TESTS=ON
 cmake --build build -j
 ctest --test-dir build --output-on-failure
+```
+
+## Convert + run
+
+```
+# One-time: convert upstream rfdetr-base.pth → GGUF (requires .venv with rfdetr)
+python3 scripts/convert_rfdetr_to_gguf.py \
+    --output models/rfdetr-base-f32.gguf
+
+# Detect
+./build/bin/rfdetr-cli detect \
+    --model models/rfdetr-base-f32.gguf \
+    --input  my_image.jpg \
+    --output detections.json \
+    --threshold 0.5 \
+    --annotated out.png
 ```
 
 ## License

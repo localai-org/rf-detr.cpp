@@ -115,72 +115,28 @@ extern "C" rfdetr_status rfdetr_detect(rfdetr_context* ctx,
         return pp_st;
     }
 
-    /* 2. Build the forward graph */
-    ggml_init_params ip{};
-    ip.mem_size   = 64 * 1024 * 1024;
-    ip.mem_buffer = nullptr;
-    ip.no_alloc   = true;
-    ggml_context* gctx = ggml_init(ip);
-    if (!gctx) { std::free(px_data); return RFDETR_ERR_OUT_OF_MEMORY; }
-
-    ggml_tensor* input = ggml_new_tensor_4d(gctx, GGML_TYPE_F32, px_w, px_h, 3, 1);
-    ggml_set_name(input, "input");
-
-    rfdetr::ForwardOutput fout = rfdetr::rfdetr_model_forward(gctx, *ctx->model, input);
-    if (!fout.class_logits || !fout.bbox_pred) {
-        ggml_free(gctx);
-        std::free(px_data);
+    /* 2. Full forward (2 graphs internally: backbone+projector+two_stage,
+     *    then CPU top-K + decoder + heads). Returns host-side outputs. */
+    rfdetr::ForwardOutput fout = rfdetr::rfdetr_model_forward(
+        *ctx->model, px_data, px_w, ctx->backend);
+    std::free(px_data);
+    px_data = nullptr;
+    if (fout.class_logits.empty() || fout.bbox_cxcywh.empty()) {
         rfdetr_logf(RFDETR_LOG_ERROR, "rfdetr_detect: model forward failed");
         return RFDETR_ERR_INFERENCE;
     }
 
-    ggml_backend_buffer_t buf = ggml_backend_alloc_ctx_tensors(gctx, ctx->backend);
-    if (!buf) {
-        ggml_free(gctx);
-        std::free(px_data);
-        return RFDETR_ERR_OUT_OF_MEMORY;
-    }
-
-    /* 3. Set input and compute */
-    ggml_backend_tensor_set(input, px_data, 0, (size_t)px_w * px_h * 3 * sizeof(float));
-    std::free(px_data);
-    px_data = nullptr;
-
-    ggml_cgraph* graph = ggml_new_graph(gctx);
-    ggml_build_forward_expand(graph, fout.class_logits);
-    ggml_build_forward_expand(graph, fout.bbox_pred);
-
-    auto status = ggml_backend_graph_compute(ctx->backend, graph);
-    if (status != GGML_STATUS_SUCCESS) {
-        ggml_backend_buffer_free(buf);
-        ggml_free(gctx);
-        rfdetr_logf(RFDETR_LOG_ERROR, "rfdetr_detect: graph_compute returned %d", (int)status);
-        return RFDETR_ERR_INFERENCE;
-    }
-    ggml_backend_synchronize(ctx->backend);
-
-    /* 4. Copy logits + boxes to host */
-    const size_t n_logits = ggml_nelements(fout.class_logits);
-    const size_t n_boxes  = ggml_nelements(fout.bbox_pred);
-    std::vector<float> logits_buf(n_logits);
-    std::vector<float> boxes_buf(n_boxes);
-    ggml_backend_tensor_get(fout.class_logits, logits_buf.data(), 0, n_logits * sizeof(float));
-    ggml_backend_tensor_get(fout.bbox_pred,    boxes_buf.data(),  0, n_boxes  * sizeof(float));
-
-    /* 5. Call postprocess. The ggml column-major layout where ne[0]=num_classes
-     * and ne[1]=num_queries gives memory order with classes fastest-varying —
-     * row-major (query, class), which is what rfdetr_select_detections expects. */
-    const size_t num_queries = (size_t)fout.class_logits->ne[1];
-    const size_t num_classes = (size_t)fout.class_logits->ne[0];
-
-    rfdetr_select_detections(logits_buf.data(), boxes_buf.data(),
-                             num_queries, num_classes,
+    /* 3. Postprocess. class_logits is laid out (NC, NQ) column-major in
+     * ggml-land; the host vector preserves that order with NC fastest-varying,
+     * i.e. row-major (query, class) — what rfdetr_select_detections expects. */
+    rfdetr_select_detections(fout.class_logits.data(), fout.bbox_cxcywh.data(),
+                             (size_t)fout.num_queries, (size_t)fout.num_classes,
                              params->threshold, params->top_k,
                              params->class_filter, params->class_filter_len,
                              rfdetr_image_width(img), rfdetr_image_height(img),
                              out_detections, out_n);
 
-    /* 6. Attach class names from the loaded config (best-effort) */
+    /* 4. Attach class names from the loaded config (best-effort) */
     if (out_detections && *out_detections) {
         const auto& names = ctx->model->config.class_names;
         for (size_t i = 0; i < *out_n; ++i) {
@@ -191,8 +147,6 @@ extern "C" rfdetr_status rfdetr_detect(rfdetr_context* ctx,
         }
     }
 
-    ggml_backend_buffer_free(buf);
-    ggml_free(gctx);
     return RFDETR_OK;
 }
 

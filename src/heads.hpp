@@ -8,26 +8,29 @@ struct ggml_tensor;
 
 namespace rfdetr {
 
-/* Class head: linear projection from per-query embedding to per-class logits.
+/* Shared class_embed head: Linear(model_dim=256, num_classes=91).
  *
- *   Input  ne = (model_dim, num_queries, 1, 1)
- *   Output ne = (num_classes, num_queries, 1, 1)
+ * In rfdetr-base the same `class_embed` is applied to every decoder layer
+ * output (training uses per-layer auxiliary losses; inference uses the last
+ * layer only). This forward applies it to a single (256, num_queries, 1)
+ * input from the final decoder.norm.
  *
- * No activation — postprocess applies sigmoid + top-k + threshold.
+ *   Input  ne = (256, NQ, 1)
+ *   Output ne = (num_classes, NQ, 1) — raw logits (apply sigmoid in postproc)
  *
- * Publishes "heads.class.logits". */
+ * Publishes "heads.class_logits". */
 ggml_tensor* class_head_forward(ggml_context* ctx, const Model& m,
                                 ggml_tensor* decoder_out);
 
-/* Bbox head: 3-layer MLP with ReLU between layers and sigmoid at the end.
+/* Shared bbox_embed head: 3-layer MLP (256 → 256 → 256 → 4) with ReLU between
+ * layers, NO final activation. Output is a delta in (dcx, dcy, dlogw, dlogh)
+ * space — the bbox_reparam formula combines it with the reference points to
+ * yield the final (cx, cy, w, h) in [0, 1]. (Per rfdetr/models/lwdetr.py:230.)
  *
- *   fc1: model_dim → model_dim, ReLU
- *   fc2: model_dim → model_dim, ReLU
- *   fc3: model_dim → 4 (cx, cy, w, h)
- *   sigmoid → ne = (4, num_queries, 1, 1) in [0, 1]
+ *   Input  ne = (256, NQ, 1)
+ *   Output ne = (4, NQ, 1)            — raw delta (NOT post-sigmoid)
  *
- * Publishes "heads.bbox.fc1.output", "heads.bbox.fc2.output",
- * "heads.bbox.fc3.output", "heads.bbox.pred". */
+ * Publishes "heads.bbox_pred". */
 ggml_tensor* bbox_head_forward(ggml_context* ctx, const Model& m,
                                ggml_tensor* decoder_out);
 

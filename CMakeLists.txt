@@ -65,7 +65,6 @@ set(RFDETR_SOURCES
     src/transformer_ops.cpp
     src/projector.cpp
     src/two_stage.cpp
-    src/encoder.cpp
     src/decoder.cpp
     src/heads.cpp
     src/rfdetr_model.cpp

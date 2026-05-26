@@ -3,28 +3,45 @@
 
 #include "model_loader.hpp"
 
-struct ggml_context;
-struct ggml_tensor;
+#include <cstdint>
+#include <vector>
+
+struct ggml_backend;
+typedef struct ggml_backend* ggml_backend_t;
 
 namespace rfdetr {
 
-/* Result of the full forward pass.
+/* Host-side result of the full forward pass at inference.
  *
- *   class_logits ne = (num_classes, num_queries, 1, 1) — raw, pre-sigmoid
- *   bbox_pred    ne = (4, num_queries, 1, 1)            — post-sigmoid, in [0, 1] */
+ *   class_logits  shape (num_classes, num_queries) row-major in this vector
+ *                 (i.e. class is fastest-varying — matches ggml ne[0]=num_classes
+ *                 from heads.class_logits, which is what postprocess expects).
+ *                 RAW logits (apply sigmoid in postproc).
+ *   bbox_cxcywh   shape (4, num_queries) row-major — (cx, cy, w, h) in [0, 1]
+ *                 after bbox_reparam (delta combined with refpoints).
+ *
+ * On failure both vectors are empty (and status is logged via rfdetr_logf). */
 struct ForwardOutput {
-    ggml_tensor* class_logits = nullptr;
-    ggml_tensor* bbox_pred    = nullptr;
+    std::vector<float> class_logits;   // size = num_classes * num_queries
+    std::vector<float> bbox_cxcywh;    // size = 4 * num_queries
+    int num_queries = 0;
+    int num_classes = 0;
 };
 
-/* Run the full forward pipeline: backbone → projector → encoder → decoder → heads.
+/* Run the full forward pipeline end-to-end:
  *
- *   input ne = (W, H, 3, 1) F32 — already mean/std normalized
+ *   preprocessed input → backbone → projector → two_stage init → CPU top-K
+ *   + refpoint construction → decoder → heads → bbox_reparam → output.
  *
- * Publishes every named checkpoint from the sub-pipelines plus
- * "model.class_logits" and "model.bbox_pred" wrappers. */
-ForwardOutput rfdetr_model_forward(ggml_context* ctx, const Model& m,
-                                   ggml_tensor* input);
+ *   input_data: preprocessed F32 buffer, shape (image_size, image_size, 3, 1)
+ *               (matches `rfdetr_preprocess` output). Already ImageNet-normalized.
+ *   input_size: image_size (square, must equal model's `config.image_size`).
+ *   backend:    backend the model weights were realized on.
+ *
+ * Returns empty vectors in the ForwardOutput on failure. */
+ForwardOutput rfdetr_model_forward(const Model& m,
+                                   const float* input_data, int input_size,
+                                   ggml_backend_t backend);
 
 }  // namespace rfdetr
 

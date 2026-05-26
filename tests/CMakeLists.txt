@@ -143,42 +143,16 @@ target_link_libraries(test_parity_two_stage PRIVATE ggml)
 rfdetr_add_test(test_parity_decoder)
 target_link_libraries(test_parity_decoder PRIVATE ggml)
 
-# ---------------------------------------------------------------------------
-# DISABLED (Plan 7 transitional state):
-#
-# test_parity_full_forward exercises a full forward pass against a numpy
-# reference that was built for the v1 GGUF schema. The schema was rewritten
-# to v2 in Plan 7 (real rfdetr-base architecture). The numpy reference,
-# the parity baseline generator (scripts/gen_numpy_baseline.py), and the
-# C++ numerical modules (dinov2, encoder, decoder, projector, heads) still
-# expect the v1 shapes and metadata keys.
-#
-# Plans 8-12 rewrite each numerical module against the v2 schema. Plan 13
-# rewrites the parity reference using torch+rfdetr (matching real upstream).
-# Re-enable once Plan 13 lands.
-#
-# The fixture generator (gen_model_gguf), conversion script, and C++ loader
-# already understand v2; the in-between modules are the gap.
-# ---------------------------------------------------------------------------
-if(0)  # Plan 7 transitional — re-enable after Plan 13
-    # Parity baseline bundle: numpy reference for the full DINOv2 backbone.
-    # See docs/parity.md and scripts/gen_numpy_baseline.py.
-    find_program(PYTHON3 python3 REQUIRED)
-    add_custom_command(
-        OUTPUT  ${RFDETR_TEST_FIXTURES}/baseline_backbone.gguf
-        COMMAND ${PYTHON3} ${CMAKE_SOURCE_DIR}/scripts/gen_numpy_baseline.py
-                --model  ${RFDETR_TEST_FIXTURES}/model_base_seeded.gguf
-                --output ${RFDETR_TEST_FIXTURES}/baseline_backbone.gguf
-        DEPENDS ${RFDETR_TEST_FIXTURES}/model_base_seeded.gguf
-                ${CMAKE_SOURCE_DIR}/scripts/gen_numpy_baseline.py
-        VERBATIM
-    )
-    add_custom_target(rfdetr_baseline_backbone ALL
-        DEPENDS ${RFDETR_TEST_FIXTURES}/baseline_backbone.gguf)
+# Plan 14: C++ shared class + bbox heads vs torch parity baseline.
+# Module-isolated: feeds baseline decoder.norm.output into C++ heads forward,
+# diffs against baseline heads.class_logits[..., -1] / heads.bbox_pred[..., -1]
+# (the last-layer slice — what inference actually consumes).
+rfdetr_add_test(test_parity_heads)
+target_link_libraries(test_parity_heads PRIVATE ggml)
 
-    rfdetr_add_test(test_parity_full_forward)
-    target_link_libraries(test_parity_full_forward PRIVATE ggml)
-    add_dependencies(test_parity_full_forward
-        rfdetr_model_fixture_seeded
-        rfdetr_baseline_backbone)
-endif()  # Plan 7 disable
+# Plan 14: end-to-end parity — full C++ rfdetr_model_forward vs torch baseline.
+# Uses the baseline's preprocess.input as the model input; logs (does not
+# enforce) cumulative drift against the baseline's final class_logits[-1].
+rfdetr_add_test(test_parity_e2e)
+target_link_libraries(test_parity_e2e PRIVATE ggml)
+
