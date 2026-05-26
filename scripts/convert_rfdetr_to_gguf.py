@@ -590,9 +590,13 @@ def main() -> int:
 
     if args.checkpoint:
         # Load a local fine-tuned checkpoint. The rfdetr saver writes
-        # {"model": state_dict, "args": {"num_classes": N, ...}, ...}; we
-        # read num_classes from args (or fall back to class_embed.bias.shape[0])
-        # and resize the model's classification head BEFORE load_state_dict so
+        # {"model": state_dict, "args": {"num_classes": N, ...}, ...}.
+        #
+        # Convention reminder: rfdetr's "num_classes" is the *logical* class
+        # count without the background slot, but class_embed.bias.shape[0]
+        # equals num_classes + 1 (background occupies slot 0). We read the
+        # raw head size from the checkpoint tensor (truth source) and resize
+        # the model's classification head to match BEFORE load_state_dict so
         # the shapes line up.
         print(f"[checkpoint] loading {args.checkpoint}", file=sys.stderr)
         ckpt = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
@@ -601,23 +605,18 @@ def main() -> int:
                   file=sys.stderr)
             return 4
         state = ckpt["model"]
-        ck_args = ckpt.get("args", {})
-        if isinstance(ck_args, dict):
-            nc = ck_args.get("num_classes")
-        else:
-            nc = getattr(ck_args, "num_classes", None)
-        if nc is None:
-            # Recover from the head tensor shape itself.
-            if "class_embed.bias" in state:
-                nc = int(state["class_embed.bias"].shape[0])
-                print(f"[checkpoint] inferred num_classes={nc} from class_embed.bias", file=sys.stderr)
-            else:
-                print("error: cannot determine num_classes from checkpoint.", file=sys.stderr)
-                return 4
-        nc = int(nc)
-        rfdetr_model = _VARIANT_CLASSES[args.variant](num_classes=nc)
+        if "class_embed.bias" not in state:
+            print("error: checkpoint state_dict lacks class_embed.bias — cannot resize head.",
+                  file=sys.stderr)
+            return 4
+        head_size = int(state["class_embed.bias"].shape[0])
+        # Construct the model with default num_classes, then resize the head
+        # to match the checkpoint's actual head_size. This avoids the +1
+        # background-slot ambiguity around RFDETRBase(num_classes=N).
+        rfdetr_model = _VARIANT_CLASSES[args.variant]()
+        rfdetr_model.model.model.reinitialize_detection_head(head_size)
         rfdetr_model.model.model.load_state_dict(state, strict=False)
-        print(f"[checkpoint] loaded with num_classes={nc}", file=sys.stderr)
+        print(f"[checkpoint] loaded head_size={head_size}", file=sys.stderr)
     else:
         rfdetr_model = _VARIANT_CLASSES[args.variant]()
 
