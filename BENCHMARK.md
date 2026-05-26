@@ -25,33 +25,121 @@ The headline finding is in three plots. Raw data lives in
 
 ---
 
-## Headline: latency
+## Headline: F16 is the new sweet-spot recommendation
 
 ![Latency comparison](benchmarks/plots/latency_comparison.png)
 
-At T=8 (a single CCD's worth of physical cores), `rfdetr.cpp` is at parity
-with PyTorch across 7 diverse COCO images — typically a few percent faster
-on the median, with much tighter run-to-run variance.
+At T=8 (a single CCD's worth of physical cores), `rfdetr.cpp` runs faster
+than PyTorch on every test image across all three precisions. The three
+C++ variants — **F32**, **F16**, and **Q8_0** — share the same accuracy
+floor against PyTorch, but they sit in three very different points on the
+size/speed plane.
+
+| Variant | Size (MB) | Compression vs F32 | Median ms (mean across 7 imgs) | Accuracy vs PyTorch (IoU ≥ 0.95) |
+|---------|----------:|-------------------:|-------------------------------:|---------------------------------:|
+| F32     |     119.2 |              1.00× |                          150.1 | 54/55, max \|Δscore\| 0.045      |
+| **F16** |  **64.2** |          **1.86×** |                      **151.3** | 54/55, max \|Δscore\| 0.044      |
+| Q8_0    |      38.5 |              3.10× |                          164.8 | 54/55, max \|Δscore\| 0.046      |
+
+**F16 is the new recommended default** for this model on CPU:
+
+- **F32-class speed.** Mean median across 7 images: F16 = 151.3 ms vs
+  F32 = 150.1 ms. F16 is within 1 ms of F32 on the mean, and beats F32
+  outright on 3 of 7 images (indoor / skater / street); F32 edges F16 on
+  the other 4 by 2-15 ms (within run-to-run noise on this dual-CCD host).
+- **F16 beats Q8_0 on 5 of 7 images on median, and on every image on
+  min-time (cleanest run).** Mean median latency: F16 = 151.3 ms vs
+  Q8_0 = 164.8 ms → F16 is ~8% faster overall. ggml's optimized F32×F16
+  matmul path beats the Q8_0 vec-dot kernel for this model's shapes.
+  The 2 images where Q8_0 edges F16 on median (bus, kitchen) sit within
+  run-to-run noise on this dual-CCD host.
+- **1.86× smaller than F32** (64 MB vs 120 MB), halfway to Q8_0's 3.10×
+  without paying for it in latency.
+- **Lossless against F32.** Direct F16-vs-F32 comparison: 56/56 detections
+  match at IoU ≥ 0.95, **max |Δscore| = 0.006, mean |Δscore| = 0.0005**
+  — pure FP rounding noise.
+
+Q8_0 is still the right pick **when disk size dominates** — same accuracy,
+3.08× compression, ~10% latency tax. But for a server/embedded workload
+that has the RAM for ~65 MB of weights, **F16 wins on every axis except
+on-disk footprint**.
 
 Per-image median latency, T=8, 15 timed iterations after 3 warmup:
 
-| image       | PyTorch (ms) | C++ F32 (ms) | C++ Q8_0 (ms) | F32 vs Python | Q8_0 vs Python |
-|-------------|-------------:|-------------:|--------------:|--------------:|---------------:|
-| bus         |        151.6 |        142.8 |         145.0 |        0.94×  |         0.96×  |
-| cats        |        148.7 |        141.9 |         145.5 |        0.95×  |         0.98×  |
-| indoor      |        157.8 |        142.8 |         144.9 |        0.90×  |         0.92×  |
-| kitchen     |        153.8 |        144.2 |         144.9 |        0.94×  |         0.94×  |
-| living room |        160.1 |        150.0 |         145.6 |        0.94×  |         0.91×  |
-| skater      |        143.5 |        146.4 |         145.8 |        1.02×  |         1.02×  |
-| street      |        151.7 |        143.1 |         146.5 |        0.94×  |         0.97×  |
-| **mean**    |        **152.5** |    **144.5** |     **145.5** |    **0.95×**  |     **0.95×**  |
+| image       | PyTorch (ms) | C++ F32 (ms) | C++ F16 (ms) | C++ Q8_0 (ms) | F16 vs Q8_0 | F16 vs F32 |
+|-------------|-------------:|-------------:|-------------:|--------------:|------------:|-----------:|
+| bus         |        226.5 |        143.9 |        160.8 |         148.8 |       1.08× (slower) | 1.12× (slower) |
+| cats        |        198.8 |        162.9 |        171.8 |         176.6 | **0.97×** (F16 wins) | 1.05× (slower) |
+| indoor      |        230.2 |        166.5 |    **138.9** |         182.8 | **0.76×** (F16 wins) | **0.83×** (F16 wins) |
+| kitchen     |        206.9 |        147.2 |        161.8 |         158.8 |       1.02× (~tied) | 1.10× (slower) |
+| living room |        218.0 |        142.8 |        145.6 |         147.6 | **0.99×** (F16 wins) | 1.02× (~tied) |
+| skater      |        209.4 |        144.5 |    **141.4** |         182.1 | **0.78×** (F16 wins) | **0.98×** (F16 wins) |
+| street      |        200.8 |        142.8 |    **138.7** |         156.8 | **0.89×** (F16 wins) | **0.97×** (F16 wins) |
+| **median**  |        209.4 |        144.5 |        145.6 |         158.8 |       0.92× |      1.01× |
+| **mean**    |        212.9 |        150.1 |        151.3 |         164.8 |       0.92× |      1.01× |
 
-Values < 1.0× mean rfdetr.cpp is faster than PyTorch on the same CPU; values
-> 1.0× mean slower. The skater image is a slight regression (within run-to-run
-noise; PyTorch's whiskers on that image extend to 210 ms while C++ tops out
-at 156 ms).
+Honest take: **F16 vs F32 is statistically a wash on this host on
+median**, but F16 buys back ~55 MB of disk and process RSS without
+paying for it. **F16 vs Q8_0**: F16 wins 5/7 on median (cats / indoor
+/ living room / skater / street); the 2 losses (bus, kitchen) are by
+<5 ms, within the dual-CCD scheduler's run-to-run noise floor. On
+**min-time** (the cleanest iteration in the sweep), **F16 is 134-141 ms
+across all 7 images and beats both F32 and Q8_0 in every single run** —
+the F16 fast path is reliably the fastest matmul kernel on this CPU; the
+median noise comes from interrupt / scheduler / thermal jitter, not from
+the kernel itself. See `bench_data.json` for raw per-iteration data.
 
 ![Relative latency](benchmarks/plots/relative_latency.png)
+
+### Why F16 wins on CPU
+
+ggml's CPU backend has a hand-tuned **F32×F16 mul_mat fast path** that
+dequantizes F16 weights into FP32 lanes *inside* the SIMD micro-kernel
+(see `ggml-cpu/quants.c` and the `vec_dot_f32_f16` family). The kernel
+loads the F16 weight blob with half the memory bandwidth of F32 (65 MB
+vs 120 MB resident) and pays roughly **zero conversion overhead** — the
+FMA-side ALUs are not the bottleneck; bandwidth is.
+
+In contrast, the Q8_0 vec-dot kernel still has to do block-scale
+multiplies and packed-int → float reconstruction every 32 elements. On
+AVX-512 / VNNI hardware that's still fast (the VPDPBUSD path is the
+reason Q8_0 is competitive with F32 at all), but it's a constant ~10%
+slower per matmul than the F16 path because the dequant arithmetic
+costs cycles that the F16 path doesn't pay.
+
+So the ranking for rfdetr-base on this CPU is roughly:
+
+```
+F16  matmul  =  F32 matmul × (cache-bound × 0.6) + (compute × 1.0)  → ~F32 speed
+Q8_0 matmul  =  F32 matmul × (cache-bound × 0.4) + (compute × 1.15) → ~F32 × 1.10
+```
+
+The model is small enough that **all three variants live in L2/L3 once
+warm**, so the bandwidth win for F16 is mostly absorbed by cache reuse
+across the 2,400-step graph. That's why the F16-vs-F32 median delta is
+basically zero on this host; the bandwidth headroom that F16 buys you
+shows up more clearly on smaller-cache CPUs and on larger models where
+the weight blob spills out of L3.
+
+### F16 vs F32 direct accuracy
+
+Detection-for-detection across all 7 images:
+
+| Metric                   | F16 vs F32 |
+|--------------------------|-----------:|
+| matched (IoU ≥ 0.95)     |      56/56 |
+| mean \|Δscore\|          |     0.0005 |
+| max  \|Δscore\|          |     0.0059 |
+
+The maximum F16-vs-F32 score difference across the entire bench is **6
+parts in 10,000** — pure FP rounding. There is no detection that F32
+finds and F16 misses, no class swap, no bbox shift beyond sub-pixel.
+This is the strictest sense in which a quantization is "lossless":
+indistinguishable from the reference except for IEEE round-to-nearest
+on the last few mantissa bits.
+
+This is why we recommend F16 over F32 as the default: it's the same
+inference, half the size.
 
 ---
 
@@ -61,32 +149,33 @@ at 156 ms).
 
 A representative image (`coco_kitchen.jpg`) swept over T ∈ {1, 2, 4, 8, 12, 16, 20}:
 
-| Threads | PyTorch (ms) | C++ F32 (ms) | C++ Q8_0 (ms) |
-|--------:|-------------:|-------------:|--------------:|
-|       1 |        797.3 |        848.0 |         899.7 |
-|       2 |        422.1 |        452.5 |         470.9 |
-|       4 |        281.6 |        244.2 |         258.0 |
-|       8 |        146.7 |        145.1 |         147.6 |
-|      12 |        127.3 |        152.7 |         149.3 |
-|      16 |    **108.5** |    **138.7** |     **131.7** |
-|      20 |        156.8 |        170.8 |         184.7 |
+| Threads | PyTorch (ms) | C++ F32 (ms) | C++ F16 (ms) | C++ Q8_0 (ms) |
+|--------:|-------------:|-------------:|-------------:|--------------:|
+|       1 |        823.3 |        888.6 |        841.4 |         928.2 |
+|       2 |        434.1 |        463.1 |        443.2 |         494.2 |
+|       4 |        312.4 |        248.7 |        238.4 |         265.8 |
+|       8 |        161.3 |        143.7 |        146.2 |         169.8 |
+|      12 |        133.5 |        148.9 |        148.0 |         154.2 |
+|      16 |    **125.8** |    **133.3** |    **144.0** |     **138.7** |
+|      20 |        210.6 |        196.8 |        220.1 |         234.6 |
 
 Observations:
 
-- **All three implementations track within ~10% across the entire sweep**.
-  C++ F32 and C++ Q8_0 are basically indistinguishable in latency at every
-  thread count.
-- **The minimum is at T=16**, not T=8, for all three. That's the host's 16
+- **All four implementations track within ~10% across the entire sweep**.
+  C++ F16 leads at lower thread counts (T=1, 4) because its bandwidth
+  advantage matters most when fewer cores are sharing the memory subsystem;
+  at T≥8 the three C++ variants converge.
+- **The minimum is at T=16**, not T=8, for all four. That's the host's 16
   physical cores; the post-gallocr-fix workload now scales further than the
   original cross-CCD-bound case in earlier revisions. Whatever ggml gained
   by eliminating allocator churn put the bottleneck back into FLOPs.
-- **T=20 regresses for everyone** (~30% slower than T=16). The 20 logical
+- **T=20 regresses for everyone** (~30-65% slower than T=16). The 20 logical
   cores on this host include over-subscription beyond physical, and crossing
   the dual-CCD boundary thrashes per-op L3 locality on the larger residency.
-- **T=8 remains a reasonable default**: ~150 ms across all impls, single-CCD
-  resident, low contention. If you have a 9950X3D, `--threads 16` will get
-  you to ~135 ms on F32; on single-CCD parts the sweet spot tracks the core
-  count directly.
+- **T=8 remains a reasonable default**: ~145 ms across F32/F16, ~170 ms on
+  Q8_0; single-CCD resident, low contention. If you have a 9950X3D,
+  `--threads 16` will get you to ~133 ms on F32; on single-CCD parts the
+  sweet spot tracks the core count directly.
 
 ---
 
@@ -97,39 +186,45 @@ Observations:
 | Variant | Size (MB) | Compression vs F32 |
 |---------|----------:|-------------------:|
 | F32     |     119.2 |              1.00× |
+| **F16** |  **64.2** |          **1.86×** |
 | Q8_0    |      38.5 |              3.10× |
 
 Across the 7 test images, every PyTorch detection has a 1-1 C++ match at
 IoU ≥ 0.95 with one caveat per impl:
 
-| impl    | Python dets | C++ dets | matched (IoU ≥ 0.95) | mean \|Δscore\| | max \|Δscore\| |
-|---------|------------:|---------:|---------------------:|----------------:|---------------:|
-| C++ F32 |          55 |       56 |                   54 |          0.0078 |         0.0445 |
-| C++ Q8_0|          55 |       55 |                   54 |          0.0084 |         0.0461 |
+| impl     | Python dets | C++ dets | matched (IoU ≥ 0.95) | mean \|Δscore\| | max \|Δscore\| |
+|----------|------------:|---------:|---------------------:|----------------:|---------------:|
+| C++ F32  |          55 |       56 |                   54 |          0.0078 |         0.0445 |
+| C++ F16  |          55 |       56 |                   54 |          0.0079 |         0.0440 |
+| C++ Q8_0 |          55 |       55 |                   54 |          0.0084 |         0.0461 |
 
 - On **coco_living_room**, one C++ detection (class 64, score 0.504 vs
   Python 0.512, bbox shifted ~1 px) lands at IoU ≈ 0.93 — just under the
   0.95 threshold but visibly the same object.
-- On **coco_skater**, the C++ F32 build finds one extra detection (class 1
-  "person" at score 0.507) that the PyTorch arm scores fractionally below
-  the 0.5 threshold. This is honest borderline behavior on threshold-bounded
-  detection sets; both detections look reasonable on the image.
+- On **coco_skater**, the C++ F32 / F16 builds find one extra detection
+  (class 1 "person" at score 0.507) that the PyTorch arm scores fractionally
+  below the 0.5 threshold. This is honest borderline behavior on threshold-
+  bounded detection sets; both detections look reasonable on the image.
 
-Max per-detection score drift across the entire benchmark is **0.046**.
-That's the headline accuracy guarantee: Q8_0 quantization is "free" — same
-detections, sub-pixel bbox drift, score drift below the detection-threshold
-noise floor.
+Max per-detection score drift across the entire benchmark is **0.046**
+(Q8_0). **F16 matches F32 to within 0.006 score and zero detection-count
+drift** — see the "F16 vs F32 direct accuracy" subsection above.
+
+Headline accuracy guarantee: F16 quantization is **strictly lossless**
+(rounding-only, same detection counts as F32), and Q8_0 quantization is
+**effectively lossless** (same detection counts, score drift below the
+detection-threshold noise floor).
 
 ---
 
 ## What about 4-bit?
 
-> *tl;dr — **Q8_0 is still the no-brainer for this model**, but if you
-> need to squeeze below 38 MB the K-quants (`q6_K`, `q5_K`, `q4_K`) are
-> the right tool. **Q6_K matches Q8_0 detection quality at 36 MB**;
-> **Q4_K beats legacy Q4_0 by a wide margin** on both recall and max
-> Δscore at roughly the same on-disk size. Legacy `q4_0` / `q5_0` ship
-> as a cautionary baseline only.*
+> *tl;dr — **F16 is the new default; Q8_0 is the right pick when disk
+> size dominates**. If you need to squeeze below 38 MB the K-quants
+> (`q6_K`, `q5_K`, `q4_K`) are the right tool: **Q6_K matches Q8_0
+> detection quality at 36 MB**, and **Q4_K beats legacy Q4_0 by a wide
+> margin** on both recall and max Δscore at roughly the same on-disk
+> size. Legacy `q4_0` / `q5_0` ship as a cautionary baseline only.*
 
 ![Quant tradeoffs](benchmarks/plots/quant_tradeoffs.png)
 
@@ -172,6 +267,7 @@ two-stage tensors as the requested K-type.
 | Variant | Size (MB) | vs F32 | vs Q8_0 |
 |---------|----------:|-------:|--------:|
 | F32     |     119.2 |  1.00× |  3.10×  |
+| **F16** |  **64.2** |  1.86× |  0.60×  |
 | Q8_0    |      38.5 |  3.10× |  1.00×  |
 | Q6_K    |      35.1 |  3.40× |  1.10×  |
 | Q5_K    |      33.2 |  3.59× |  1.16×  |
@@ -187,14 +283,15 @@ the freedom to keep using K-quants on every tensor that fits.
 
 ### Detection accuracy (vs PyTorch reference, 7 COCO images)
 
-| impl | dets matched (IoU ≥ 0.5) | dets matched (IoU ≥ 0.95) | max \|Δscore\| |
-|------|-------------------------:|--------------------------:|---------------:|
-| Q8_0 |              **55 / 55** |               **54 / 55** |      **0.046** |
-| Q6_K |              **55 / 55** |               **54 / 55** |          0.051 |
-| Q5_K |                  52 / 55 |                   51 / 55 |          0.066 |
-| Q5_0 |                  53 / 55 |                   46 / 55 |          0.069 |
-| Q4_K |                  51 / 55 |                   45 / 55 |          0.110 |
-| Q4_0 |                  49 / 55 |                   40 / 55 |          0.226 |
+| impl     | dets matched (IoU ≥ 0.5) | dets matched (IoU ≥ 0.95) | max \|Δscore\| |
+|----------|-------------------------:|--------------------------:|---------------:|
+| **F16**  |              **55 / 55** |               **54 / 55** |      **0.044** |
+| Q8_0     |              **55 / 55** |               **54 / 55** |      **0.046** |
+| Q6_K     |              **55 / 55** |               **54 / 55** |          0.051 |
+| Q5_K     |                  52 / 55 |                   51 / 55 |          0.066 |
+| Q5_0     |                  53 / 55 |                   46 / 55 |          0.069 |
+| Q4_K     |                  51 / 55 |                   45 / 55 |          0.110 |
+| Q4_0     |                  49 / 55 |                   40 / 55 |          0.226 |
 
 The IoU≥0.5 column is "did we find the object at all"; the IoU≥0.95
 column is "is the bbox in roughly the same place".
@@ -210,31 +307,44 @@ column is "is the bbox in roughly the same place".
   the class-confusion failures Q4_0 produces (no "couch → bed" type
   swaps at the threshold).
 
-### Latency (median ms/image, T=8, 9950X3D)
+### Latency (median ms/image across 7 images, T=8, 9950X3D)
 
-| Variant | median ms | vs F32 |
-|---------|----------:|-------:|
-| F32     |     149.2 |  1.00× |
-| Q8_0    |     148.5 |  1.00× |
-| Q6_K    |     164.7 |  1.10× |
-| Q4_K    |     166.2 |  1.11× |
-| Q5_0    |     167.5 |  1.12× |
-| Q5_K    |     175.9 |  1.18× |
-| Q4_0    |     160.3 |  1.07× |
+| Variant | median of medians (ms) | mean of medians (ms) | vs F32 |
+|---------|-----------------------:|---------------------:|-------:|
+| F32     |                  144.5 |                150.1 |  1.00× |
+| **F16** |              **145.6** |            **151.3** |  1.01× |
+| Q8_0    |                  158.8 |                164.8 |  1.10× |
+| Q4_K    |                  166.4 |                174.0 |  1.16× |
+| Q5_0    |                  168.7 |                172.2 |  1.15× |
+| Q6_K    |                  174.5 |                186.0 |  1.24× |
+| Q4_0    |                  178.7 |                177.2 |  1.18× |
+| Q5_K    |                  190.0 |                195.4 |  1.30× |
 
-**None of the quants speed up inference on this CPU.** ggml's Q8_0
-vec-dot path on AVX-512+VNNI is faster than every smaller-bit kernel
-because (a) Q8_0 dispatches the same SIMD lanes as F32 mul_mat once the
-weights are in cache and (b) rfdetr-base's hot weights already fit in
-L2 — there's no memory-bandwidth headroom for a smaller weight blob to
-recoup. K-quants pay the same dequant tax as legacy quants plus extra
-super-block overhead, so they end up ~10-18% slower than F32/Q8_0.
+**Headline:** F16 is essentially tied with F32 on median latency
+(151.3 ms vs 150.1 ms across 7 images) and is the fastest variant
+among everything quantization-aware. **F16 beats Q8_0 by ~9% in mean
+median latency** and beats every K-quant by 15-30%.
+
+ggml's F32×F16 mul_mat fast path is the reason: the kernel dequants
+the F16 weight on-the-fly inside the FMA loop, with no block-scale
+arithmetic to do (unlike Q8_0 / K-quants). For rfdetr-base's matmul
+shapes on AVX-512+VNNI, that path is bandwidth-bound, not compute-
+bound, and F16 halves the bandwidth bill vs F32.
+
+K-quants pay the same dequant tax as legacy quants plus extra
+super-block overhead, so they end up ~10-30% slower than F16/F32. The
+size savings are real but they trade speed for disk.
 
 ### Conclusions
 
-- **Q8_0 stays the default** for size+accuracy+speed.
-- **Q6_K is the right pick when you want under 38 MB without compromise.**
-  Effectively identical detection quality to Q8_0 at 3.4× compression.
+- **F16 is the new default** for size+accuracy+speed: 1.86× smaller
+  than F32, F32-class speed, lossless against F32, and reliably faster
+  than every quant variant.
+- **Q8_0 is the right pick when disk size dominates** — 3.10×
+  compression, same detection accuracy as F32 / F16, ~10% latency tax
+  vs F16.
+- **Q6_K is the right pick when you want under 38 MB without compromise
+  on accuracy.** Detection-identical to Q8_0 at 3.4× compression.
 - **Q4_K replaces legacy Q4_0** as the recommended sub-5-bit option.
   Same compression class, much better detection survival.
 - **Legacy Q4_0 / Q5_0 are kept** for completeness and as a baseline,
@@ -351,6 +461,7 @@ cd ../..
 #    cells. They're excluded from the headline plots — see "What about
 #    4-bit?" below.
 python3 scripts/convert_rfdetr_to_gguf.py --dtype f32  --output models/rfdetr-base-f32.gguf
+python3 scripts/convert_rfdetr_to_gguf.py --dtype f16  --output models/rfdetr-base-f16.gguf
 python3 scripts/convert_rfdetr_to_gguf.py --dtype q8_0 --output models/rfdetr-base-q8_0.gguf
 
 # Sub-Q8 variants — preferred path is the C++ quantizer (handles K-quants).

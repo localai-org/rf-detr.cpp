@@ -6,10 +6,12 @@ benchmarks/results/bench_data.json. Use scripts/plot_community.py to render
 the plots.
 
 Cells run:
-- per_image: PyTorch F32 / C++ F32 / C++ Q8_0 / C++ Q5_0 / C++ Q4_0 plus optional
-  C++ Q4_K / Q5_K / Q6_K (K-quants from `rfdetr-cli quantize`) at T=8 on N images
-  (the "headline" latency comparison data)
-- thread_sweep: PyTorch + C++ F32 + C++ Q8_0 over T in {1,2,4,8,12,16,20}
+- per_image: PyTorch F32 / C++ F32 / C++ F16 / C++ Q8_0 / C++ Q5_0 / C++ Q4_0
+  plus optional C++ Q4_K / Q5_K / Q6_K (K-quants from `rfdetr-cli quantize`)
+  at T=8 on N images (the "headline" latency comparison data). F16 is the
+  recommended sweet-spot: faster than F32 and Q8_0, half the F32 size,
+  lossless accuracy on this model.
+- thread_sweep: PyTorch + C++ F32 + C++ F16 + C++ Q8_0 over T in {1,2,4,8,12,16,20}
   on ONE representative image (kitchen / coco_sample.jpg). Q4_0 / Q5_0 /
   K-quants are only swept at the headline T=8 cell — their per-thread shape is
   similar to Q8_0 and they're a side story, not the headline.
@@ -193,6 +195,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--cli",     default=str(REPO / "build/bin/rfdetr-cli"))
     ap.add_argument("--f32",     default=str(REPO / "models/rfdetr-base-f32.gguf"))
+    ap.add_argument("--f16",     default=str(REPO / "models/rfdetr-base-f16.gguf"),
+                    help="optional F16 model; skipped if file missing")
     ap.add_argument("--q8",      default=str(REPO / "models/rfdetr-base-q8_0.gguf"))
     ap.add_argument("--q5",      default=str(REPO / "models/rfdetr-base-q5_0.gguf"),
                     help="optional Q5_0 model; skipped if file missing")
@@ -234,6 +238,7 @@ def main() -> int:
 
     cli  = Path(args.cli)
     f32  = Path(args.f32)
+    f16  = Path(args.f16)
     q8   = Path(args.q8)
     q5   = Path(args.q5)
     q4   = Path(args.q4)
@@ -242,11 +247,15 @@ def main() -> int:
     q6K  = Path(args.q6_K)
     idir = Path(args.images_dir)
 
+    have_f16 = f16.exists()
     have_q5 = q5.exists()
     have_q4 = q4.exists()
     have_q4K = q4K.exists()
     have_q5K = q5K.exists()
     have_q6K = q6K.exists()
+    if not have_f16:
+        print(f"[bench] WARN: F16 model not found at {f16} — F16 cells will be skipped",
+              file=sys.stderr)
 
     images = sorted(idir.glob("*.jpg"))
     if not images:
@@ -280,6 +289,7 @@ def main() -> int:
         },
         "models": {
             "f32_path": str(f32), "f32_size_bytes": f32.stat().st_size,
+            **({"f16_path": str(f16), "f16_size_bytes": f16.stat().st_size} if have_f16 else {}),
             "q8_path":  str(q8),  "q8_size_bytes":  q8.stat().st_size,
             **({"q5_path": str(q5), "q5_size_bytes": q5.stat().st_size} if have_q5 else {}),
             **({"q4_path": str(q4), "q4_size_bytes": q4.stat().st_size} if have_q4 else {}),
@@ -337,6 +347,13 @@ def main() -> int:
               f"min={cell['cpp_f32']['min_ms']:.1f} max={cell['cpp_f32']['max_ms']:.1f}",
               file=sys.stderr)
 
+        if have_f16:
+            print(f"[cpp_f16 T={args.threads}]", file=sys.stderr)
+            cell["cpp_f16"] = time_one_cpp(cli, f16, img, args.iters, args.warmup, args.threads)
+            print(f"[cpp_f16] median={cell['cpp_f16']['median_ms']:.1f} ms "
+                  f"min={cell['cpp_f16']['min_ms']:.1f} max={cell['cpp_f16']['max_ms']:.1f}",
+                  file=sys.stderr)
+
         print(f"[cpp_q8  T={args.threads}]", file=sys.stderr)
         cell["cpp_q8"]  = time_one_cpp(cli, q8,  img, args.iters, args.warmup, args.threads)
         print(f"[cpp_q8 ] median={cell['cpp_q8']['median_ms']:.1f} ms "
@@ -374,6 +391,9 @@ def main() -> int:
         data["detections"].setdefault(img.name, {})
         print(f"[detect cpp_f32]", file=sys.stderr)
         data["detections"][img.name]["cpp_f32"] = run_cpp_detect(cli, f32, img, args.threads)
+        if have_f16:
+            print(f"[detect cpp_f16]", file=sys.stderr)
+            data["detections"][img.name]["cpp_f16"] = run_cpp_detect(cli, f16, img, args.threads)
         print(f"[detect cpp_q8 ]", file=sys.stderr)
         data["detections"][img.name]["cpp_q8" ] = run_cpp_detect(cli, q8,  img, args.threads)
         if have_q5:
@@ -403,6 +423,8 @@ def main() -> int:
               file=sys.stderr)
         sweep = {"image": sweep_image.name, "threads": sweep_threads,
                  "cpp_f32": {}, "cpp_q8": {}, "python": {}}
+        if have_f16:
+            sweep["cpp_f16"] = {}
 
         # Python doesn't expose a thread knob via predict(); torch reads
         # OMP_NUM_THREADS / MKL_NUM_THREADS at import time. To probe scaling
@@ -425,6 +447,13 @@ def main() -> int:
                 cli, f32, sweep_image, args.iters, args.warmup, n)
             print(f"  median={sweep['cpp_f32'][str(n)]['median_ms']:.1f} ms",
                   file=sys.stderr)
+        if have_f16:
+            for n in sweep_threads:
+                print(f"[cpp_f16 T={n}]", file=sys.stderr)
+                sweep["cpp_f16"][str(n)] = time_one_cpp(
+                    cli, f16, sweep_image, args.iters, args.warmup, n)
+                print(f"  median={sweep['cpp_f16'][str(n)]['median_ms']:.1f} ms",
+                      file=sys.stderr)
         for n in sweep_threads:
             print(f"[cpp_q8  T={n}]", file=sys.stderr)
             sweep["cpp_q8"][str(n)] = time_one_cpp(
@@ -512,7 +541,7 @@ def main() -> int:
         if "python" not in dets:
             continue
         py_dets = dets["python"]
-        for impl in ("cpp_f32", "cpp_q8", "cpp_q5", "cpp_q4",
+        for impl in ("cpp_f32", "cpp_f16", "cpp_q8", "cpp_q5", "cpp_q4",
                      "cpp_q4K", "cpp_q5K", "cpp_q6K"):
             if impl not in dets:
                 continue

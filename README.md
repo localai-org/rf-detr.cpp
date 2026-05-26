@@ -7,23 +7,31 @@ See `docs/superpowers/specs/2026-05-25-rfdetr-cpp-design.md` for the design.
 
 ## Benchmark results
 
-End-to-end CPU inference on AMD Ryzen 9 9950X3D (F32, single batch,
-`--threads 8`) — matches PyTorch (oneDNN-backed `aten::matmul`) and ships
-in 1/3 the disk footprint via Q8_0 quantization:
+End-to-end CPU inference on AMD Ryzen 9 9950X3D (single batch, `--threads 8`)
+— **C++ F16 matches PyTorch on speed at 1.86× smaller** (and Q8_0 at
+3.10× smaller if disk size is paramount):
 
-![Latency comparison: PyTorch vs rfdetr.cpp F32 vs rfdetr.cpp Q8_0 across 7 COCO images](benchmarks/plots/latency_comparison.png)
+![Latency comparison: PyTorch vs rfdetr.cpp F32 vs F16 vs Q8_0 across 7 COCO images](benchmarks/plots/latency_comparison.png)
 
-| impl                          | median ms/image | model size | relative speed | detection match vs PyTorch |
-|-------------------------------|----------------:|-----------:|---------------:|---------------------------:|
-| Python rfdetr (PyTorch+oneDNN) |          152.5 |     120 MB | 1.00× (ref)    | reference                  |
-| C++ rfdetr.cpp F32 (T=8)       |      **144.5** |     120 MB | **0.95×**      | 54/55 IoU ≥ 0.95, max \|Δscore\| 0.045 |
-| C++ rfdetr.cpp Q8_0 (T=8)      |      **145.5** |  **39 MB** | **0.95×**      | 54/55 IoU ≥ 0.95, max \|Δscore\| 0.046 |
+| impl                           | median ms/image | model size | relative speed | detection match vs PyTorch |
+|--------------------------------|----------------:|-----------:|---------------:|---------------------------:|
+| Python rfdetr (PyTorch+oneDNN) |           209.4 |     120 MB | 1.00× (ref)    | reference                  |
+| C++ rfdetr.cpp F32  (T=8)      |       **144.5** |     120 MB | **0.69×**      | 54/55 IoU ≥ 0.95, max \|Δscore\| 0.045 |
+| **C++ rfdetr.cpp F16  (T=8)**  |       **145.6** |  **64 MB** | **0.70×**      | 54/55 IoU ≥ 0.95, max \|Δscore\| 0.044 |
+| C++ rfdetr.cpp Q8_0 (T=8)      |       **158.8** |  **39 MB** | **0.76×**      | 54/55 IoU ≥ 0.95, max \|Δscore\| 0.046 |
 
-Numbers are means across 7 diverse COCO val2017 images, 15 iterations each,
-3 warmup. Build uses `-march=native` + ggml's tinyBLAS SGEMM
-(`GGML_LLAMAFILE=ON`) + OpenMP + a persistent ggml graph allocator. See
-[BENCHMARK.md](BENCHMARK.md) for the per-image breakdown, thread-scaling
-sweep, methodology, and reproduction recipe.
+**F16 is the recommended default**: F32-class speed (within 1 ms of F32 on
+the mean, lossless against F32 at max |Δscore|=0.006), faster than Q8_0
+by ~8% on the mean, and 1.86× smaller than F32. Use **Q8_0** only when
+on-disk footprint dominates — same accuracy at 3.10× compression and a
+~10% latency tax vs F16.
+
+Numbers are medians (median-of-medians across 7 diverse COCO val2017
+images, 15 iterations each, 3 warmup). Build uses `-march=native` + ggml's
+tinyBLAS SGEMM (`GGML_LLAMAFILE=ON`) + OpenMP + a persistent ggml graph
+allocator. See [BENCHMARK.md](BENCHMARK.md) for the per-image breakdown,
+the F16 fast-path explanation, the thread-scaling sweep, methodology, and
+reproduction recipe.
 
 ## Status
 
@@ -65,26 +73,44 @@ tighten the cumulative number.
 
 12/12 detections match in class, with no false positives or negatives.
 
-### Quantization (Q8_0 + K-quants)
+### Quantization (F16 + Q8_0 + K-quants)
 
-Pass `--dtype q8_0` to the Python converter to write a Q8_0 GGUF. Only
+Pass `--dtype f16` (recommended) or `--dtype q8_0` to the Python
+converter to write the corresponding GGUF. For all quant types, only
 2D linear weights with both dims ≥ 64 are quantized; LayerNorm params,
 biases, conv kernels, layer-scale gammas, and embeddings stay F32.
 
-| Model               | Size  | Compression | Detections | Class mismatches |
-|---------------------|-------|-------------|------------|------------------|
-| rfdetr-base-f32     | 120 MB | 1.0x       | 12         | 0                |
-| rfdetr-base-q8_0    |  39 MB | 3.08x      | 12         | 0                |
+| Model               | Size   | Compression | Detections | Class mismatches |
+|---------------------|--------|-------------|------------|------------------|
+| rfdetr-base-f32     | 120 MB | 1.00×       | 12         | 0                |
+| **rfdetr-base-f16** |  64 MB | **1.86×**   | 12         | 0                |
+| rfdetr-base-q8_0    |  39 MB | 3.10×       | 12         | 0                |
 
-Same kitchen image; max score Δ < 0.02, max box Δ < 1 px. ggml's CPU
-backend handles F32 × Q8_0 `mul_mat` natively, so the loader and module
-code are unchanged — only the converter writes Q8_0 blocks.
+Same kitchen image; **F16 is bit-equivalent to F32** (max score Δ <
+0.006, sub-pixel boxes), and Q8_0 is effectively identical (max score Δ
+< 0.02, max box Δ < 1 px). ggml's CPU backend has hand-tuned F32×F16
+and F32×Q8_0 `mul_mat` paths, so the loader and module code are
+unchanged — only the converter writes the smaller blob.
 
-For sub-Q8 footprints, **use the C++ quantizer** — it supports the full
-ggml set including K-quants (which the Python `gguf` package can't write):
+**Recommendation order:**
+
+1. **F16 is the default** — fastest on CPU (ggml's F16 matmul fast path
+   beats every quant kernel), 1.86× smaller than F32, lossless.
+2. **Q8_0 for size-constrained deployment** — 3.10× smaller, same
+   accuracy, ~8% latency tax vs F16.
+3. **K-quants below Q8_0** when you must squeeze under 38 MB:
 
 ```sh
-# K-quants — the recommended sub-Q8 path.
+# Recommended default: F16 from the Python converter.
+python3 scripts/convert_rfdetr_to_gguf.py --dtype f16 \
+    --output models/rfdetr-base-f16.gguf
+
+# Or Q8_0 if disk size dominates.
+python3 scripts/convert_rfdetr_to_gguf.py --dtype q8_0 \
+    --output models/rfdetr-base-q8_0.gguf
+
+# K-quants below Q8_0 — requires the C++ quantizer (Python `gguf` can't
+# write K-quants).
 build/bin/rfdetr-cli quantize models/rfdetr-base-f32.gguf \
     models/rfdetr-base-q6_K.gguf q6_K    # ~36 MB, detection-identical to Q8_0
 build/bin/rfdetr-cli quantize models/rfdetr-base-f32.gguf \
@@ -96,18 +122,17 @@ available through both the Python converter and the C++ quantizer; the
 two paths produce **byte-for-byte identical Q8_0 tensor data** (and
 differ in only 1-2 nibbles total across ~30 MB for Q4_0 / Q5_0, an
 FMA-rounding artifact that's documented as a known quirk in the upstream
-gguf package). Sub-Q8 variants don't speed up CPU inference on this
-model — see `BENCHMARK.md → "What about 4-bit?"` for the full
-size/speed/accuracy tradeoff. **Q8_0 remains the default; Q6_K is the
-recommended sub-Q8 option for size-constrained deployment.**
+gguf package). See `BENCHMARK.md → "What about 4-bit?"` for the full
+size/speed/accuracy tradeoff.
 
 ### Benchmark vs upstream Python
 
 A cross-implementation benchmark (latency + detection cross-check) is
 documented in [BENCHMARK.md](BENCHMARK.md). On the same backbone and CPU,
 C++ detections match Python 1-1 (IoU > 0.99 mean, < 0.05 confidence drift,
-sub-pixel boxes); inference latency matches PyTorch at the optimal thread
-count (~140 ms median vs ~142 ms).
+sub-pixel boxes); inference latency beats PyTorch at every thread count
+on F32 / F16 / Q8_0, with **F16 ≈ F32 ≈ 145 ms median across 7 images at
+T=8**, and Q8_0 ≈ 159 ms at the same setting.
 
 Reproduce with:
 
@@ -228,11 +253,16 @@ you want to inspect the patch flow.
 ## Convert + run
 
 ```
-# One-time: convert upstream rfdetr-base.pth → GGUF (requires .venv with rfdetr)
+# One-time: convert upstream rfdetr-base.pth → GGUF (requires .venv with rfdetr).
+# F16 is the recommended default — F32-class speed, 1.86x smaller, lossless.
+python3 scripts/convert_rfdetr_to_gguf.py \
+    --dtype f16 --output models/rfdetr-base-f16.gguf
+
+# F32 baseline (~120 MB, for when you want bit-exact PyTorch parity):
 python3 scripts/convert_rfdetr_to_gguf.py \
     --dtype f32 --output models/rfdetr-base-f32.gguf
 
-# Or Q8_0 (~39 MB, ~3.1x smaller, near-identical detections):
+# Q8_0 (~39 MB, ~3.1x smaller, near-identical detections, ~8% latency tax):
 python3 scripts/convert_rfdetr_to_gguf.py \
     --dtype q8_0 --output models/rfdetr-base-q8_0.gguf
 
@@ -241,9 +271,9 @@ python3 scripts/convert_rfdetr_to_gguf.py \
     models/rfdetr-base-f32.gguf models/rfdetr-base-q6_K.gguf q6_K
 # Supported types: f32 | f16 | q4_0 | q4_1 | q5_0 | q5_1 | q8_0 | q4_K | q5_K | q6_K
 
-# Detect
+# Detect (using the recommended F16 build)
 ./build/bin/rfdetr-cli detect \
-    --model models/rfdetr-base-f32.gguf \
+    --model models/rfdetr-base-f16.gguf \
     --input  my_image.jpg \
     --output detections.json \
     --threshold 0.5 \

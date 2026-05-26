@@ -39,6 +39,7 @@ plt.rcParams.update({
 PALETTE = {
     "python":   "#8E8E93",   # neutral grey — the reference
     "cpp_f32":  "#0A84FF",   # vivid blue   — our F32
+    "cpp_f16":  "#FF2D55",   # vivid pink   — our F16 (the headline winner)
     "cpp_q8":   "#30D158",   # green        — our Q8_0
     "cpp_q6K":  "#5AC8FA",   # cyan         — Q6_K
     "cpp_q5K":  "#BF5AF2",   # purple       — Q5_K
@@ -49,6 +50,7 @@ PALETTE = {
 HATCH = {
     "python":   "",
     "cpp_f32":  "",
+    "cpp_f16":  "\\\\",      # diagonal — distinct from F32 (none) and Q8_0 (//)
     "cpp_q8":   "//",        # extra accessibility cue
     "cpp_q6K":  "++",
     "cpp_q5K":  "..",
@@ -59,6 +61,7 @@ HATCH = {
 LABEL = {
     "python":   "PyTorch (rfdetr 1.7.0)",
     "cpp_f32":  "rfdetr.cpp F32",
+    "cpp_f16":  "rfdetr.cpp F16",
     "cpp_q8":   "rfdetr.cpp Q8_0",
     "cpp_q6K":  "rfdetr.cpp Q6_K",
     "cpp_q5K":  "rfdetr.cpp Q5_K",
@@ -69,6 +72,7 @@ LABEL = {
 MARKER = {
     "python":   "o",
     "cpp_f32":  "s",
+    "cpp_f16":  "*",
     "cpp_q8":   "D",
     "cpp_q6K":  "P",
     "cpp_q5K":  "X",
@@ -108,14 +112,26 @@ def save(fig, out_dir: Path, stem: str):
 def plot_latency_comparison(data: dict, out_dir: Path):
     per_image = data["per_image"]
     images = list(per_image.keys())
-    impls  = ["python", "cpp_f32", "cpp_q8"]
+    # Order: PyTorch baseline / F32 / F16 (sweet spot) / Q8_0 (smallest)
+    impls  = ["python", "cpp_f32", "cpp_f16", "cpp_q8"]
+    # Drop impls that aren't present in any image (back-compat)
+    impls = [i for i in impls if any(per_image[img].get(i) for img in images)]
 
     n_images = len(images)
     n_impls  = len(impls)
-    bar_w = 0.27
+    bar_w = 0.21 if n_impls >= 4 else 0.27
     x = np.arange(n_images)
 
-    fig, ax = plt.subplots(figsize=(max(10, 1.6 * n_images + 4), 5.3))
+    fig, ax = plt.subplots(figsize=(max(11, 1.8 * n_images + 4), 5.4))
+
+    # Use p25/p75 whiskers when present (Python arm only — captured per-iter),
+    # fall back to min/max otherwise. Avoids cold-start outliers dominating
+    # the y-axis when the timed arm caught a 5x outlier.
+    def _whisker(cell):
+        med = cell["median_ms"]
+        if "p25_ms" in cell and "p75_ms" in cell:
+            return cell["p25_ms"], med, cell["p75_ms"]
+        return cell["min_ms"], med, cell["max_ms"]
 
     for i, impl in enumerate(impls):
         medians = []
@@ -125,13 +141,10 @@ def plot_latency_comparison(data: dict, out_dir: Path):
             cell = per_image[img].get(impl)
             if not cell:
                 medians.append(0); lo_err.append(0); hi_err.append(0); continue
-            med = cell["median_ms"]
-            # Use min/max as whiskers — honest range, slightly conservative
-            mn  = cell["min_ms"]
-            mx  = cell["max_ms"]
+            lo, med, hi = _whisker(cell)
             medians.append(med)
-            lo_err.append(med - mn)
-            hi_err.append(mx - med)
+            lo_err.append(med - lo)
+            hi_err.append(hi - med)
 
         xpos = x + (i - (n_impls - 1) / 2) * bar_w
         bars = ax.bar(
@@ -154,13 +167,28 @@ def plot_latency_comparison(data: dict, out_dir: Path):
     ax.set_xticks(x)
     ax.set_xticklabels([pretty_img(im) for im in images], rotation=0)
     ax.set_ylabel("Inference latency (ms / image)")
-    ymax = max(
-        per_image[img][impl]["max_ms"]
+    # Cap y-axis based on the C++ impls' worst case so PyTorch outliers
+    # don't squash the C++ bars into invisibility. PyTorch values that
+    # exceed the cap will still render as truncated bars + value labels;
+    # the cap is set well above any reasonable warm steady-state value.
+    cpp_impls = [i for i in impls if i.startswith("cpp_")]
+    cpp_max = max(
+        _whisker(per_image[img][impl])[2]
         for img in images
-        for impl in impls
+        for impl in cpp_impls
         if per_image[img].get(impl)
     )
-    ax.set_ylim(0, ymax * 1.18)
+    py_max_med = max(
+        (per_image[img]["python"]["median_ms"] for img in images
+         if per_image[img].get("python")),
+        default=0,
+    )
+    # Use the larger of (C++ whisker × 1.6, max Python median × 1.10) so
+    # the cap is generous to fit C++ visually but never silently hides a
+    # legitimate Python value. The Python p25/p75 whiskers are already
+    # narrower than the bar in pathological cases.
+    ymax = max(cpp_max * 1.6, py_max_med * 1.10)
+    ax.set_ylim(0, ymax)
     ax.grid(axis="y", linestyle=":", alpha=0.6, zorder=0)
     ax.legend(loc="upper right", frameon=True, framealpha=0.95,
               edgecolor="#cccccc")
@@ -169,7 +197,7 @@ def plot_latency_comparison(data: dict, out_dir: Path):
     threads = data["meta"]["threads_headline"]
     iters   = data["meta"]["iters"]
     fig.suptitle(
-        "rfdetr.cpp matches PyTorch on CPU — and Q8_0 is 3.08× smaller",
+        "F16 is the sweet spot: F32-class speed, 1.85× smaller, faster than Q8_0, lossless",
         fontsize=15, fontweight="bold", y=0.985,
     )
     ax.set_title(
@@ -193,7 +221,7 @@ def plot_thread_scaling(data: dict, out_dir: Path):
         return
 
     threads = sw["threads"]
-    impls = [k for k in ("python", "cpp_f32", "cpp_q8") if k in sw and sw[k]]
+    impls = [k for k in ("python", "cpp_f32", "cpp_f16", "cpp_q8") if k in sw and sw[k]]
 
     fig, ax = plt.subplots(figsize=(9.5, 5.5))
 
@@ -275,18 +303,25 @@ def plot_thread_scaling(data: dict, out_dir: Path):
 def plot_size_and_accuracy(data: dict, out_dir: Path):
     meta = data["meta"]
     f32_mb = meta["models"]["f32_size_bytes"] / (1024 * 1024)
+    f16_mb = (meta["models"].get("f16_size_bytes", 0) or 0) / (1024 * 1024)
     q8_mb  = meta["models"]["q8_size_bytes"]  / (1024 * 1024)
-    ratio = f32_mb / q8_mb if q8_mb else 0
+    have_f16 = f16_mb > 0
+    ratio_f16 = f32_mb / f16_mb if f16_mb else 0
+    ratio_q8  = f32_mb / q8_mb  if q8_mb  else 0
 
     # Gather all matched (cpp_score, py_score) pairs across images
     match = data.get("match_summary", {})
     pts_f32_py, pts_f32_cpp = [], []
+    pts_f16_py, pts_f16_cpp = [], []
     pts_q8_py,  pts_q8_cpp  = [], []
     for key, m in match.items():
         for p in m["pairs"]:
             if m["impl"] == "cpp_f32":
                 pts_f32_py.append(p["py_score"])
                 pts_f32_cpp.append(p["cpp_score"])
+            elif m["impl"] == "cpp_f16":
+                pts_f16_py.append(p["py_score"])
+                pts_f16_cpp.append(p["cpp_score"])
             elif m["impl"] == "cpp_q8":
                 pts_q8_py.append(p["py_score"])
                 pts_q8_cpp.append(p["cpp_score"])
@@ -294,21 +329,35 @@ def plot_size_and_accuracy(data: dict, out_dir: Path):
     fig, (axL, axR) = plt.subplots(1, 2, figsize=(13.5, 6.0),
                                     gridspec_kw={"width_ratios": [1, 1.4]})
 
-    # --- left: model size bars (headline pair: F32 and Q8_0 only — same
-    # accuracy story, so the visual comparison is meaningful) ---
-    sizes = [f32_mb, q8_mb]
-    labels = ["F32 (rfdetr-base)", "Q8_0 (rfdetr-base)"]
-    colors = [PALETTE["cpp_f32"], PALETTE["cpp_q8"]]
-    hatches = [HATCH["cpp_f32"], HATCH["cpp_q8"]]
+    # --- left: model size bars: F32 / F16 (sweet spot) / Q8_0 ---
+    if have_f16:
+        sizes = [f32_mb, f16_mb, q8_mb]
+        labels = ["F32", "F16", "Q8_0"]
+        colors = [PALETTE["cpp_f32"], PALETTE["cpp_f16"], PALETTE["cpp_q8"]]
+        hatches = [HATCH["cpp_f32"], HATCH["cpp_f16"], HATCH["cpp_q8"]]
+    else:
+        sizes = [f32_mb, q8_mb]
+        labels = ["F32", "Q8_0"]
+        colors = [PALETTE["cpp_f32"], PALETTE["cpp_q8"]]
+        hatches = [HATCH["cpp_f32"], HATCH["cpp_q8"]]
     bars = axL.bar(labels, sizes, color=colors, hatch=hatches,
                    edgecolor="white", linewidth=0.9, zorder=3)
-    for b, s in zip(bars, sizes):
+    # Annotate with size and compression ratio (anchored on F32)
+    for b, s, lbl in zip(bars, sizes, labels):
+        ratio = (f32_mb / s) if s else 0
+        ratio_txt = "1.00×" if lbl == "F32" else f"{ratio:.2f}×"
         axL.text(b.get_x() + b.get_width() / 2, s + 2,
-                 f"{s:.1f} MB", ha="center", va="bottom",
-                 fontsize=11, fontweight="bold")
+                 f"{s:.1f} MB\n({ratio_txt})", ha="center", va="bottom",
+                 fontsize=10.5, fontweight="bold")
     axL.set_ylabel("Model size (MB)")
-    axL.set_ylim(0, max(sizes) * 1.18)
-    axL.set_title(f"Q8_0 is {ratio:.2f}× smaller than F32", fontsize=11, color="#222")
+    axL.set_ylim(0, max(sizes) * 1.22)
+    if have_f16:
+        axL.set_title(
+            f"F16 is {ratio_f16:.2f}× smaller than F32; Q8_0 is {ratio_q8:.2f}× smaller",
+            fontsize=11, color="#222")
+    else:
+        axL.set_title(f"Q8_0 is {ratio_q8:.2f}× smaller than F32",
+                      fontsize=11, color="#222")
     axL.grid(axis="y", linestyle=":", alpha=0.6, zorder=0)
 
     # --- right: per-detection score scatter ---
@@ -317,6 +366,13 @@ def plot_size_and_accuracy(data: dict, out_dir: Path):
                     color=PALETTE["cpp_f32"], marker=MARKER["cpp_f32"],
                     edgecolors="white", linewidth=0.7,
                     label=f"C++ F32 ({len(pts_f32_py)} dets)", zorder=3)
+    if pts_f16_py and pts_f16_cpp:
+        # F16 sits on top of F32 in score-space; render as transparent
+        # overlay so both remain visible.
+        axR.scatter(pts_f16_py, pts_f16_cpp, s=75, alpha=0.55,
+                    color=PALETTE["cpp_f16"], marker=MARKER["cpp_f16"],
+                    edgecolors="white", linewidth=0.7,
+                    label=f"C++ F16 ({len(pts_f16_py)} dets)", zorder=4)
     if pts_q8_py and pts_q8_cpp:
         axR.scatter(pts_q8_py, pts_q8_cpp, s=55, alpha=0.78,
                     color=PALETTE["cpp_q8"], marker=MARKER["cpp_q8"],
@@ -335,6 +391,7 @@ def plot_size_and_accuracy(data: dict, out_dir: Path):
     axR.set_ylabel("rfdetr.cpp detection score")
     # Compute max score delta seen for the subtitle
     all_deltas = [abs(a - b) for a, b in zip(pts_f32_py, pts_f32_cpp)] + \
+                 [abs(a - b) for a, b in zip(pts_f16_py, pts_f16_cpp)] + \
                  [abs(a - b) for a, b in zip(pts_q8_py,  pts_q8_cpp)]
     max_delta = max(all_deltas) if all_deltas else 0.0
     axR.set_title(f"Per-detection score, max |Δ| = {max_delta:.3f}",
@@ -344,10 +401,12 @@ def plot_size_and_accuracy(data: dict, out_dir: Path):
                edgecolor="#cccccc")
 
     n_images = len(data.get("detections", {}))
-    fig.suptitle(
-        "Quantization is free: Q8_0 is 3× smaller with identical detections",
-        fontsize=15, fontweight="bold", y=0.985,
-    )
+    if have_f16:
+        suptitle = (f"F16 is {ratio_f16:.2f}× smaller than F32, lossless; "
+                    f"Q8_0 is {ratio_q8:.2f}× smaller with identical detections")
+    else:
+        suptitle = "Quantization is free: Q8_0 is 3× smaller with identical detections"
+    fig.suptitle(suptitle, fontsize=14, fontweight="bold", y=0.985)
     fig.text(
         0.5, 0.93,
         f"Across {n_images} COCO test images: every PyTorch detection has a 1-1 "
@@ -434,11 +493,14 @@ def plot_quant_tradeoffs(data: dict, out_dir: Path):
         agg[impl]["py_lenient"]      = py
 
     # Each known variant: (label, size_key, impl_key)
-    # Ordered F32 -> Q8 -> Q6_K -> Q5_K -> Q4_K -> Q5_0 -> Q4_0
-    # (largest -> smallest; K-quants in between the legacy block quants).
+    # Ordered F32 -> F16 -> Q8 -> Q6_K -> Q5_K -> Q4_K -> Q5_0 -> Q4_0
+    # (largest -> smallest; F16 is the new sweet spot recommendation;
+    # K-quants in between the legacy block quants).
     variants = []
     if "f32_size_bytes" in models:
         variants.append(("F32",  "f32_size_bytes", "cpp_f32"))
+    if "f16_size_bytes" in models:
+        variants.append(("F16",  "f16_size_bytes", "cpp_f16"))
     if "q8_size_bytes"  in models:
         variants.append(("Q8_0", "q8_size_bytes",  "cpp_q8"))
     if "q6K_size_bytes" in models:
@@ -452,9 +514,9 @@ def plot_quant_tradeoffs(data: dict, out_dir: Path):
     if "q4_size_bytes"  in models:
         variants.append(("Q4_0", "q4_size_bytes",  "cpp_q4"))
 
-    # Skip the plot if no auxiliary quants are present — nothing new to say
-    # vs the F32-vs-Q8_0 panel.
-    AUX = ("cpp_q5", "cpp_q4", "cpp_q6K", "cpp_q5K", "cpp_q4K")
+    # Skip the plot if no auxiliary quants AND no F16 are present — nothing
+    # new to say vs the F32-vs-Q8_0 panel.
+    AUX = ("cpp_f16", "cpp_q5", "cpp_q4", "cpp_q6K", "cpp_q5K", "cpp_q4K")
     if not any(v[2] in AUX for v in variants):
         print("  [skip] no auxiliary quant data — quant_tradeoffs plot adds no info")
         return
@@ -548,11 +610,14 @@ def plot_quant_tradeoffs(data: dict, out_dir: Path):
                fontsize=8.5)
     axR.set_title("Detection accuracy per quant variant", fontsize=11, color="#222")
 
-    fig.suptitle(
-        "Quant tradeoff — K-quants keep accuracy at ~3.5x compression "
-        "(legacy Q4_0 falls off the cliff)",
-        fontsize=14, fontweight="bold", y=0.99,
-    )
+    have_f16 = any(v[2] == "cpp_f16" for v in variants)
+    if have_f16:
+        suptitle = ("Precision tradeoff — F16 is the sweet spot (1.85× smaller, "
+                    "lossless); K-quants keep accuracy at ~3.5× compression")
+    else:
+        suptitle = ("Quant tradeoff — K-quants keep accuracy at ~3.5x compression "
+                    "(legacy Q4_0 falls off the cliff)")
+    fig.suptitle(suptitle, fontsize=14, fontweight="bold", y=0.99)
     fig.tight_layout(rect=[0, 0, 1, 0.94])
     save(fig, out_dir, "quant_tradeoffs")
     plt.close(fig)
@@ -562,29 +627,45 @@ def plot_quant_tradeoffs(data: dict, out_dir: Path):
 # Plot 4 (optional / bonus) — speedup heatmap-ish: latency per image as ratio
 # ============================================================================
 def plot_relative_latency(data: dict, out_dir: Path):
-    """C++ F32 / C++ Q8_0 latency normalized to Python per image. Quick eyeball check."""
+    """C++ F32 / F16 / Q8_0 latency normalized to Python per image. Quick eyeball check."""
     per_image = data["per_image"]
     images = list(per_image.keys())
-    fig, ax = plt.subplots(figsize=(max(8.5, 1.4 * len(images) + 3.0), 4.6))
+    have_f16 = all(per_image[i].get("cpp_f16") for i in images)
+
+    fig, ax = plt.subplots(figsize=(max(9.5, 1.6 * len(images) + 3.0), 4.8))
 
     py_med  = [per_image[i]["python"]["median_ms"]  for i in images]
     f32_med = [per_image[i]["cpp_f32"]["median_ms"] for i in images]
     q8_med  = [per_image[i]["cpp_q8" ]["median_ms"] for i in images]
+    f16_med = ([per_image[i]["cpp_f16"]["median_ms"] for i in images]
+               if have_f16 else None)
 
     f32_ratio = [f / p for f, p in zip(f32_med, py_med)]
     q8_ratio  = [q / p for q, p in zip(q8_med,  py_med)]
+    f16_ratio = ([f / p for f, p in zip(f16_med, py_med)]
+                 if have_f16 else None)
 
     x = np.arange(len(images))
-    bar_w = 0.36
 
-    ax.bar(x - bar_w / 2, f32_ratio, bar_w,
-           color=PALETTE["cpp_f32"], hatch=HATCH["cpp_f32"],
-           edgecolor="white", linewidth=0.8,
-           label=LABEL["cpp_f32"], zorder=3)
-    ax.bar(x + bar_w / 2, q8_ratio, bar_w,
-           color=PALETTE["cpp_q8"], hatch=HATCH["cpp_q8"],
-           edgecolor="white", linewidth=0.8,
-           label=LABEL["cpp_q8"], zorder=3)
+    if have_f16:
+        bar_w = 0.26
+        offsets = [-bar_w, 0, bar_w]
+        series  = [("cpp_f32", f32_ratio),
+                   ("cpp_f16", f16_ratio),
+                   ("cpp_q8",  q8_ratio)]
+    else:
+        bar_w = 0.36
+        offsets = [-bar_w / 2, bar_w / 2]
+        series  = [("cpp_f32", f32_ratio), ("cpp_q8", q8_ratio)]
+
+    for off, (impl, ratios) in zip(offsets, series):
+        ax.bar(x + off, ratios, bar_w,
+               color=PALETTE[impl], hatch=HATCH[impl],
+               edgecolor="white", linewidth=0.8,
+               label=LABEL[impl], zorder=3)
+        for xi, r in zip(x + off, ratios):
+            ax.text(xi, r + 0.01, f"{r:.2f}×",
+                    ha="center", va="bottom", fontsize=8.5)
 
     ax.axhline(1.0, color="#444", linestyle="-", linewidth=1.0, zorder=1)
     ax.text(len(images) - 0.5, 1.02, "PyTorch baseline",
@@ -596,13 +677,10 @@ def plot_relative_latency(data: dict, out_dir: Path):
     ax.grid(axis="y", linestyle=":", alpha=0.6, zorder=0)
     ax.legend(loc="upper right", frameon=True, framealpha=0.95)
 
-    for i, (f, q) in enumerate(zip(f32_ratio, q8_ratio)):
-        ax.text(i - bar_w / 2, f + 0.01, f"{f:.2f}×",
-                ha="center", va="bottom", fontsize=9)
-        ax.text(i + bar_w / 2, q + 0.01, f"{q:.2f}×",
-                ha="center", va="bottom", fontsize=9)
-
-    ymax = max(max(f32_ratio), max(q8_ratio))
+    all_ratios = list(f32_ratio) + list(q8_ratio)
+    if have_f16:
+        all_ratios += list(f16_ratio)
+    ymax = max(all_ratios)
     ax.set_ylim(0, max(1.2, ymax * 1.18))
 
     cpu = data["meta"]["platform"]["cpu"]
