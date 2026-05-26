@@ -112,6 +112,7 @@ set(RFDETR_SOURCES
     src/two_stage.cpp
     src/decoder.cpp
     src/heads.cpp
+    src/segmentation.cpp
     src/rfdetr_model.cpp
 )
 
