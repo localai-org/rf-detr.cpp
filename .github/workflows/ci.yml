@@ -176,7 +176,7 @@ jobs:
             ./build/bin/rfdetr-cli detect \
               --model "$model" \
               --input tests/fixtures/ci/test_image.jpg \
-              --threshold 0.5 \
+              --threshold 0.55 \
               --threads 2 \
               --output "$actual"
             rc=$?

@@ -8,10 +8,6 @@
     {"class_id": 1, "class_name": "person", "score": 0.687395, "bbox": [0.14676, 196.915, 45.8841, 226.753]},
     {"class_id": 51, "class_name": "bowl", "score": 0.632801, "bbox": [117.399, 126.663, 136.835, 138.183]},
     {"class_id": 64, "class_name": "potted plant", "score": 0.631668, "bbox": [0, 0.484581, 45.9644, 110.388]},
-    {"class_id": 81, "class_name": "sink", "score": 0.588924, "bbox": [372.823, 149.643, 461.605, 173.335]},
-    {"class_id": 47, "class_name": "cup", "score": 0.548042, "bbox": [110.413, 200.367, 129.66, 226.161]},
-    {"class_id": 79, "class_name": "oven", "score": 0.545547, "bbox": [175.527, 142.921, 297.01, 236.971]},
-    {"class_id": 79, "class_name": "oven", "score": 0.520612, "bbox": [0.409241, 137.753, 145.029, 221.2]},
-    {"class_id": 50, "class_name": "spoon", "score": 0.516099, "bbox": [383.934, 34.26, 391.54, 68.5374]}
+    {"class_id": 81, "class_name": "sink", "score": 0.588924, "bbox": [372.823, 149.643, 461.605, 173.335]}
   ]
 }

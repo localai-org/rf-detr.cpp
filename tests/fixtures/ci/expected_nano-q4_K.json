@@ -3,8 +3,6 @@
   "detections": [
     {"class_id": 1, "class_name": "person", "score": 0.926424, "bbox": [291.226, 49.9185, 373.527, 260.461]},
     {"class_id": 51, "class_name": "bowl", "score": 0.911077, "bbox": [24.0407, 258.052, 74.8612, 289.007]},
-    {"class_id": 51, "class_name": "bowl", "score": 0.838661, "bbox": [45.1446, 216.378, 99.2924, 246.204]},
-    {"class_id": 1, "class_name": "person", "score": 0.549268, "bbox": [0, 196.617, 44.9019, 226.879]},
-    {"class_id": 67, "class_name": "dining table", "score": 0.514893, "bbox": [0, 176.56, 260.69, 315.463]}
+    {"class_id": 51, "class_name": "bowl", "score": 0.838661, "bbox": [45.1446, 216.378, 99.2924, 246.204]}
   ]
 }

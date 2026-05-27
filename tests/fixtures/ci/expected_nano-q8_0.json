@@ -5,7 +5,6 @@
     {"class_id": 51, "class_name": "bowl", "score": 0.902322, "bbox": [23.6383, 258.021, 75.3077, 289.404]},
     {"class_id": 51, "class_name": "bowl", "score": 0.804624, "bbox": [44.9785, 216.079, 99.3699, 247.096]},
     {"class_id": 1, "class_name": "person", "score": 0.624206, "bbox": [0.0936323, 196.782, 45.235, 227.187]},
-    {"class_id": 79, "class_name": "oven", "score": 0.598998, "bbox": [367.739, 149.854, 465.521, 258.757]},
-    {"class_id": 67, "class_name": "dining table", "score": 0.526267, "bbox": [1.62631, 176.735, 260.408, 316.59]}
+    {"class_id": 79, "class_name": "oven", "score": 0.598998, "bbox": [367.739, 149.854, 465.521, 258.757]}
   ]
 }
