@@ -283,6 +283,34 @@ python3 scripts/convert_rfdetr_to_gguf.py \
     --annotated out.png
 ```
 
+## Pre-built models on HuggingFace
+
+All 32 GGUF models (5 detection variants + 3 segmentation variants × 4
+quantizations each) are published on HuggingFace under
+[`mudler/rfdetr-cpp-*`](https://huggingface.co/mudler):
+
+| Variant    | HF repo                                                                                  |
+|------------|------------------------------------------------------------------------------------------|
+| Nano       | [mudler/rfdetr-cpp-nano](https://huggingface.co/mudler/rfdetr-cpp-nano)                  |
+| Small      | [mudler/rfdetr-cpp-small](https://huggingface.co/mudler/rfdetr-cpp-small)                |
+| Base       | [mudler/rfdetr-cpp-base](https://huggingface.co/mudler/rfdetr-cpp-base)                  |
+| Medium     | [mudler/rfdetr-cpp-medium](https://huggingface.co/mudler/rfdetr-cpp-medium)              |
+| Large      | [mudler/rfdetr-cpp-large](https://huggingface.co/mudler/rfdetr-cpp-large)                |
+| Seg-Nano   | [mudler/rfdetr-cpp-seg-nano](https://huggingface.co/mudler/rfdetr-cpp-seg-nano)          |
+| Seg-Small  | [mudler/rfdetr-cpp-seg-small](https://huggingface.co/mudler/rfdetr-cpp-seg-small)        |
+| Seg-Medium | [mudler/rfdetr-cpp-seg-medium](https://huggingface.co/mudler/rfdetr-cpp-seg-medium)      |
+
+Each repo contains the F32, F16, Q8_0, and Q4_K quantizations plus a
+data-driven model card with per-quant recall, mask quality (for seg
+variants), and latency from the Phase 2 sweep.
+
+**F16 is recommended** — same accuracy as F32, ~1.85× smaller, and the
+fastest variant on CPU on every variant we measured. Download with:
+
+```sh
+hf download mudler/rfdetr-cpp-base rfdetr-base-f16.gguf --local-dir models/
+```
+
 ## License
 
 Apache-2.0. See `LICENSE`.

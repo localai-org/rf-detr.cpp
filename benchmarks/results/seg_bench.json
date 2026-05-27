@@ -1,0 +1,50 @@
+{
+  "image": "/tmp/coco_sample.jpg",
+  "threads": 8,
+  "iters": 10,
+  "warmup": 2,
+  "results": [
+    {
+      "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-seg-nano-f32.gguf",
+      "image": "/tmp/coco_sample.jpg (640x427)",
+      "threads": 8,
+      "load_ms": 47.27,
+      "warmup": 2,
+      "iters": 10,
+      "detections": 7,
+      "min_ms": 178.4,
+      "median_ms": 588.83,
+      "mean_ms": 992.31,
+      "max_ms": 5383.07,
+      "variant": "seg-nano"
+    },
+    {
+      "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-seg-small-f32.gguf",
+      "image": "/tmp/coco_sample.jpg (640x427)",
+      "threads": 8,
+      "load_ms": 66.18,
+      "warmup": 2,
+      "iters": 10,
+      "detections": 8,
+      "min_ms": 223.25,
+      "median_ms": 391.74,
+      "mean_ms": 436.78,
+      "max_ms": 910.47,
+      "variant": "seg-small"
+    },
+    {
+      "model": "/home/mudler/_git/rt-detr.cpp/models/rfdetr-seg-medium-f32.gguf",
+      "image": "/tmp/coco_sample.jpg (640x427)",
+      "threads": 8,
+      "load_ms": 50.58,
+      "warmup": 2,
+      "iters": 10,
+      "detections": 8,
+      "min_ms": 206.17,
+      "median_ms": 281.63,
+      "mean_ms": 286.01,
+      "max_ms": 336.31,
+      "variant": "seg-medium"
+    }
+  ]
+}

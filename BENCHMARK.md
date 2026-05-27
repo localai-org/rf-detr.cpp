@@ -598,7 +598,7 @@ useful only for quick smoke runs).
 ## Build-time optimizations that matter
 
 These are enabled in the default CMake config; the
-[git log](https://github.com/mudler/rt-detr.cpp/commits/main) has the
+[git log](https://github.com/mudler/rf-detr.cpp/commits/main) has the
 incremental record. The headline win that closed the gap to PyTorch was a
 **persistent ggml graph allocator** that holds the ~1.9 GB scratch buffer
 across inferences — see commit `0d3f3c1` (perf(forward): persist gallocr
