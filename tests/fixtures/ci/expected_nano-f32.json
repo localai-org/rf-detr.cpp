@@ -1,0 +1,11 @@
+{
+  "image": {"width": 480, "height": 320},
+  "detections": [
+    {"class_id": 1, "class_name": "person", "score": 0.939234, "bbox": [290.771, 49.4925, 374.323, 260.787]},
+    {"class_id": 51, "class_name": "bowl", "score": 0.902171, "bbox": [23.7141, 257.998, 75.3261, 289.455]},
+    {"class_id": 51, "class_name": "bowl", "score": 0.807787, "bbox": [44.9053, 216.091, 99.4345, 247.12]},
+    {"class_id": 1, "class_name": "person", "score": 0.631478, "bbox": [0.0780702, 196.806, 45.2694, 227.136]},
+    {"class_id": 79, "class_name": "oven", "score": 0.602144, "bbox": [367.863, 149.848, 465.388, 258.34]},
+    {"class_id": 67, "class_name": "dining table", "score": 0.529048, "bbox": [1.81106, 176.404, 260.552, 316.618]}
+  ]
+}
