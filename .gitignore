@@ -1,0 +1,47 @@
+# Build
+build/
+build-*/
+cmake-build-*/
+out/
+
+# Binaries / artifacts
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Models
+*.gguf
+*.safetensors
+*.pt
+models/*
+!models/MANIFEST.md
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+tests/fixtures/generated/
+tests/fixtures/*.png
+tests/parity/bundles/
+
+# Benchmark images (not ours to redistribute — re-fetch with
+# scripts/bench_community.py or curl from images.cocodataset.org).
+# Bench results JSON and rendered plots ARE committed.
+benchmarks/images/

@@ -1,0 +1,10 @@
+{
+  "image": {"width": 480, "height": 320},
+  "detections": [
+    {"class_id": 1, "class_name": "person", "score": 0.939271, "bbox": [290.785, 49.5107, 374.318, 260.777]},
+    {"class_id": 51, "class_name": "bowl", "score": 0.902334, "bbox": [23.7148, 257.996, 75.3266, 289.454]},
+    {"class_id": 51, "class_name": "bowl", "score": 0.807831, "bbox": [44.9091, 216.088, 99.4327, 247.12]},
+    {"class_id": 1, "class_name": "person", "score": 0.631223, "bbox": [0.082199, 196.809, 45.2742, 227.136]},
+    {"class_id": 79, "class_name": "oven", "score": 0.603078, "bbox": [367.884, 149.846, 465.399, 258.359]}
+  ]
+}

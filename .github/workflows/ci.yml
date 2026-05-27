@@ -1,0 +1,257 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs for the same ref when a new push arrives
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # -----------------------------------------------------------------------
+  # build: configure, compile, run unit tests.
+  # Tests that need pre-built model files skip gracefully when absent.
+  # -----------------------------------------------------------------------
+  build:
+    name: Build & unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential python3 python3-venv ccache
+
+      - name: ccache cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ runner.os }}-
+
+      - name: Configure ccache
+        run: |
+          ccache --max-size=500M
+          ccache --zero-stats || true
+          echo "/usr/lib/ccache" >> "$GITHUB_PATH"
+
+      - name: Configure CMake
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DRFDETR_BUILD_TESTS=ON \
+            -DRFDETR_BUILD_CLI=ON \
+            -DGGML_NATIVE=ON \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build
+        run: cmake --build build -j 2
+
+      - name: ccache stats
+        run: ccache --show-stats || true
+
+      - name: Run unit tests
+        # Tests gated on missing model files print "SKIP" and return success.
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Upload build artifacts for smoke-test job
+        uses: actions/upload-artifact@v4
+        with:
+          name: rfdetr-build-${{ github.sha }}
+          path: |
+            build/bin/rfdetr-cli
+            build/lib/
+          retention-days: 1
+          if-no-files-found: error
+
+  # -----------------------------------------------------------------------
+  # smoke-test: download nano (all 4 quants) + base-f16 from HF, run detect
+  # on a committed test image, compare JSON output against committed refs.
+  #
+  # Downloaded GGUF disk usage estimate:
+  #   nano: f32 113M + f16 61M + q8_0 36M + q4_K 30M = ~240 MB
+  #   base-f16: ~64 MB
+  #   seg-nano-f16: ~62 MB
+  # Total: ~370 MB. Well within the 14 GB free-runner budget.
+  # -----------------------------------------------------------------------
+  smoke-test:
+    name: Functional smoke test (HF models)
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 25
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3 python3-pip
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: rfdetr-build-${{ github.sha }}
+          path: build/
+
+      - name: Make rfdetr-cli executable
+        run: |
+          chmod +x build/bin/rfdetr-cli
+          ./build/bin/rfdetr-cli info --model /dev/null 2>&1 | head -3 || true
+
+      - name: Install huggingface_hub
+        run: pip install --quiet 'huggingface_hub>=0.27'
+
+      - name: Detect HF CLI name
+        id: hfcli
+        run: |
+          if command -v hf >/dev/null 2>&1; then
+            echo "name=hf" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=huggingface-cli" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Using: $(command -v hf || command -v huggingface-cli)"
+
+      - name: Download detection models from HF (nano x4 + base-f16)
+        env:
+          HF_CLI: ${{ steps.hfcli.outputs.name }}
+        run: |
+          mkdir -p models
+          set +e
+          fail_dl=0
+          for q in f32 f16 q8_0 q4_K; do
+            echo "::group::Download rfdetr-nano-${q}.gguf"
+            "$HF_CLI" download mudler/rfdetr-cpp-nano "rfdetr-nano-${q}.gguf" --local-dir models/ \
+              || { echo "::warning::Failed to download rfdetr-nano-${q}.gguf"; fail_dl=$((fail_dl+1)); }
+            echo "::endgroup::"
+          done
+          echo "::group::Download rfdetr-base-f16.gguf"
+          "$HF_CLI" download mudler/rfdetr-cpp-base "rfdetr-base-f16.gguf" --local-dir models/ \
+            || { echo "::warning::Failed to download rfdetr-base-f16.gguf"; fail_dl=$((fail_dl+1)); }
+          echo "::endgroup::"
+          ls -lah models/
+          if [ "$fail_dl" -gt 0 ]; then
+            echo "::warning::$fail_dl model(s) failed to download — corresponding variants will be skipped"
+          fi
+          exit 0
+
+      - name: Detection smoke test (5 variants)
+        run: |
+          set +e
+          mkdir -p /tmp/ci-detect
+          fail=0
+          ran=0
+          missing=()
+          variants="nano-f32 nano-f16 nano-q8_0 nano-q4_K base-f16"
+          for v in $variants; do
+            model="models/rfdetr-${v}.gguf"
+            expected="tests/fixtures/ci/expected_${v}.json"
+            actual="/tmp/ci-detect/detect_${v}.json"
+
+            if [ ! -f "$model" ]; then
+              echo "::warning::SKIP ${v} — model file missing (download failed?)"
+              missing+=("$v")
+              continue
+            fi
+            if [ ! -f "$expected" ]; then
+              echo "::error::No reference fixture for ${v} at ${expected}"
+              fail=$((fail+1))
+              continue
+            fi
+
+            echo "::group::detect ${v}"
+            ./build/bin/rfdetr-cli detect \
+              --model "$model" \
+              --input tests/fixtures/ci/test_image.jpg \
+              --threshold 0.55 \
+              --threads 2 \
+              --output "$actual"
+            rc=$?
+            if [ $rc -ne 0 ]; then
+              echo "::error::rfdetr-cli detect failed for ${v} (exit ${rc})"
+              fail=$((fail+1))
+              echo "::endgroup::"
+              continue
+            fi
+
+            python3 tests/ci/compare_detections.py \
+              --actual "$actual" \
+              --reference "$expected" \
+              --label "${v}"
+            rc=$?
+            if [ $rc -ne 0 ]; then
+              echo "::error::Regression detected for ${v}"
+              fail=$((fail+1))
+            else
+              ran=$((ran+1))
+            fi
+            echo "::endgroup::"
+          done
+
+          echo ""
+          echo "==================== Detection smoke summary ===================="
+          echo "  variants passed:   $ran"
+          echo "  variants failed:   $fail"
+          echo "  variants skipped:  ${#missing[@]} (${missing[*]:-none})"
+          echo "================================================================="
+
+          if [ "$fail" -gt 0 ]; then
+            echo "::error::$fail detection regression(s) detected"
+            exit 1
+          fi
+          if [ "$ran" -eq 0 ]; then
+            echo "::error::No detection smoke tests ran (all variants skipped — likely HF outage)"
+            exit 1
+          fi
+
+      - name: Download segmentation model (optional smoke)
+        id: dl_seg
+        continue-on-error: true
+        env:
+          HF_CLI: ${{ steps.hfcli.outputs.name }}
+        run: |
+          "$HF_CLI" download mudler/rfdetr-cpp-seg-nano "rfdetr-seg-nano-f16.gguf" --local-dir models/
+
+      - name: Segmentation smoke test (mask output)
+        if: steps.dl_seg.outcome == 'success'
+        run: |
+          mkdir -p /tmp/ci-seg/masks
+          ./build/bin/rfdetr-cli detect \
+            --model models/rfdetr-seg-nano-f16.gguf \
+            --input tests/fixtures/ci/test_image.jpg \
+            --threshold 0.5 \
+            --threads 2 \
+            --masks /tmp/ci-seg/masks \
+            --output /tmp/ci-seg/seg.json
+          n_masks=$(find /tmp/ci-seg/masks/ -maxdepth 1 -type f | wc -l)
+          echo "wrote ${n_masks} masks"
+          if [ "$n_masks" -lt 1 ]; then
+            echo "::error::FAIL — segmentation model produced no masks"
+            exit 1
+          fi
+          n_dets=$(python3 -c "import json; print(len(json.load(open('/tmp/ci-seg/seg.json'))['detections']))")
+          echo "seg-nano-f16: ${n_dets} detections, ${n_masks} masks"
+
+      - name: Upload CI detection outputs (for debugging)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-detect-outputs-${{ github.sha }}
+          path: |
+            /tmp/ci-detect/
+            /tmp/ci-seg/
+          retention-days: 7
+          if-no-files-found: ignore

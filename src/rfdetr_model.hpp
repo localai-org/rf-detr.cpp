@@ -1,0 +1,64 @@
+#ifndef RFDETR_MODEL_HPP
+#define RFDETR_MODEL_HPP
+
+#include "model_loader.hpp"
+#include "backend.hpp"
+
+#include <cstdint>
+#include <vector>
+
+struct ggml_backend;
+typedef struct ggml_backend* ggml_backend_t;
+
+namespace rfdetr {
+
+/* Host-side result of the full forward pass at inference.
+ *
+ *   class_logits  shape (num_classes, num_queries) row-major in this vector
+ *                 (i.e. class is fastest-varying — matches ggml ne[0]=num_classes
+ *                 from heads.class_logits, which is what postprocess expects).
+ *                 RAW logits (apply sigmoid in postproc).
+ *   bbox_cxcywh   shape (4, num_queries) row-major — (cx, cy, w, h) in [0, 1]
+ *                 after bbox_reparam (delta combined with refpoints).
+ *   masks         (optional, only when has_segmentation_head=true) — flat raw
+ *                 mask logits in (W_mask, H_mask, num_queries) layout, with
+ *                 W_mask = image_size / mask_downsample_ratio and likewise H.
+ *                 Empty if the model has no seg head.
+ *   mask_w, mask_h spatial extent of `masks` (0/0 if no seg head).
+ *
+ * On failure all vectors are empty (and status is logged via rfdetr_logf). */
+struct ForwardOutput {
+    std::vector<float> class_logits;   // size = num_classes * num_queries
+    std::vector<float> bbox_cxcywh;    // size = 4 * num_queries
+    std::vector<float> masks;          // size = mask_h * mask_w * num_queries (or 0)
+    int mask_h = 0;
+    int mask_w = 0;
+    int num_queries = 0;
+    int num_classes = 0;
+};
+
+/* Run the full forward pipeline end-to-end:
+ *
+ *   preprocessed input → backbone → projector → two_stage init → CPU top-K
+ *   + refpoint construction → decoder → heads → bbox_reparam → output.
+ *
+ *   input_data: preprocessed F32 buffer, shape (image_size, image_size, 3, 1)
+ *               (matches `rfdetr_preprocess` output). Already ImageNet-normalized.
+ *   input_size: image_size (square, must equal model's `config.image_size`).
+ *   bctx:       backend bundle (CPU + optional BLAS via sched) the model
+ *               weights were realized on (weights live on bctx.cpu's buffer).
+ *
+ * Returns empty vectors in the ForwardOutput on failure. */
+ForwardOutput rfdetr_model_forward(const Model& m,
+                                   const float* input_data, int input_size,
+                                   BackendCtx& bctx);
+
+/* Single-backend overload for tests / parity harnesses that don't need BLAS
+ * dispatch. Internally builds a transient BackendCtx with only `cpu` set. */
+ForwardOutput rfdetr_model_forward(const Model& m,
+                                   const float* input_data, int input_size,
+                                   ggml_backend_t backend);
+
+}  // namespace rfdetr
+
+#endif
