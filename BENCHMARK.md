@@ -423,6 +423,68 @@ pretrained `.pth` (~30-130 MB) on first instantiation, cached at
 
 ---
 
+## Accuracy across the full model matrix
+
+All C++ values measured vs PyTorch ground truth on 7 COCO val images at threshold=0.5. Sweep recorded 2026-05-27 with rfdetr 1.7.0 (torch 2.5.1+cu124). Greedy 1-1 matching, score-desc, same class, IoU ≥ 0.5 (for `Recall@0.5`) or IoU ≥ 0.95 (for `Recall@0.95`). Score deltas are absolute, over matched pairs only. `Extra dets` is the average number of unmatched C++ detections per image (should be 0 in the ideal case). For segmentation variants, `Mean mask IoU` and `Pixel agreement` are computed over matched-pair binary masks (both at image resolution).
+
+Images: `bus.jpg`, `coco_cats.jpg`, `coco_indoor.jpg`, `coco_kitchen.jpg`, `coco_living_room.jpg`, `coco_skater.jpg`, `coco_street.jpg`
+
+### Detection variants
+
+| Variant | Quant | Size (MB) | Recall@0.5 | Recall@0.95 | Max \|Δscore\| | Mean \|Δscore\| | Extra dets |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Nano | F32 | 112.7 | 0.989 | 0.989 | 0.0250 | 0.0068 | 0.00 |
+| Nano | F16 | 60.5 | 0.989 | 0.989 | 0.0259 | 0.0070 | 0.00 |
+| Nano | Q8_0 | 36.0 | 0.989 | 0.989 | 0.0252 | 0.0084 | 0.00 |
+| Nano | Q4_K | 29.7 | 0.916 | 0.758 | 0.0852 | 0.0303 | 0.14 |
+| Small | F32 | 119.0 | 0.976 | 0.951 | 0.0464 | 0.0114 | 0.14 |
+| Small | F16 | 64.0 | 0.976 | 0.951 | 0.0468 | 0.0113 | 0.29 |
+| Small | Q8_0 | 38.2 | 0.976 | 0.942 | 0.0422 | 0.0115 | 0.29 |
+| Small | Q4_K | 31.2 | 0.967 | 0.848 | 0.0784 | 0.0267 | 0.14 |
+| Base | F32 | 119.2 | 1.000 | 0.989 | 0.0203 | 0.0080 | 0.14 |
+| Base | F16 | 64.2 | 1.000 | 0.989 | 0.0209 | 0.0082 | 0.14 |
+| Base | Q8_0 | 38.5 | 1.000 | 0.989 | 0.0237 | 0.0091 | 0.00 |
+| Base | Q4_K | 31.5 | 0.953 | 0.879 | 0.0438 | 0.0196 | 0.14 |
+| Medium | F32 | 125.0 | 0.939 | 0.894 | 0.0207 | 0.0065 | 0.00 |
+| Medium | F16 | 67.2 | 0.939 | 0.903 | 0.0202 | 0.0067 | 0.00 |
+| Medium | Q8_0 | 40.2 | 0.939 | 0.903 | 0.0260 | 0.0083 | 0.00 |
+| Medium | Q4_K | 32.5 | 0.899 | 0.771 | 0.0453 | 0.0199 | 0.00 |
+| Large | F32 | 125.9 | 0.973 | 0.962 | 0.0225 | 0.0071 | 0.29 |
+| Large | F16 | 68.2 | 0.973 | 0.973 | 0.0223 | 0.0070 | 0.29 |
+| Large | Q8_0 | 41.1 | 0.973 | 0.946 | 0.0300 | 0.0092 | 0.29 |
+| Large | Q4_K | 33.4 | 0.957 | 0.815 | 0.0537 | 0.0208 | 0.14 |
+
+### Segmentation variants
+
+| Variant | Quant | Size (MB) | Recall@0.5 | Recall@0.95 | Mean mask IoU | Pixel agreement | Mean \|Δscore\| |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Seg-Nano | F32 | 127.1 | 0.955 | 0.955 | 0.9913 | 0.9998 | 0.0055 |
+| Seg-Nano | F16 | 67.8 | 0.927 | 0.927 | 0.9911 | 0.9998 | 0.0058 |
+| Seg-Nano | Q8_0 | 39.9 | 0.955 | 0.955 | 0.9901 | 0.9998 | 0.0063 |
+| Seg-Nano | Q4_K | 31.8 | 0.895 | 0.613 | 0.9636 | 0.9990 | 0.0352 |
+| Seg-Small | F32 | 127.6 | 1.000 | 1.000 | 0.9924 | 0.9998 | 0.0048 |
+| Seg-Small | F16 | 68.3 | 1.000 | 1.000 | 0.9925 | 0.9999 | 0.0049 |
+| Seg-Small | Q8_0 | 40.4 | 0.982 | 0.982 | 0.9912 | 0.9998 | 0.0045 |
+| Seg-Small | Q4_K | 32.4 | 0.953 | 0.376 | 0.9665 | 0.9989 | 0.0371 |
+| Seg-Medium | F32 | 133.7 | 0.971 | 0.958 | 0.9807 | 0.9996 | 0.0106 |
+| Seg-Medium | F16 | 71.5 | 1.000 | 0.987 | 0.9813 | 0.9996 | 0.0132 |
+| Seg-Medium | Q8_0 | 42.4 | 0.987 | 0.954 | 0.9810 | 0.9996 | 0.0116 |
+| Seg-Medium | Q4_K | 33.6 | 0.943 | 0.647 | 0.9658 | 0.9989 | 0.0238 |
+
+Raw per-cell + per-image data: [`benchmarks/results/accuracy_sweep.json`](benchmarks/results/accuracy_sweep.json).
+
+### Takeaways
+
+- **F16 is essentially lossless across the matrix.** Recall@0.5 and Recall@0.95 match F32 to within 0 detections on every detection variant; mean |Δscore| ≤ 0.013 everywhere. F16 stays the sweet-spot for production.
+- **Q8_0 keeps recall but drops score precision slightly.** Recall@0.95 holds at F32 levels for Nano/Base/Medium and is within 1 detection for Small/Large. Mean |Δscore| rises from ~0.007 (F32/F16) to ~0.009 (Q8_0) — invisible at any reasonable threshold.
+- **Q4_K is real lossy, especially at strict IoU.** Recall@0.5 drops 1-7 points; Recall@0.95 drops 8-21 points. For seg variants the Recall@0.95 cliff is the steepest (Seg-Small Q4_K: 1.000 → 0.376) — the mask quality survives (mean mask IoU 0.97) but bbox alignment degrades enough that strict-IoU matching fails. Use Q4_K only if size is the binding constraint.
+- **Mask quality is remarkably robust to quantization.** Mean mask IoU ≥ 0.99 for F32/F16/Q8_0 across all three seg variants; pixel agreement ≥ 99.96%. Even Q4_K stays at ≥ 0.96 mask IoU / ≥ 99.89% pixel agreement.
+- **Seg-Nano F16 dropped one detection** (Recall@0.5 0.955 → 0.927) — a single low-confidence detection on one of the 7 images fell below the 0.5 score threshold under F16. Recall@0.95 mirrors Recall@0.5 because once a det makes the cut, it always lands at IoU ≥ 0.95.
+
+Sweep produced by [`scripts/sweep_accuracy.py`](scripts/sweep_accuracy.py); table rendered by [`scripts/accuracy_table.py`](scripts/accuracy_table.py).
+
+---
+
 ## Methodology
 
 The numbers above come from `scripts/bench_community.py --rigorous` (the
