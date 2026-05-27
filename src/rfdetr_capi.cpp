@@ -161,6 +161,13 @@ extern "C" int rfdetr_capi_detect_path(rfdetr_handle_t handle, const char* image
     if (!handle || !image_path || !out_json) return -1;
     *out_json = nullptr;
 
+    /* Clear stale results before image load so an early-failure detect call
+     * cannot leave the previous batch readable via the accessors. */
+    if (auto* h = (CapiHandle*)handle) {
+        h->last_detections.clear();
+        h->last_json.clear();
+    }
+
     rfdetr_status load_st;
     rfdetr_image* img = rfdetr_image_load_file(image_path, &load_st);
     if (!img) return (int)load_st;
@@ -176,6 +183,11 @@ extern "C" int rfdetr_capi_detect_buffer(rfdetr_handle_t handle,
                                          char** out_json) {
     if (!handle || !bytes || len == 0 || !out_json) return -1;
     *out_json = nullptr;
+
+    if (auto* h = (CapiHandle*)handle) {
+        h->last_detections.clear();
+        h->last_json.clear();
+    }
 
     rfdetr_status load_st;
     rfdetr_image* img = rfdetr_image_load_buffer(bytes, len, &load_st);
