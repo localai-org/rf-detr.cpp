@@ -83,6 +83,13 @@ add_dependencies(test_capi rfdetr_model_fixture rfdetr_fixtures)
 rfdetr_add_test(test_capi_flat)
 add_dependencies(test_capi_flat rfdetr_model_fixture rfdetr_fixtures)
 
+# Exercises every flat-C-API accessor (n_detections, class_id, class_name,
+# box, score, mask_png) on a real GGUF. Skips gracefully if no real model
+# is present.
+rfdetr_add_test(test_capi_accessors)
+target_compile_definitions(test_capi_accessors PRIVATE
+    RFDETR_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+
 # ---------------------------------------------------------------------------
 # Plan 13: torch parity baseline (regenerated on demand, NOT in ALL).
 #
