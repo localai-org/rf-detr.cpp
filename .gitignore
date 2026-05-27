@@ -16,7 +16,8 @@ out/
 *.gguf
 *.safetensors
 *.pt
-models/
+models/*
+!models/MANIFEST.md
 
 # Python
 __pycache__/
