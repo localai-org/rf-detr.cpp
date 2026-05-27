@@ -43,4 +43,13 @@ rfdetr_status rfdetr_write_gray_png(const char* path,
 }
 #endif
 
+#ifdef __cplusplus
+/* C++-only helper: PNG-encode a grayscale buffer into an in-memory vector.
+ * Same input layout as rfdetr_write_gray_png (row-major, 1 byte per pixel).
+ * Used by the flat C-API accessor for serving masks to LocalAI without
+ * hitting disk. Returns true on success, false on encoding failure. */
+bool rfdetr_encode_gray_png(const uint8_t* data, int width, int height,
+                            std::vector<uint8_t>& out);
+#endif
+
 #endif

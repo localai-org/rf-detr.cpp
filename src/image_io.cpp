@@ -125,6 +125,22 @@ extern "C" rfdetr_status rfdetr_write_gray_png(const char* path,
     return RFDETR_OK;
 }
 
+static void rfdetr_png_writer_callback(void* ctx, void* data, int size) {
+    auto* v = static_cast<std::vector<uint8_t>*>(ctx);
+    if (!v || !data || size <= 0) return;
+    const auto* p = static_cast<const uint8_t*>(data);
+    v->insert(v->end(), p, p + size);
+}
+
+bool rfdetr_encode_gray_png(const uint8_t* data, int width, int height,
+                            std::vector<uint8_t>& out) {
+    out.clear();
+    if (!data || width <= 0 || height <= 0) return false;
+    int rc = stbi_write_png_to_func(rfdetr_png_writer_callback, &out,
+                                    width, height, /*channels*/ 1, data, width);
+    return rc != 0 && !out.empty();
+}
+
 extern "C" rfdetr_status rfdetr_preprocess(const rfdetr_image* img,
                                            int target_w, int target_h,
                                            const float mean[3], const float std_[3],
