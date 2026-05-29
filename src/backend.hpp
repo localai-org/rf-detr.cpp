@@ -12,6 +12,10 @@ typedef struct ggml_threadpool* ggml_threadpool_t;
 struct ggml_cgraph;
 struct ggml_gallocr;
 typedef struct ggml_gallocr* ggml_gallocr_t;
+struct ggml_backend_sched;
+typedef struct ggml_backend_sched* ggml_backend_sched_t;
+struct ggml_backend_buffer_type;
+typedef struct ggml_backend_buffer_type* ggml_backend_buffer_type_t;
 
 namespace rfdetr {
 
@@ -57,6 +61,18 @@ struct BackendCtx {
      * Lazily created on first use, freed in free_backend_ctx. */
     ggml_gallocr_t       galloc_a    = nullptr;
     ggml_gallocr_t       galloc_b    = nullptr;
+
+    /* Optional GPU backend (CUDA / Metal / Vulkan), created when the
+     * library was built with one of RFDETR_USE_CUDA / _METAL / _VULKAN
+     * AND a device is actually present at runtime. nullptr on CPU-only
+     * builds or when no device is found. */
+    ggml_backend_t       gpu        = nullptr;
+
+    /* Scheduler spanning [gpu, cpu] when gpu != nullptr. Routes ops to the
+     * GPU and falls back to CPU for ops the GPU backend can't run (notably
+     * the deformable-attention ggml_custom_4d sampler). When gpu == nullptr
+     * this stays null and we use the plain CPU compute path. */
+    ggml_backend_sched_t sched      = nullptr;
 };
 
 /* Initialize the compute backend bundle. Creates a CPU backend and attaches
@@ -69,8 +85,21 @@ BackendCtx init_backend_ctx(int n_threads, rfdetr_status* out_status);
 /* Release a BackendCtx. Safe to call on a zero-initialized struct. */
 void free_backend_ctx(BackendCtx& ctx);
 
-/* Run a graph on the bundle's CPU backend. */
-int /* ggml_status */ backend_ctx_graph_compute(BackendCtx& ctx, ::ggml_cgraph* graph);
+/* Buffer type that model weights should be realized on. Returns the GPU
+ * backend's default buffer type when a GPU is active (so weights live in
+ * VRAM), otherwise the CPU host buffer type. Never returns null on a
+ * successfully-initialized BackendCtx. */
+ggml_backend_buffer_type_t backend_ctx_weight_buft(const BackendCtx& ctx);
+
+/* Allocate + run a graph on the bundle. When a GPU + sched are present the
+ * graph is allocated and computed via ggml_backend_sched (which places ops
+ * across GPU/CPU and inserts cross-device copies as needed). On CPU-only
+ * bundles it falls back to the persistent-gallocr + cpu-backend path.
+ *
+ * `which_graph` selects the persistent allocator slot on CPU-only builds
+ * (0 = graph A, 1 = graph B). Ignored when the sched is active (the sched
+ * owns allocation). */
+int /* ggml_status */ backend_ctx_graph_compute(BackendCtx& ctx, ::ggml_cgraph* graph, int which_graph);
 
 }  // namespace rfdetr
 
