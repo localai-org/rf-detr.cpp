@@ -6,7 +6,58 @@
 #include "ggml-backend.h"
 #include "ggml-cpu.h"
 
+#if defined(RFDETR_USE_CUDA)
+#include "ggml-cuda.h"
+#endif
+#if defined(RFDETR_USE_METAL)
+#include "ggml-metal.h"
+#endif
+#if defined(RFDETR_USE_VULKAN)
+#include "ggml-vulkan.h"
+#endif
+
+#include <vector>
+
 namespace rfdetr {
+
+/* Try to create a GPU backend if one was compiled in and a device exists.
+ * Returns nullptr (not an error) when no GPU backend is built or no device
+ * is present — the caller falls back to CPU-only. */
+static ggml_backend_t try_init_gpu_backend() {
+#if defined(RFDETR_USE_CUDA)
+    int n = ggml_backend_cuda_get_device_count();
+    if (n > 0) {
+        ggml_backend_t b = ggml_backend_cuda_init(0);  // device 0
+        if (b) {
+            rfdetr_logf(RFDETR_LOG_INFO, "GPU backend: CUDA device 0 (%d available)", n);
+            return b;
+        }
+        rfdetr_logf(RFDETR_LOG_WARN, "ggml_backend_cuda_init(0) failed; using CPU");
+    }
+    return nullptr;
+#elif defined(RFDETR_USE_METAL)
+    ggml_backend_t b = ggml_backend_metal_init();
+    if (b) {
+        rfdetr_logf(RFDETR_LOG_INFO, "GPU backend: Metal");
+        return b;
+    }
+    rfdetr_logf(RFDETR_LOG_WARN, "ggml_backend_metal_init failed; using CPU");
+    return nullptr;
+#elif defined(RFDETR_USE_VULKAN)
+    int n = ggml_backend_vk_get_device_count();
+    if (n > 0) {
+        ggml_backend_t b = ggml_backend_vk_init(0);
+        if (b) {
+            rfdetr_logf(RFDETR_LOG_INFO, "GPU backend: Vulkan device 0 (%d available)", n);
+            return b;
+        }
+        rfdetr_logf(RFDETR_LOG_WARN, "ggml_backend_vk_init(0) failed; using CPU");
+    }
+    return nullptr;
+#else
+    return nullptr;  // CPU-only build
+#endif
+}
 
 ggml_backend_t init_backend(int n_threads, rfdetr_status* out_status) {
     auto set = [&](rfdetr_status s) { if (out_status) *out_status = s; };
@@ -67,8 +118,36 @@ BackendCtx init_backend_ctx(int n_threads, rfdetr_status* out_status) {
         }
     }
 
+    /* Try a GPU backend. If present, build a scheduler spanning [gpu, cpu]
+     * so ops the GPU can't run (the deformable ggml_custom_4d) fall back to
+     * CPU automatically. */
+    ctx.gpu = try_init_gpu_backend();
+    if (ctx.gpu) {
+        std::vector<ggml_backend_t> backends = { ctx.gpu, ctx.cpu };
+        std::vector<ggml_backend_buffer_type_t> bufts = {
+            ggml_backend_get_default_buffer_type(ctx.gpu),
+            ggml_backend_get_default_buffer_type(ctx.cpu),
+        };
+        ctx.sched = ggml_backend_sched_new(
+            backends.data(), bufts.data(), (int)backends.size(),
+            /*graph_size*/ 16384, /*parallel*/ false, /*op_offload*/ true);
+        if (!ctx.sched) {
+            rfdetr_logf(RFDETR_LOG_WARN,
+                        "ggml_backend_sched_new failed; falling back to CPU-only");
+            ggml_backend_free(ctx.gpu);
+            ctx.gpu = nullptr;
+        }
+    }
+
     set(RFDETR_OK);
     return ctx;
+}
+
+ggml_backend_buffer_type_t backend_ctx_weight_buft(const BackendCtx& ctx) {
+    if (ctx.gpu) {
+        return ggml_backend_get_default_buffer_type(ctx.gpu);
+    }
+    return ggml_backend_get_default_buffer_type(ctx.cpu);
 }
 
 void free_backend_ctx(BackendCtx& ctx) {
@@ -85,6 +164,14 @@ void free_backend_ctx(BackendCtx& ctx) {
         ggml_gallocr_free(ctx.galloc_b);
         ctx.galloc_b = nullptr;
     }
+    if (ctx.sched) {
+        ggml_backend_sched_free(ctx.sched);
+        ctx.sched = nullptr;
+    }
+    if (ctx.gpu) {
+        ggml_backend_free(ctx.gpu);
+        ctx.gpu = nullptr;
+    }
     if (ctx.cpu) {
         ggml_backend_free(ctx.cpu);
         ctx.cpu = nullptr;
@@ -99,9 +186,21 @@ void free_backend_ctx(BackendCtx& ctx) {
     }
 }
 
-int backend_ctx_graph_compute(BackendCtx& ctx, ::ggml_cgraph* graph) {
+int backend_ctx_graph_compute(BackendCtx& ctx, ::ggml_cgraph* graph, int which_graph) {
+    if (ctx.sched) {
+        ggml_backend_sched_reset(ctx.sched);
+        if (!ggml_backend_sched_alloc_graph(ctx.sched, graph)) {
+            rfdetr_logf(RFDETR_LOG_ERROR,
+                        "backend_ctx_graph_compute: sched_alloc_graph failed");
+            return (int)GGML_STATUS_ALLOC_FAILED;
+        }
+        ggml_status st = ggml_backend_sched_graph_compute(ctx.sched, graph);
+        ggml_backend_sched_synchronize(ctx.sched);
+        return (int)st;
+    }
     ggml_status st = ggml_backend_graph_compute(ctx.cpu, graph);
     ggml_backend_synchronize(ctx.cpu);
+    (void)which_graph;
     return (int)st;
 }
 
