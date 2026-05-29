@@ -72,10 +72,12 @@ extern "C" rfdetr_context* rfdetr_init(const rfdetr_params* params, rfdetr_statu
         return nullptr;
     }
 
-    /* Weights are realized on the CPU backend's host buffer; both CPU and
-     * BLAS backends use ggml's host buffer type, so the BLAS backend can
-     * read them in-place via the sched. */
-    rfdetr_status rw_st = rfdetr::model_realize_weights(*m, bctx.cpu);
+    /* Realize weights on the GPU backend when one is active (offload to
+     * VRAM); otherwise on the CPU host buffer. The pos_embed bicubic
+     * resample inside model_realize_weights uses ggml_backend_tensor_get/set
+     * which work on any backend, so no other change is needed there. */
+    ggml_backend_t weight_backend = bctx.gpu ? bctx.gpu : bctx.cpu;
+    rfdetr_status rw_st = rfdetr::model_realize_weights(*m, weight_backend);
     if (rw_st != RFDETR_OK) {
         rfdetr::free_backend_ctx(bctx);
         rfdetr::model_free(m);
