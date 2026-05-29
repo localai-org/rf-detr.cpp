@@ -186,21 +186,40 @@ void free_backend_ctx(BackendCtx& ctx) {
     }
 }
 
-int backend_ctx_graph_compute(BackendCtx& ctx, ::ggml_cgraph* graph, int which_graph) {
+bool backend_ctx_graph_alloc(BackendCtx& ctx, ::ggml_cgraph* graph, int which_graph) {
     if (ctx.sched) {
         ggml_backend_sched_reset(ctx.sched);
         if (!ggml_backend_sched_alloc_graph(ctx.sched, graph)) {
-            rfdetr_logf(RFDETR_LOG_ERROR,
-                        "backend_ctx_graph_compute: sched_alloc_graph failed");
-            return (int)GGML_STATUS_ALLOC_FAILED;
+            rfdetr_logf(RFDETR_LOG_ERROR, "backend_ctx_graph_alloc: sched alloc failed");
+            return false;
         }
+        return true;
+    }
+    /* CPU path: persistent gallocr per graph. */
+    ggml_gallocr_t* slot = (which_graph == 0) ? &ctx.galloc_a : &ctx.galloc_b;
+    if (!*slot) {
+        *slot = ggml_gallocr_new(ggml_backend_get_default_buffer_type(ctx.cpu));
+        if (!*slot) {
+            rfdetr_logf(RFDETR_LOG_ERROR, "backend_ctx_graph_alloc: gallocr_new failed");
+            return false;
+        }
+    }
+    if (!ggml_gallocr_alloc_graph(*slot, graph)) {
+        rfdetr_logf(RFDETR_LOG_ERROR, "backend_ctx_graph_alloc: gallocr_alloc_graph failed");
+        return false;
+    }
+    return true;
+}
+
+int backend_ctx_graph_compute(BackendCtx& ctx, ::ggml_cgraph* graph, int which_graph) {
+    (void)which_graph;
+    if (ctx.sched) {
         ggml_status st = ggml_backend_sched_graph_compute(ctx.sched, graph);
         ggml_backend_sched_synchronize(ctx.sched);
         return (int)st;
     }
     ggml_status st = ggml_backend_graph_compute(ctx.cpu, graph);
     ggml_backend_synchronize(ctx.cpu);
-    (void)which_graph;
     return (int)st;
 }
 

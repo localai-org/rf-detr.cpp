@@ -91,6 +91,12 @@ void free_backend_ctx(BackendCtx& ctx);
  * successfully-initialized BackendCtx. */
 ggml_backend_buffer_type_t backend_ctx_weight_buft(const BackendCtx& ctx);
 
+/* Allocate buffers for a graph. Uses the sched when active (GPU), else the
+ * persistent per-graph gallocr (which_graph: 0 = A, 1 = B). Returns false on
+ * allocation failure. Call this, then ggml_backend_tensor_set() the graph
+ * inputs, then backend_ctx_graph_compute(). */
+bool backend_ctx_graph_alloc(BackendCtx& ctx, ::ggml_cgraph* graph, int which_graph);
+
 /* Allocate + run a graph on the bundle. When a GPU + sched are present the
  * graph is allocated and computed via ggml_backend_sched (which places ops
  * across GPU/CPU and inserts cross-device copies as needed). On CPU-only

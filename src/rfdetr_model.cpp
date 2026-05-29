@@ -169,26 +169,13 @@ ForwardOutput rfdetr_model_forward(const Model& m,
         ggml_build_forward_expand(graphA, proj);
     }
 
-    /* Lazily create the per-graph gallocr the first time we run this graph,
-     * then reuse it on every subsequent inference. The gallocr packs
-     * intermediate tensors with lifetime-aware reuse (peak ~100 MB instead
-     * of the 1.9 GB that ggml_backend_alloc_ctx_tensors would consume) AND
-     * keeps the underlying compute buffer alive across calls — so we don't
-     * pay the ~55 ms/iter `free(1.9 GB)` munmap that was dominating
-     * non-compute overhead. */
-    if (!bctx.galloc_a) {
-        bctx.galloc_a = ggml_gallocr_new(
-            ggml_backend_get_default_buffer_type(backend));
-        if (!bctx.galloc_a) {
-            rfdetr_logf(RFDETR_LOG_ERROR,
-                        "rfdetr_model_forward: ggml_gallocr_new (A) failed");
-            ggml_free(gctxA);
-            return out;
-        }
-    }
-    if (!ggml_gallocr_alloc_graph(bctx.galloc_a, graphA)) {
-        rfdetr_logf(RFDETR_LOG_ERROR,
-                    "rfdetr_model_forward: ggml_gallocr_alloc_graph (A) failed");
+    /* Allocate buffers for the graph (sched on GPU, persistent gallocr on
+     * CPU — the gallocr packs intermediate tensors with lifetime-aware reuse
+     * and keeps the underlying compute buffer alive across calls, avoiding
+     * the ~55 ms/iter `free(1.9 GB)` munmap that otherwise dominates
+     * non-compute overhead). Inputs are set AFTER alloc, before compute. */
+    if (!backend_ctx_graph_alloc(bctx, graphA, /*which_graph*/ 0)) {
+        rfdetr_logf(RFDETR_LOG_ERROR, "rfdetr_model_forward: graph A alloc failed");
         ggml_free(gctxA);
         return out;
     }
@@ -196,7 +183,7 @@ ForwardOutput rfdetr_model_forward(const Model& m,
     ggml_backend_tensor_set(input_t, input_data, 0,
                             (size_t)input_size * input_size * 3 * sizeof(float));
 
-    ggml_status stA = (ggml_status)backend_ctx_graph_compute(bctx, graphA);
+    ggml_status stA = (ggml_status)backend_ctx_graph_compute(bctx, graphA, /*which_graph*/ 0);
     if (stA != GGML_STATUS_SUCCESS) {
         rfdetr_logf(RFDETR_LOG_ERROR,
                     "rfdetr_model_forward: graphA compute returned %d", (int)stA);
@@ -395,21 +382,11 @@ ForwardOutput rfdetr_model_forward(const Model& m,
         ggml_build_forward_expand(graphB, seg_masks_t);
     }
 
-    /* Same lazy-init + reuse pattern as graphA. See the comment at galloc_a
-     * for the rationale (saves ~55 ms/iter of buffer-free overhead). */
-    if (!bctx.galloc_b) {
-        bctx.galloc_b = ggml_gallocr_new(
-            ggml_backend_get_default_buffer_type(backend));
-        if (!bctx.galloc_b) {
-            rfdetr_logf(RFDETR_LOG_ERROR,
-                        "rfdetr_model_forward: ggml_gallocr_new (B) failed");
-            ggml_free(gctxB);
-            return out;
-        }
-    }
-    if (!ggml_gallocr_alloc_graph(bctx.galloc_b, graphB)) {
-        rfdetr_logf(RFDETR_LOG_ERROR,
-                    "rfdetr_model_forward: ggml_gallocr_alloc_graph (B) failed");
+    /* Same alloc-then-set-then-compute pattern as graphA. See the comment at
+     * graph A's alloc for the rationale. Inputs are set AFTER alloc, before
+     * compute. */
+    if (!backend_ctx_graph_alloc(bctx, graphB, /*which_graph*/ 1)) {
+        rfdetr_logf(RFDETR_LOG_ERROR, "rfdetr_model_forward: graph B alloc failed");
         ggml_free(gctxB);
         return out;
     }
@@ -423,7 +400,7 @@ ForwardOutput rfdetr_model_forward(const Model& m,
                                 proj_data.size() * sizeof(float));
     }
 
-    ggml_status stB = (ggml_status)backend_ctx_graph_compute(bctx, graphB);
+    ggml_status stB = (ggml_status)backend_ctx_graph_compute(bctx, graphB, /*which_graph*/ 1);
     if (stB != GGML_STATUS_SUCCESS) {
         rfdetr_logf(RFDETR_LOG_ERROR,
                     "rfdetr_model_forward: graphB compute returned %d", (int)stB);
