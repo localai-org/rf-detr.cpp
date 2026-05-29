@@ -271,8 +271,8 @@ rf-detr.cpp provides:
   `-DRFDETR_GGML_CUDA=ON` (or `_METAL` / `_VULKAN` / `_HIPBLAS`) and inference
   runs on the GPU: weights are realized in VRAM and the compute graph runs on
   the device, with the deformable-attention sampler automatically falling back
-  to CPU via the ggml scheduler. On-hardware benchmarks coming; the CPU path
-  remains the default and is the one all the numbers above were measured on.
+  to CPU via the ggml scheduler. Validated on an NVIDIA GB10: 23.6 ms/image
+  (F16) vs 274 ms on the same box's CPU — an 11.6x speedup.
 - A flat C ABI ([`include/rfdetr.h`](include/rfdetr.h)) for embedding via dlopen, purego,
   or cgo.
 - End-to-end parity validation against the upstream PyTorch reference, per-module and
@@ -322,9 +322,12 @@ attention bilinear sampler — is automatically run on CPU by the ggml
 scheduler, which inserts the device↔host copies. If no device is found at
 runtime, it falls back cleanly to CPU.
 
-> Status: the GPU path is wired and code-reviewed but not yet benchmarked on
-> real hardware. The CPU path is the validated default. On-hardware GPU
-> numbers will be added once measured.
+Validated on an NVIDIA GB10 (Grace Blackwell, CUDA 13, compute capability
+12.1): rfdetr-base F16 runs at **23.6 ms/image** on the GPU vs **274 ms** on
+the same box's 20-core ARM CPU (8 threads) — an **11.6x speedup**. Detections
+match the CPU baseline within the standard tolerance (score ≤ 0.05, bbox
+≤ 2 px); the 3 deformable-attention ops are confirmed running on CPU via the
+scheduler. See [BENCHMARK.md](BENCHMARK.md#gpu) for details.
 
 ## Tests
 
