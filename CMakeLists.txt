@@ -123,6 +123,24 @@ else()
     add_library(rfdetr STATIC ${RFDETR_SOURCES})
 endif()
 
+# Propagate the active GPU backend to src/backend.cpp so it knows which
+# ggml_backend_*_init() to call. ggml itself is configured above via the
+# GGML_* cache vars; these definitions just gate our wiring code.
+if(RFDETR_GGML_CUDA)
+    target_compile_definitions(rfdetr PRIVATE RFDETR_USE_CUDA)
+endif()
+if(RFDETR_GGML_METAL)
+    target_compile_definitions(rfdetr PRIVATE RFDETR_USE_METAL)
+endif()
+if(RFDETR_GGML_VULKAN)
+    target_compile_definitions(rfdetr PRIVATE RFDETR_USE_VULKAN)
+endif()
+if(RFDETR_GGML_HIPBLAS)
+    # HIP uses the CUDA backend code path in ggml (ggml_backend_cuda_init
+    # works for HIP builds). Expose the same define.
+    target_compile_definitions(rfdetr PRIVATE RFDETR_USE_CUDA)
+endif()
+
 target_include_directories(rfdetr
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
