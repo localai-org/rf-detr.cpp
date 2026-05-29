@@ -267,8 +267,12 @@ rf-detr.cpp provides:
 - Faster than PyTorch CPU on every variant we measured (1.05x to 1.45x across
   Nano-to-Medium).
 - Quantization down to about 30 MB (Q4_K) with measured accuracy tradeoffs.
-- CUDA / Metal / Vulkan support via ggml backends. CPU is the only one we ship and
-  benchmark today; the others compile but are not yet validated.
+- GPU offload via ggml backends (CUDA / Metal / Vulkan / HIP). Build with
+  `-DRFDETR_GGML_CUDA=ON` (or `_METAL` / `_VULKAN` / `_HIPBLAS`) and inference
+  runs on the GPU: weights are realized in VRAM and the compute graph runs on
+  the device, with the deformable-attention sampler automatically falling back
+  to CPU via the ggml scheduler. Validated on an NVIDIA GB10: 23.6 ms/image
+  (F16) vs 274 ms on the same box's CPU — an 11.6x speedup.
 - A flat C ABI ([`include/rfdetr.h`](include/rfdetr.h)) for embedding via dlopen, purego,
   or cgo.
 - End-to-end parity validation against the upstream PyTorch reference, per-module and
@@ -298,7 +302,32 @@ they're in place. Run `scripts/apply_ggml_patches.sh` manually to inspect the pa
 | `RFDETR_SHARED`           | OFF     | Build `librfdetr.so` (shared library for embedding)      |
 | `GGML_NATIVE`             | ON      | Compile ggml with `-march=native`                        |
 | `GGML_LLAMAFILE`          | ON      | Enable ggml's tinyBLAS SGEMM (closes most of the PyTorch gap) |
-| `GGML_CUDA` / `GGML_METAL` | OFF    | Enable GPU backends (untested for rf-detr.cpp, may need work) |
+| `RFDETR_GGML_CUDA` / `_METAL` / `_VULKAN` / `_HIPBLAS` | OFF | Offload inference to GPU. Weights go to VRAM; the deformable-attention sampler falls back to CPU via the ggml scheduler. One backend per build. |
+
+### GPU offload
+
+rf-detr.cpp can offload inference to a GPU via ggml's backends. Build with one
+of:
+
+```bash
+cmake -B build -DRFDETR_BUILD_CLI=ON -DRFDETR_GGML_CUDA=ON     # NVIDIA (CUDA)
+cmake -B build -DRFDETR_BUILD_CLI=ON -DRFDETR_GGML_HIPBLAS=ON  # AMD (ROCm/HIP)
+cmake -B build -DRFDETR_BUILD_CLI=ON -DRFDETR_GGML_METAL=ON    # Apple (Metal)
+cmake -B build -DRFDETR_BUILD_CLI=ON -DRFDETR_GGML_VULKAN=ON   # cross-vendor (Vulkan)
+```
+
+When a device is present, model weights are realized in VRAM and the compute
+graph runs on the GPU. The one op without a GPU kernel — the deformable-
+attention bilinear sampler — is automatically run on CPU by the ggml
+scheduler, which inserts the device↔host copies. If no device is found at
+runtime, it falls back cleanly to CPU.
+
+Validated on an NVIDIA GB10 (Grace Blackwell, CUDA 13, compute capability
+12.1): rfdetr-base F16 runs at **23.6 ms/image** on the GPU vs **274 ms** on
+the same box's 20-core ARM CPU (8 threads) — an **11.6x speedup**. Detections
+match the CPU baseline within the standard tolerance (score ≤ 0.05, bbox
+≤ 2 px); the 3 deformable-attention ops are confirmed running on CPU via the
+scheduler. See [BENCHMARK.md](BENCHMARK.md#gpu) for details.
 
 ## Tests
 

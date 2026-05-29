@@ -220,3 +220,9 @@ target_compile_definitions(test_variants PRIVATE
 # scripts/convert_rfdetr_to_gguf.py --checkpoint).
 rfdetr_add_test(test_custom_classes)
 
+# Plan GPU Task 6: backend GPU smoke test. Verifies the gpu/sched invariant
+# (gpu != null implies sched != null; no gpu implies no sched) plus cpu != null
+# and that free_backend_ctx works. Build-independent: passes on CPU-only
+# builds (prints "no GPU backend") and on GPU builds with/without a device.
+rfdetr_add_test(test_backend_gpu)
+

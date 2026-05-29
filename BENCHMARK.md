@@ -646,3 +646,37 @@ See the commit history for the full back-and-forth.
 - Bench images are not committed (`benchmarks/images/` is in `.gitignore`).
   The benchmark JSON and plot artifacts are committed and reproducible from
   any equivalent set of inputs.
+
+## GPU
+
+Built with `-DRFDETR_GGML_CUDA=ON`, rf-detr.cpp offloads weights to VRAM and
+runs the compute graph on the GPU. The deformable-attention bilinear sampler
+(`ggml_custom_4d`) has no GPU kernel, so the ggml scheduler runs those 3 ops
+(one per decoder layer) on CPU and inserts the device↔host copies
+automatically — confirmed via `GGML_SCHED_DEBUG=2`.
+
+| Device | Model | F16 median ms @ batch 1 | Same-box CPU F16 median ms | Speedup |
+|--------|-------|------------------------:|---------------------------:|--------:|
+| NVIDIA GB10 (Grace Blackwell, CUDA 13.0, cc 12.1, 122 GB) | rfdetr-base | **23.6** | 274 (20-core ARM, 8 threads) | **11.6x** |
+
+GPU bench: min 22.6 / median 23.6 / mean 23.5 / max 24.9 ms over 20 iters
+after 5 warmup. Same-box CPU bench: median 274 ms (the GB10's ARM CPU is much
+weaker than a desktop x86 part — the cross-machine comparison vs the Ryzen
+9950X3D's ~137 ms CPU number elsewhere in this doc is not apples-to-apples;
+the 11.6x here is the honest same-box figure).
+
+Correctness: GPU detections match the CPU baseline (`expected_base-f16.json`)
+8/8 at threshold 0.55 within the standard tolerance (score ≤ 0.05, bbox
+≤ 2 px). The overlapping high-confidence detections agree to ≤ 0.002 score —
+the small delta is GPU matmul rounding; the deformable sampler is CPU in both
+paths.
+
+Reproduce on a CUDA host:
+
+```bash
+export PATH=/usr/local/cuda/bin:$PATH
+cmake -B build-cuda -DRFDETR_BUILD_CLI=ON -DRFDETR_GGML_CUDA=ON
+cmake --build build-cuda -j
+./build-cuda/bin/rfdetr-cli bench --model models/rfdetr-base-f16.gguf \
+    --input tests/fixtures/ci/test_image.jpg --iters 20 --warmup 5
+```
