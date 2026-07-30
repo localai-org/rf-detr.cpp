@@ -2,7 +2,9 @@
 
 Generated 2026-05-27. All models converted from rfdetr 1.7.0 PyTorch
 checkpoints via `scripts/convert_rfdetr_to_gguf.py` (F32) and re-quantized
-in-place by the C++ quantizer (`build/bin/rfdetr-cli quantize`).
+in-place by the C++ quantizer (`build/bin/rfdetr-cli quantize`). Re-running the
+steps below today converts from rfdetr 1.9.0, since that is what
+`scripts/requirements.txt` pins.
 
 The `.gguf` files themselves are gitignored; this manifest is the canonical
 record of what should exist and at what size. To rebuild from scratch:
@@ -19,8 +21,9 @@ done
 scripts/build_all_quants.sh
 ```
 
-All 44 models have been verified to load and run `rfdetr-cli detect` on
-`/tmp/coco_sample.jpg` without error.
+All 44 models were verified to load and run `rfdetr-cli detect` on
+`/tmp/coco_sample.jpg` without error at the time they were generated. That is
+no longer true for 16 of them: see the note under the segmentation table.
 
 ## Detection variants
 
@@ -42,6 +45,14 @@ All 44 models have been verified to load and run `rfdetr-cli detect` on
 | Seg-Large   | 134.3 MB | 72.2 MB | 43.1 MB | 34.3 MB |
 | Seg-XLarge  | 141.3 MB | 76.4 MB | 46.0 MB | 36.5 MB |
 | Seg-2XLarge | 143.4 MB | 78.4 MB | 48.0 MB | 38.5 MB |
+
+Note: seg-medium, seg-large, seg-xlarge, and seg-2xlarge each carry one or two
+more `DepthwiseConvBlock`s than previously published GGUFs (one per decoder
+layer: 5 for medium/large, 6 for xlarge/2xlarge, instead of a hardcoded 4).
+Previously published GGUFs for these four variants are missing those blocks,
+produce incorrect masks, and are rejected at load with an explanatory error.
+**They need re-converting and re-publishing.** Sizes in the table above predate
+that fix and will change for these four variants.
 
 ## Quant choice notes
 

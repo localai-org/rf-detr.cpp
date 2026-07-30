@@ -6,9 +6,11 @@ Durable reference for humans and agents maintaining rf-detr.cpp.
 
 rf-detr.cpp is a C++/ggml inference engine for Roboflow RF-DETR. It runs
 detection and segmentation natively on CPU with parity to the PyTorch
-reference, and is published on HuggingFace as a set of 32 quantized GGUF
-models (5 detection variants x 4 quants + 3 segmentation variants x 4 quants
-plus a few extras).
+reference, and is published on HuggingFace as a set of 44 quantized GGUF
+models (5 detection variants x 4 quants + 6 segmentation variants x 4 quants).
+The 16 published seg-medium / seg-large / seg-xlarge / seg-2xlarge files
+predate the segmentation head block-count fix and need re-converting and
+re-publishing; see [`models/MANIFEST.md`](models/MANIFEST.md).
 
 The repo also exposes a flat C-API (`include/rfdetr_capi.h`) intended for
 dlopen-based language bindings, and is integrated into LocalAI as a native
@@ -71,16 +73,21 @@ Notes:
 
 ## Converting a model
 
-Set up a Python venv with the upstream rfdetr package first.
+Set up a Python venv from the pinned requirements first (`rfdetr==1.9.0`).
 
 ```
 python3 -m venv .venv
-.venv/bin/pip install rfdetr
+.venv/bin/pip install -r scripts/requirements.txt
 
 .venv/bin/python scripts/convert_rfdetr_to_gguf.py \
     --variant base --dtype f16 \
     --output models/rfdetr-base-f16.gguf
 ```
+
+`--checkpoint` loads through RF-DETR 1.9's restricted loader. A legacy
+checkpoint the loader refuses makes the converter exit 4; `--trust-checkpoint`
+is the opt-out, and is only for checkpoints whose source is fully trusted. See
+[`docs/finetuning.md`](docs/finetuning.md).
 
 Supported `--variant`:
 - Detection: `nano`, `small`, `base`, `medium`, `large`

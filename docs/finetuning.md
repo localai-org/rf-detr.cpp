@@ -77,8 +77,10 @@ Each checkpoint is a `dict` with:
 
 What the converter does on `--checkpoint`:
 
-1. `torch.load()` the `.pth` (weights_only=False; required because rfdetr
-   embeds an `argparse.Namespace` in legacy checkpoints).
+1. Loads the `.pth` through RF-DETR 1.9's restricted loader
+   (`rfdetr.utilities.io._safe_torch_load`). See
+   [`--trust-checkpoint`](#legacy-checkpoints-and---trust-checkpoint) below if
+   the load is rejected.
 2. Reads the actual head size from `checkpoint["model"]["class_embed.bias"].shape[0]`.
 3. Constructs `RFDETRBase()` and calls `reinitialize_detection_head(head_size)`
    so the classification head (shared `class_embed` + 13 `enc_out_class_embed`
@@ -90,6 +92,38 @@ What the converter does on `--checkpoint`:
 
 Variant must match the variant you trained on (`base`/`nano`/`small`/
 `medium`/`large`).
+
+#### Legacy checkpoints and `--trust-checkpoint`
+
+Build the venv from the pinned requirements so you get the conversion
+baseline (`rfdetr==1.9.0`):
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r scripts/requirements.txt
+```
+
+Checkpoints load through RF-DETR 1.9's restricted loader, which refuses to
+unpickle arbitrary Python objects. **A legacy fine-tune that converted fine
+before may now be rejected**: the converter exits 4 with a message naming the
+flag below.
+
+`--trust-checkpoint` is the opt-out, and it is only for legacy checkpoints
+whose source you fully trust (typically ones you trained yourself):
+
+```bash
+.venv/bin/python scripts/convert_rfdetr_to_gguf.py \
+    --checkpoint runs/my_train/checkpoint_best_total.pth \
+    --variant base \
+    --dtype f32 \
+    --trust-checkpoint \
+    --output models/my_finetune-f32.gguf
+```
+
+The flag disables the safety check and lets the checkpoint execute arbitrary
+code while loading. Do not pass it to convert a `.pth` you downloaded from
+somewhere you cannot vouch for. Re-training or re-saving the checkpoint under
+rfdetr 1.9.0 is the safer fix when that is an option.
 
 #### Class names
 

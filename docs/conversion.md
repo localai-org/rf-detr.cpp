@@ -1,4 +1,4 @@
-# rf-detr.cpp GGUF Conversion (rfdetr-base, matching upstream 1.7.0)
+# rf-detr.cpp GGUF Conversion (rfdetr-base, matching upstream 1.9.0)
 
 This doc is the contract between `scripts/convert_rfdetr_to_gguf.py` and
 `src/model_loader.cpp`. Both sides reference the same keys and tensor names.
@@ -42,6 +42,7 @@ All keys live under the `rfdetr.` namespace.
 | `rfdetr.class_names`                         | string[91]  | One entry per logit index. Unused IDs are `""`; the 80 COCO names sit at their COCO-spec positions. |
 | `rfdetr.preprocess.mean`                     | float32[3]  | `[0.485, 0.456, 0.406]` (ImageNet) |
 | `rfdetr.preprocess.std`                      | float32[3]  | `[0.229, 0.224, 0.225]` (ImageNet) |
+| `rfdetr.preprocess.resize_mode`              | string      | `"bilinear_no_antialias"` or `"legacy_stb"`. **Optional; an absent key means legacy.** See below. |
 | `rfdetr.backbone.dim`                        | uint32      | `384` |
 | `rfdetr.backbone.depth`                      | uint32      | `12` |
 | `rfdetr.backbone.heads`                      | uint32      | `6` |
@@ -65,6 +66,27 @@ All keys live under the `rfdetr.` namespace.
 | `rfdetr.two_stage.n_groups`                  | uint32      | `13` (= `group_detr`; one enc_output set per group) |
 
 ## Conventions
+
+### Preprocessing resize mode
+
+`rfdetr.preprocess.resize_mode` selects how the input image is resized to the
+model's square input before normalization. It is the one optional key in the
+table above, and the only key whose absence is meaningful:
+
+| Value | Behaviour |
+|-------|-----------|
+| key absent | Legacy: `stbir_resize_uint8_linear` on 8-bit RGB, then normalize. |
+| `"legacy_stb"` | Same as absent, stated explicitly. |
+| `"bilinear_no_antialias"` | RF-DETR 1.9's convention: float bilinear resize with no antialias filter, normalize afterwards. |
+
+Any other value is rejected at load, with the error
+`unsupported rfdetr.preprocess.resize_mode`.
+
+**Absent means legacy on purpose.** Every GGUF converted before this key
+existed keeps producing exactly the outputs it produced before, so no
+published model changes behaviour when the loader is upgraded. New
+conversions stamp `"bilinear_no_antialias"`, which is what upstream
+`rfdetr==1.9.0` does.
 
 ### Shape order (ggml `ne` vs PyTorch)
 
@@ -296,10 +318,45 @@ deferred. They reuse the same schema but with different `backbone.dim`,
 and (potentially) `decoder.layers`. Each variant must be introspected to
 confirm whether single-scale (P4 only) holds.
 
+## Environment and checkpoint loading
+
+Set the venv up from the pinned requirements, not from a bare `pip install
+rfdetr`. The tensor name map and the metadata tables above are written against
+that pin:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r scripts/requirements.txt   # pins rfdetr==1.9.0
+```
+
+### `--trust-checkpoint`
+
+`--checkpoint` files load through RF-DETR 1.9's restricted loader
+(`rfdetr.utilities.io._safe_torch_load`), which refuses to unpickle arbitrary
+Python objects. A legacy checkpoint that converted fine under earlier releases
+can now be rejected: the converter exits 4 and names the flag.
+
+`--trust-checkpoint` is the opt-out. Use it only for a legacy checkpoint you
+produced yourself or whose source you fully trust. It disables the safety
+check and lets the checkpoint execute arbitrary code while loading, so it is
+not a default worth carrying in a script.
+
+```bash
+.venv/bin/python scripts/convert_rfdetr_to_gguf.py \
+    --checkpoint runs/my_train/checkpoint_best_total.pth \
+    --variant base --dtype f16 \
+    --trust-checkpoint \
+    --output models/my_finetune-f16.gguf
+```
+
+If the load still fails with the flag set, the checkpoint is broken rather
+than merely untrusted, and the converter says so instead of suggesting a flag
+you already passed.
+
 ## Discovery workflow
 
 The PyTorch keys above are valid for the rfdetr-base release at the version
-pinned in `scripts/requirements.txt` (rfdetr 1.7.0). Upstream renames are
+pinned in `scripts/requirements.txt` (rfdetr 1.9.0). Upstream renames are
 possible. The conversion script's first task is to enumerate
 `state_dict().keys()`, diff against the expected set, and refuse to convert
 on any missing or unmapped key. Bringing up a new variant or upstream
