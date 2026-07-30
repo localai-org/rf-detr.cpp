@@ -462,16 +462,18 @@ Images: `bus.jpg`, `coco_cats.jpg`, `coco_indoor.jpg`, `coco_kitchen.jpg`, `coco
 | Seg-Large | F16 | 72.3 | 1.000 | 0.976 | 0.9977 | 0.9999 | 0.0029 |
 | Seg-Large | Q8_0 | 43.1 | 0.988 | 0.988 | 0.9943 | 0.9999 | 0.0071 |
 | Seg-Large | Q4_K | 34.3 | 0.924 | 0.612 | 0.9729 | 0.9994 | 0.0310 |
-| Seg-2XLarge | F32 | 143.9 | 1.000 | 1.000 | 0.9965 | 0.9999 | 0.0100 |
-| Seg-2XLarge | F16 | 78.7 | 1.000 | 0.988 | 0.9967 | 0.9999 | 0.0095 |
-| Seg-2XLarge | Q8_0 | 48.2 | 0.982 | 0.982 | 0.9933 | 0.9999 | 0.0110 |
-| Seg-2XLarge | Q4_K | 38.6 | 0.942 | 0.641 | 0.9716 | 0.9994 | 0.0329 |
+| Seg-XLarge | F32 | 141.9 | 1.000 | 1.000 | 0.9963 | 0.9999 | 0.0068 |
+| Seg-XLarge | F16 | 76.7 | 1.000 | 1.000 | 0.9958 | 0.9999 | 0.0081 |
+| Seg-XLarge | Q8_0 | 46.1 | 0.987 | 0.987 | 0.9939 | 0.9999 | 0.0094 |
+| Seg-XLarge | Q4_K | 36.6 | 0.913 | 0.704 | 0.9715 | 0.9994 | 0.0244 |
+| Seg-2XLarge | F32 | 143.9 | 1.000 | 0.987 | 0.9960 | 0.9999 | 0.0098 |
+| Seg-2XLarge | F16 | 78.7 | 1.000 | 0.987 | 0.9964 | 0.9999 | 0.0096 |
+| Seg-2XLarge | Q8_0 | 48.2 | 1.000 | 1.000 | 0.9937 | 0.9999 | 0.0119 |
+| Seg-2XLarge | Q4_K | 38.6 | 0.942 | 0.710 | 0.9732 | 0.9994 | 0.0364 |
 
-**Provenance: this table mixes two sweeps.** Seg-2XLarge, Seg-Large, Seg-Medium were re-swept on 2026-07-30 against rfdetr 1.9.0. Every other row is the original 2026-05-27 sweep against rfdetr 1.7.0 and is unchanged.
+**Provenance: this table mixes two sweeps.** Seg-2XLarge, Seg-Large, Seg-Medium, Seg-XLarge were re-swept on 2026-07-30 against rfdetr 1.9.0. Every other row is the original 2026-05-27 sweep against rfdetr 1.7.0 and is unchanged.
 
-Why they were re-swept: seg-medium was previously measured against a segmentation head built with a hardcoded 4 DepthwiseConvBlocks instead of one per decoder layer; those cells were invalid and are replaced. seg-large and seg-2xlarge are newly added. All other variants' cells are unchanged 1.7.0 measurements. seg-xlarge is excluded: its 624px pipeline is broken end-to-end.
-
-Not swept: Seg-XLarge.
+Why they were re-swept: two waves on the same day, both against rfdetr 1.9.0. First, seg-medium had been measured against a segmentation head built with a hardcoded 4 DepthwiseConvBlocks instead of one per decoder layer; those cells were invalid and were replaced, and seg-large and seg-2xlarge were added. Then commit d256d3e applied upstream's gen_encoder_output_proposals validity mask, which the C++ two-stage module had omitted. That mask can only fire on a patch grid of side 50 or more, so it moves seg-xlarge (grid 52) and seg-2xlarge (grid 64) and no other variant: seg-2xlarge's cells were measured again with the fixed engine and seg-xlarge was swept for the first time. seg-medium (grid 36) and seg-large (grid 42) were never affected and their first-wave cells stand. Every remaining row is the original 1.7.0 measurement.
 
 Raw per-cell + per-image data: [`benchmarks/results/accuracy_sweep.json`](benchmarks/results/accuracy_sweep.json).
 
@@ -480,8 +482,9 @@ Raw per-cell + per-image data: [`benchmarks/results/accuracy_sweep.json`](benchm
 - F16 matches F32 across the matrix. Recall@0.5 and Recall@0.95 match F32 to within 0 detections on every detection variant; mean |Δscore| ≤ 0.012 everywhere. F16 stays the sweet-spot for production.
 - Q8_0 keeps recall but drops score precision slightly. Recall@0.95 holds at F32 levels for Nano/Base/Medium and is within 1 detection for Small/Large. Mean |Δscore| rises from about 0.007 (F32/F16) to about 0.009 (Q8_0); invisible at any reasonable threshold.
 - Q4_K is real lossy, especially at strict IoU. Recall@0.5 drops 1 to 7 points; Recall@0.95 drops 8 to 21 points. For seg variants the Recall@0.95 drop is the steepest (Seg-Small Q4_K: 1.000 to 0.376): the mask quality survives (mean mask IoU 0.97) but bbox alignment degrades enough that strict-IoU matching fails. Use Q4_K only if size is the binding constraint.
-- Mask quality stays above 99% pixel agreement under quantization. Mean mask IoU for F32/F16/Q8_0 is ≥ 0.99 on all five swept seg variants, and pixel agreement ≥ 99.97% on the same cells. Even Q4_K stays at ≥ 0.96 mask IoU and ≥ 99.88% pixel agreement. (The bounds are taken from the raw sweep, which carries more digits than the 4-decimal table above: the tightest cells are Seg-Nano Q8_0 at 0.999765 and Seg-Small Q4_K at 0.998887.)
+- Mask quality stays above 99% pixel agreement under quantization. Mean mask IoU for F32/F16/Q8_0 is ≥ 0.99 on all six seg variants, and pixel agreement ≥ 99.97% on the same cells. Even Q4_K stays at ≥ 0.96 mask IoU and ≥ 99.88% pixel agreement. (The bounds are taken from the raw sweep, which carries more digits than the 4-decimal table above: the tightest cells are Seg-Nano Q8_0 at 0.999765 and Seg-Small Q4_K at 0.998887.)
 - The segmentation-head fix moved Seg-Medium materially. Building one `DepthwiseConvBlock` per decoder layer instead of a hardcoded 4 lifted Seg-Medium F32 mean mask IoU from 0.9807 to 0.9975 and min mask IoU from 0.9579 to 0.9921 (the pre-fix figures are the 1.7.0 rows this table replaced; see git history for them). The worst masks moved most, which is the expected signature of a head that was missing a block. Seg-Nano and Seg-Small have 4 decoder layers, so the old hardcoded 4 was already correct for them and their rows did not need re-measuring.
+- The two-stage validity mask only ever affected the two largest seg variants. Before commit `d256d3e` the C++ two-stage module skipped upstream's `gen_encoder_output_proposals` mask, which zeroes `output_memory` and `output_proposals` for every proposal centre outside `(0.01, 0.99)`. A centre is `(w + 0.5) / S`, so the predicate can only fire on a patch grid of side 50 or more: Seg-XLarge (grid 52) and Seg-2XLarge (grid 64), and nothing else. Every detection variant (grids 24 to 44) and Seg-Nano through Seg-Large (grids 26 to 42) are bit-identical before and after. Re-measured with the fixed engine, Seg-2XLarge barely moved: F32 mean mask IoU 0.9965 to 0.9960, Recall@0.5 unchanged at 1.000, Recall@0.95 1.000 to 0.987 (a single detection crossing the strict-IoU bar). Its top-K selection had matched PyTorch even without the mask. The Seg-XLarge rows are its first measurement, so it has no pre-fix numbers to compare against.
 - Seg-Nano F16 dropped one detection (Recall@0.5 0.955 to 0.927): a single low-confidence detection on one of the 7 images fell below the 0.5 score threshold under F16. Recall@0.95 mirrors Recall@0.5 because once a det makes the cut, it always lands at IoU ≥ 0.95.
 
 Sweep produced by [`scripts/sweep_accuracy.py`](scripts/sweep_accuracy.py); table rendered by [`scripts/accuracy_table.py`](scripts/accuracy_table.py).
@@ -554,8 +557,13 @@ cmake --build build -j
 
 # 1. Fetch a handful of COCO val2017 images into benchmarks/images/.
 mkdir -p benchmarks/images && cd benchmarks/images
+# COCO val2017 filenames are the image id zero-padded to 12 digits, so pad with
+# printf rather than a fixed "000000" prefix: ids shorter than 6 digits (139,
+# 632) otherwise 404 and curl happily writes the XML error body into the .jpg.
 for id in 397133 39769 139 632 252219 87038; do
-    curl -sSLkO "https://images.cocodataset.org/val2017/000000${id}.jpg"
+    name=$(printf '%012d.jpg' "$id")
+    curl -sSLkfo "$name" "https://images.cocodataset.org/val2017/${name}"
+    file "$name"   # must say "JPEG image data"
 done
 # Bring your own bus.jpg or any other JPEG to add to the set.
 cd ../..

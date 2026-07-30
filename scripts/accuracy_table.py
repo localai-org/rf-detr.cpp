@@ -38,11 +38,8 @@ QUANT_LABEL = {
 }
 
 DETECTION_ORDER = ["nano", "small", "base", "medium", "large"]
-# seg-xlarge is intentionally absent: its 624px pipeline is broken end-to-end,
-# so it has never been swept. It is still in VARIANT_LABEL so render_all() can
-# name it in the "not swept" line rather than silently omitting it.
 SEGMENTATION_ORDER = ["seg-nano", "seg-small", "seg-medium",
-                      "seg-large", "seg-2xlarge"]
+                      "seg-large", "seg-xlarge", "seg-2xlarge"]
 VARIANT_ORDER = DETECTION_ORDER + SEGMENTATION_ORDER
 QUANT_ORDER = ["f32", "f16", "q8_0", "q4_K"]
 
