@@ -346,7 +346,8 @@ def build_model_card(variant: str, cells: Dict[str, CellMetrics]) -> str:
                      "(`coco_kitchen.jpg`, 640x427).")
     elif has_metrics:
         lines.append("No latency benchmark has been recorded for this variant yet, so "
-                     "the latency column is left empty. Run `scripts/quick_bench.sh` "
+                     "the latency column is left empty. Run "
+                     "`build/bin/rfdetr-cli bench --model <gguf> --input <image>` "
                      "locally for timings on your own hardware.")
     lines.append("")
 
@@ -602,7 +603,8 @@ def main() -> int:
         print(f"error: missing {ACCURACY_JSON}", file=sys.stderr)
         return 2
     if not LATENCY_JSON.is_file():
-        print(f"error: missing {LATENCY_JSON} — run scripts/quick_bench.sh first", file=sys.stderr)
+        print(f"error: missing {LATENCY_JSON}: record per-cell timings with "
+              f"`build/bin/rfdetr-cli bench` first", file=sys.stderr)
         return 2
 
     metrics = load_metrics()
