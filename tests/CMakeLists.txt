@@ -188,22 +188,29 @@ target_link_libraries(test_parity_e2e PRIVATE ggml)
 
 # Plan C: segmentation head end-to-end parity vs the seg torch baselines.
 #
-# Runs two variants: seg-nano (4 seg blocks) and seg-medium (5 blocks). The
-# 5-block variant is the acceptance gate for "one segmentation block per
-# decoder layer" — seg-nano cannot catch a dropped block. Each variant skips
-# only if BOTH of its fixtures are absent; a fixture that is present but
-# unusable is a failure, not a skip.
+# Runs five variants: seg-nano (4 seg blocks), seg-medium and seg-large
+# (5 blocks), seg-xlarge and seg-2xlarge (6 blocks). The >=5-block variants
+# are the acceptance gate for "one segmentation block per decoder layer" —
+# seg-nano cannot catch a dropped block. Each variant skips only if BOTH of
+# its fixtures are absent; a fixture that is present but unusable is a
+# failure, not a skip.
 #
-# To regenerate all four artifacts (all gitignored, ~640MB total, needs the
-# .venv with rfdetr 1.9.0 + torch 2.5.1):
-#   .venv/bin/python scripts/gen_torch_baseline.py --seg-variant nano \
-#       --output tests/fixtures/baseline_torch_seg.gguf
-#   .venv/bin/python scripts/gen_torch_baseline.py --seg-variant medium \
-#       --output tests/fixtures/baseline_torch_seg_medium.gguf
-#   .venv/bin/python scripts/convert_rfdetr_to_gguf.py --variant seg-nano \
-#       --dtype f32 --output models/rfdetr-seg-nano-f32.gguf
-#   .venv/bin/python scripts/convert_rfdetr_to_gguf.py --variant seg-medium \
-#       --dtype f32 --output models/rfdetr-seg-medium-f32.gguf
+# Regeneration (all gitignored, needs the .venv with rfdetr 1.9.0 + torch
+# 2.5.1). Baselines scale with resolution squared, so the full set is several
+# GB — generate ONE variant at a time and delete its baseline once the parity
+# run passes. Approximate baseline sizes: nano 103MB (312px), medium 259MB
+# (432px), large ~350MB (504px), xlarge ~540MB (624px), 2xlarge ~800MB
+# (768px). The models/*.gguf are ~135-160MB each and are kept.
+#
+#   for V in nano medium large xlarge 2xlarge; do
+#     .venv/bin/python scripts/gen_torch_baseline.py --seg-variant $V \
+#         --output tests/fixtures/baseline_torch_seg_$V.gguf
+#     .venv/bin/python scripts/convert_rfdetr_to_gguf.py --variant seg-$V \
+#         --dtype f32 --output models/rfdetr-seg-$V-f32.gguf
+#   done
+#
+# (seg-nano's baseline is the one exception to the naming: it is
+# tests/fixtures/baseline_torch_seg.gguf, without a variant suffix.)
 rfdetr_add_test(test_parity_segmentation)
 target_link_libraries(test_parity_segmentation PRIVATE ggml)
 

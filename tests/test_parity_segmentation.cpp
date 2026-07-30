@@ -422,15 +422,32 @@ int main() {
     const bool ran_medium = run_phase1(fx + "/baseline_torch_seg_medium.gguf",
                                        find_model("rfdetr-seg-medium-f32.gguf"),
                                        "seg-medium (5 blocks)", n_fail);
+    /* The larger seg variants. seg-large is a second 5-block witness at a
+     * higher resolution; seg-xlarge / seg-2xlarge are the only coverage the
+     * 6-block path has. Their baselines are large (roughly 350MB / 540MB /
+     * 800MB) and gitignored, so they are normally absent and skip — see the
+     * regeneration recipe in tests/CMakeLists.txt. */
+    const bool ran_large = run_phase1(fx + "/baseline_torch_seg_large.gguf",
+                                      find_model("rfdetr-seg-large-f32.gguf"),
+                                      "seg-large (5 blocks)", n_fail);
+    const bool ran_xlarge = run_phase1(fx + "/baseline_torch_seg_xlarge.gguf",
+                                       find_model("rfdetr-seg-xlarge-f32.gguf"),
+                                       "seg-xlarge (6 blocks)", n_fail);
+    const bool ran_2xlarge = run_phase1(fx + "/baseline_torch_seg_2xlarge.gguf",
+                                        find_model("rfdetr-seg-2xlarge-f32.gguf"),
+                                        "seg-2xlarge (6 blocks)", n_fail);
     /* State the verdict explicitly: ctest only surfaces the exit code, and
-     * "green" must never be ambiguous about whether the 5-block variant was
-     * actually exercised. */
+     * "green" must never be ambiguous about which variants were actually
+     * exercised — in particular whether the 6-block path ran at all. */
     std::fprintf(stderr,
         "[test_parity_segmentation] seg-nano: %s | seg-medium (5 blocks): %s "
-        "| failures: %d\n",
-        ran_nano ? "RAN" : "not run", ran_medium ? "RAN" : "not run", n_fail);
+        "| seg-large (5 blocks): %s | seg-xlarge (6 blocks): %s "
+        "| seg-2xlarge (6 blocks): %s | failures: %d\n",
+        ran_nano ? "RAN" : "not run", ran_medium ? "RAN" : "not run",
+        ran_large ? "RAN" : "not run", ran_xlarge ? "RAN" : "not run",
+        ran_2xlarge ? "RAN" : "not run", n_fail);
 
-    if (!ran_nano && !ran_medium) {
+    if (!ran_nano && !ran_medium && !ran_large && !ran_xlarge && !ran_2xlarge) {
         std::fprintf(stderr,
             "[test_parity_segmentation] SKIPPED: no seg fixtures present.\n");
     }
