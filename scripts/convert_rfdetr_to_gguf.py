@@ -244,6 +244,9 @@ def parse_args():
                    default="f16")
     p.add_argument("--checkpoint",
                    help="Optional path to a local rfdetr .pth. Default: download via rfdetr pkg.")
+    p.add_argument("--trust-checkpoint", action="store_true",
+                   help="Allow unsafe pickle fallback for a fully trusted legacy "
+                        "checkpoint.")
     p.add_argument("--dry-run", action="store_true",
                    help="Load model + validate name map, but do not write GGUF.")
     return p.parse_args()
@@ -720,7 +723,8 @@ def main() -> int:
         # the model's classification head to match BEFORE load_state_dict so
         # the shapes line up.
         print(f"[checkpoint] loading {args.checkpoint}", file=sys.stderr)
-        ckpt = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
+        from rfdetr.utilities.io import _safe_torch_load
+        ckpt = _safe_torch_load(args.checkpoint, trust=args.trust_checkpoint)
         if not isinstance(ckpt, dict) or "model" not in ckpt:
             print("error: checkpoint must be a dict with a 'model' state_dict key.",
                   file=sys.stderr)
