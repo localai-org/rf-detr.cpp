@@ -136,6 +136,15 @@ rfdetr_status model_realize_weights(Model& m, ::ggml_backend_t backend);
  * by both `model_validate_tensors` and the test-fixture generator. */
 std::vector<std::string> expected_tensor_names(const Config& cfg);
 
+/* Count the segmentation-head blocks actually present in `m.tensors`, by
+ * probing `segmentation_head.blocks.N.dwconv.weight` for N = 0, 1, 2, ...
+ * until one is missing. Returns 0 for detection models.
+ *
+ * A correctly converted seg model has exactly `config.decoder.layers` blocks.
+ * Fewer means the file was produced before the seg-head block-count fix and
+ * its masks are wrong. */
+uint32_t count_segmentation_blocks(const Model& m);
+
 }  // namespace rfdetr
 
 #endif

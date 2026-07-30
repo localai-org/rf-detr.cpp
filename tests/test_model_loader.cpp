@@ -204,5 +204,37 @@ int main() {
         RFDETR_ASSERT(!has4("segmentation_head.blocks.4.dwconv.weight"));
     }
 
+    // ---- Pre-fix seg GGUFs are rejected with a specific error ----
+    {
+        // A Model is default-constructible; count_segmentation_blocks only
+        // checks key presence, so nullptr tensor values are fine here.
+        rfdetr::Model fake;
+        fake.config.has_segmentation_head = true;
+        fake.config.decoder.layers = 5;
+
+        // Simulate a GGUF converted before the fix: only 4 blocks present.
+        for (int b = 0; b < 4; ++b) {
+            const std::string p =
+                "segmentation_head.blocks." + std::to_string(b) + ".";
+            fake.tensors[p + "dwconv.weight"] = nullptr;
+        }
+        RFDETR_ASSERT_EQ_INT((int)rfdetr::count_segmentation_blocks(fake), 4);
+
+        rfdetr_status v = rfdetr::model_validate_tensors(fake);
+        RFDETR_ASSERT_EQ_INT(v, RFDETR_ERR_MODEL_LOAD);
+
+        // A correctly-converted 5-block model gets past the block-count guard.
+        // (It still fails on the other missing seg tensors, which is fine —
+        // we only assert the guard itself counts correctly.)
+        fake.tensors["segmentation_head.blocks.4.dwconv.weight"] = nullptr;
+        RFDETR_ASSERT_EQ_INT((int)rfdetr::count_segmentation_blocks(fake), 5);
+
+        // Detection models have no seg head and must count zero.
+        rfdetr::Model det;
+        det.config.has_segmentation_head = false;
+        det.config.decoder.layers = 3;
+        RFDETR_ASSERT_EQ_INT((int)rfdetr::count_segmentation_blocks(det), 0);
+    }
+
     return 0;
 }

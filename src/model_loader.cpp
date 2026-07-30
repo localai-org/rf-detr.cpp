@@ -674,7 +674,38 @@ std::vector<std::string> expected_tensor_names(const Config& cfg) {
     return names;
 }
 
+uint32_t count_segmentation_blocks(const Model& m) {
+    if (!m.config.has_segmentation_head) return 0;
+    uint32_t n = 0;
+    for (;;) {
+        const std::string k = "segmentation_head.blocks." +
+                              std::to_string(n) + ".dwconv.weight";
+        if (m.tensors.find(k) == m.tensors.end()) break;
+        ++n;
+    }
+    return n;
+}
+
 rfdetr_status model_validate_tensors(const Model& m) {
+    /* Reject GGUFs converted before the seg-head block-count fix. Without
+     * this the failure surfaces as a bare "missing tensor" naming an
+     * implementation detail, which tells the user nothing about the cause or
+     * the remedy. */
+    if (m.config.has_segmentation_head) {
+        const uint32_t have = count_segmentation_blocks(m);
+        if (have < m.config.decoder.layers) {
+            rfdetr_logf(RFDETR_LOG_ERROR,
+                        "model_validate_tensors: this segmentation GGUF has %u "
+                        "head block(s) but the model has %u decoder layers and "
+                        "needs one block per layer. It was converted before the "
+                        "segmentation-head block-count fix and its masks are "
+                        "incorrect. Re-download the model, or re-convert it with "
+                        "scripts/convert_rfdetr_to_gguf.py.",
+                        have, m.config.decoder.layers);
+            return RFDETR_ERR_MODEL_LOAD;
+        }
+    }
+
     const auto expected = expected_tensor_names(m.config);
     std::vector<std::string> missing;
     for (const auto& n : expected) {
