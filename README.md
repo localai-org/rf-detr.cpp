@@ -7,16 +7,23 @@
 [![LocalAI](https://img.shields.io/badge/LocalAI-Run_Locally-orange)](https://github.com/mudler/LocalAI)
 
 A C++ inference engine for Roboflow [RF-DETR](https://github.com/roboflow/rf-detr), built on
-[ggml](https://github.com/ggml-org/ggml). Supports the full RF-DETR family: 5 detection
-variants (Nano/Small/Base/Medium/Large) and 3 segmentation variants
-(SegNano/SegSmall/SegMedium), with F32 / F16 / Q8_0 / Q4_K quantizations published as GGUFs
-on [HuggingFace](https://huggingface.co/mudler).
+[ggml](https://github.com/ggml-org/ggml). Supports 5 RF-DETR detection variants
+(Nano/Small/Base/Medium/Large) and 6 segmentation variants
+(SegNano/SegSmall/SegMedium/SegLarge/SegXLarge/Seg2XLarge), with F32 / F16 / Q8_0 /
+Q4_K quantizations published as GGUFs on [HuggingFace](https://huggingface.co/mudler).
+The keypoint-preview head is not yet supported.
 
 > Status: end-to-end detection and segmentation work on real model weights. C++ F16 is
 > about 9% faster than PyTorch CPU on every COCO image we tested, matches F32 accuracy
 > (max |Δscore| ≤ 0.006), and is 1.86x smaller. Detection match vs PyTorch is 54/55 at
 > IoU ≥ 0.95 across 7 COCO val2017 images. Mask IoU is 0.9924 mean across segmentation
 > variants.
+>
+> **RF-DETR 1.9:** all 11 variants (44 GGUFs) are converted, verified, and parity-swept
+> against `rfdetr==1.9.0` — see [RF-DETR 1.9 parity](#rf-detr-19-parity)
+> for the full per-variant, per-quant table. New GGUFs record the antialias-free bilinear
+> preprocessing introduced upstream, while GGUFs without that metadata retain the prior
+> resize path for output compatibility.
 
 ## Examples
 
@@ -38,7 +45,7 @@ segmentation models overlays the per-detection mask in the same class color.
 
 ## Quickstart: prebuilt models
 
-All 32 GGUF models (8 variants x 4 quantizations) are published on HuggingFace. Pull one
+All 44 GGUF models (11 variants x 4 quantizations) are published on HuggingFace. Pull one
 and run detection in three commands:
 
 ```bash
@@ -107,8 +114,9 @@ on Seg-Nano F32; the remaining differences are sub-pixel boundary FP rounding.
 To roll your own (different variant, custom checkpoint, different quant):
 
 ```bash
-# One-time: convert upstream RF-DETR .pth to GGUF (requires .venv with rfdetr).
-python3 -m venv .venv && .venv/bin/pip install rfdetr
+# One-time: install the pinned, conversion-tested RF-DETR toolchain.
+python3 -m venv .venv
+.venv/bin/pip install -r scripts/requirements.txt
 
 # F16: fastest on CPU, 1.86x smaller than F32, matches F32 accuracy.
 .venv/bin/python scripts/convert_rfdetr_to_gguf.py \
@@ -128,7 +136,7 @@ python3 -m venv .venv && .venv/bin/pip install rfdetr
 # Convert all detection variants in one shot
 scripts/convert_all_variants.sh
 
-# Build the full matrix (5 detection + 3 seg, 4 quants each, = 32 models)
+# Build the full matrix (5 detection + 6 seg, 4 quants each, = 44 models)
 scripts/build_all_quants.sh
 ```
 
@@ -147,11 +155,20 @@ resulting checkpoint to GGUF:
 
 The converter reads the head size directly from the checkpoint tensor and resizes the
 classification head before loading, so arbitrary `num_classes` values are handled
-automatically. See [`docs/finetuning.md`](docs/finetuning.md) for the end-to-end walkthrough
+automatically. Checkpoints use RF-DETR 1.9's restricted loader by default; pass
+`--trust-checkpoint` only for a legacy checkpoint whose source you fully trust. See
+[`docs/finetuning.md`](docs/finetuning.md) for the end-to-end walkthrough
 (dataset prep, train, convert, quantize, serve), plus a smoke test using a synthetic 5-class
 checkpoint at `scripts/build_custom_checkpoint.py`.
 
 ## Benchmarks
+
+The latency/quantization tables below (AMD Ryzen 9 9950X3D, `rfdetr-base`, 7 COCO val2017
+images) predate the RF-DETR 1.9 upgrade — the detection/segmentation architectures
+themselves are unchanged, so latency and relative quant behavior still apply, but they were
+measured against `rfdetr` checkpoints converted with the pre-1.9 converter. See
+[**RF-DETR 1.9 parity**](#rf-detr-19-parity) below for the accuracy
+numbers actually measured against `rfdetr==1.9.0` on the current 44-model matrix.
 
 End-to-end CPU inference on AMD Ryzen 9 9950X3D (single batch, `--threads 8`). C++ F16 is
 faster than PyTorch on every image, at 1.86x smaller:
@@ -174,50 +191,18 @@ allocator.
 See [`BENCHMARK.md`](BENCHMARK.md) for the per-image breakdown, F16 fast-path explanation,
 thread-scaling sweep, methodology, and reproduction recipe.
 
-### Variants comparison
+### RF-DETR 1.9 parity
 
-All 5 detection variants share the DINOv2-small backbone; they differ in input resolution
-and decoder layer count. C++ F16 is faster than PyTorch on each:
+PyTorch-vs-C++ parity is swept across every (variant × quant) cell of the current 44-model
+matrix, using the same 7-image methodology (and the same 1.7.0 baseline) as the tables
+above. F32/F16/Q8_0 hold up or improve across the board; Q4_K remains real, variant-dependent
+lossy accuracy (worst case Recall@0.95 = 0.394 on Seg-Small) — consistent with the 1.7.0
+Q4_K findings on the same variant.
 
-| Variant | Resolution | Dec layers | C++ F16 median ms @ T=8 | PyTorch median ms |
-|---------|-----------:|-----------:|------------------------:|------------------:|
-| Nano    |        384 |          2 |                **61.5** |              88.4 |
-| Small   |        512 |          3 |                **116.0** |             120.5 |
-| Base    |        560 |          3 |                **136.9** |             149.5 |
-| Medium  |        576 |          4 |                **149.6** |             182.8 |
-| Large   |        704 |          4 |                **237.8** |             228.7* |
-
-\* Large is the one variant where PyTorch is competitive at T=8 (within run-to-run variance).
-
-![Variants overview](benchmarks/plots/variants_overview.png)
-
-### Quantization tradeoffs
-
-K-quants (Q4_K / Q5_K / Q6_K) produced via the C++ quantizer beat legacy block quants
-(Q4_0 / Q5_0) at the same target bit-width. The full matrix:
-
-![Quant tradeoffs](benchmarks/plots/quant_tradeoffs.png)
-
-| Variant      | Recall@0.5 | Recall@0.95 | Max \|Δscore\| | Notes |
-|--------------|-----------:|------------:|---------------:|-------|
-| F32          |      1.000 |       0.989 |         0.008 | Reference |
-| **F16**      |      1.000 |       0.989 |         0.008 | Matches F32, fastest variant |
-| Q8_0         |      1.000 |       0.989 |         0.009 | 3.10x compression, no accuracy loss |
-| Q6_K         |      1.000 |       0.989 |         0.011 | 3.40x compression, about 10% slower than Q8_0 |
-| Q5_K         |      0.953 |       0.879 |         0.014 | Mild accuracy loss; still usable |
-| Q4_K         |      0.953 |       0.879 |         0.020 | Halves Δscore vs legacy Q4_0 at same size |
-| Q4_0 (legacy) | 0.891 |       0.727 |         0.226 | Steep accuracy drop; not recommended |
-
-Recommendation (numbers are for rfdetr-base):
-
-1. **F16**: production default. Fastest, matches F32, 1.86x smaller than F32.
-2. **Q8_0**: when disk size matters. 3.10x compression, no accuracy loss, about 7% latency
-   tax vs F16.
-3. **Q6_K**: when you need slightly smaller than Q8_0 with near-identical accuracy.
-4. **Q4_K**: last resort for ≤32 MB deployments. Real but not catastrophic accuracy loss.
-
-See [`BENCHMARK.md`](BENCHMARK.md) for mask quality across all 12 seg cells (mask IoU stays
-≥ 0.99 across F32/F16/Q8_0 on every segmentation variant).
+See [**BENCHMARK.md § Accuracy across the full model matrix (rfdetr 1.9.0)**](BENCHMARK.md#accuracy-across-the-full-model-matrix-rfdetr-190)
+for the full per-variant, per-quant table (and its 1.7.0 predecessor, and a takeaways
+section comparing the two). Raw data:
+[`benchmarks/results/accuracy_sweep.json`](benchmarks/results/accuracy_sweep.json).
 
 ## Embedding via the C API
 

@@ -17,14 +17,17 @@ import sys
 from pathlib import Path
 
 VARIANT_LABEL = {
-    "nano":       "Nano",
-    "small":      "Small",
-    "base":       "Base",
-    "medium":     "Medium",
-    "large":      "Large",
-    "seg-nano":   "Seg-Nano",
-    "seg-small":  "Seg-Small",
-    "seg-medium": "Seg-Medium",
+    "nano":        "Nano",
+    "small":       "Small",
+    "base":        "Base",
+    "medium":      "Medium",
+    "large":       "Large",
+    "seg-nano":    "Seg-Nano",
+    "seg-small":   "Seg-Small",
+    "seg-medium":  "Seg-Medium",
+    "seg-large":   "Seg-Large",
+    "seg-xlarge":  "Seg-XLarge",
+    "seg-2xlarge": "Seg-2XLarge",
 }
 
 QUANT_LABEL = {
@@ -34,8 +37,10 @@ QUANT_LABEL = {
     "q4_K": "Q4_K",
 }
 
-VARIANT_ORDER = ["nano", "small", "base", "medium", "large",
-                 "seg-nano", "seg-small", "seg-medium"]
+DET_VARIANTS = ["nano", "small", "base", "medium", "large"]
+SEG_VARIANTS = ["seg-nano", "seg-small", "seg-medium",
+                "seg-large", "seg-xlarge", "seg-2xlarge"]
+VARIANT_ORDER = DET_VARIANTS + SEG_VARIANTS
 QUANT_ORDER = ["f32", "f16", "q8_0", "q4_K"]
 
 
@@ -50,7 +55,7 @@ def render_detection(cells: list[dict]) -> str:
     lines.append("")
     lines.append("| Variant | Quant | Size (MB) | Recall@0.5 | Recall@0.95 | Max \\|Δscore\\| | Mean \\|Δscore\\| | Extra dets |")
     lines.append("|---|---|---:|---:|---:|---:|---:|---:|")
-    for v in ["nano", "small", "base", "medium", "large"]:
+    for v in DET_VARIANTS:
         for q in QUANT_ORDER:
             c = by.get((v, q))
             if c is None or "error" in c:
@@ -78,7 +83,7 @@ def render_segmentation(cells: list[dict]) -> str:
     lines.append("")
     lines.append("| Variant | Quant | Size (MB) | Recall@0.5 | Recall@0.95 | Mean mask IoU | Pixel agreement | Mean \\|Δscore\\| |")
     lines.append("|---|---|---:|---:|---:|---:|---:|---:|")
-    for v in ["seg-nano", "seg-small", "seg-medium"]:
+    for v in SEG_VARIANTS:
         for q in QUANT_ORDER:
             c = by.get((v, q))
             if c is None or "error" in c:

@@ -244,6 +244,8 @@ def parse_args():
                    default="f16")
     p.add_argument("--checkpoint",
                    help="Optional path to a local rfdetr .pth. Default: download via rfdetr pkg.")
+    p.add_argument("--trust-checkpoint", action="store_true",
+                   help="Allow unsafe pickle fallback for a fully trusted legacy checkpoint.")
     p.add_argument("--dry-run", action="store_true",
                    help="Load model + validate name map, but do not write GGUF.")
     return p.parse_args()
@@ -395,8 +397,15 @@ def build_tensor_name_map(variant_cfg):
     # ---- Segmentation head (seg variants only) ----
     if variant_cfg.get("segmentation_head", False):
         SH = "segmentation_head."
-        # 4 × DepthwiseConvBlock
-        for b in range(4):
+        # SegmentationHead.forward_export chains one DepthwiseConvBlock per
+        # decoder layer (rfdetr.models.heads.segmentation.SegmentationHead:
+        # num_blocks == len(decoder layers) since forward() zips
+        # self.blocks with per-decoder-layer query_features). nano/small
+        # have 4 decoder layers -> 4 blocks; medium/large have 5 -> 5
+        # blocks; xlarge/2xlarge have 6 -> 6 blocks. Using a hardcoded 4
+        # here silently dropped block(s) for every variant except
+        # nano/small.
+        for b in range(dec_layers):
             sp = SH + f"blocks.{b}."
             dp = f"segmentation_head.blocks.{b}."
             m[dp + "dwconv.weight"] = (sp + "dwconv.weight", None)
@@ -569,6 +578,10 @@ def write_gguf(out_path, variant_name, variant_cfg, name_map, state_dict,
     std  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
     writer.add_array("rfdetr.preprocess.mean", mean.tolist())
     writer.add_array("rfdetr.preprocess.std",  std.tolist())
+    # RF-DETR 1.9 disabled resize antialiasing at inference to match its
+    # cv2.INTER_LINEAR training pipeline. Stamp the mode so new conversions
+    # get v1.9 parity while old v2 GGUFs retain their legacy stb behavior.
+    writer.add_string("rfdetr.preprocess.resize_mode", "bilinear_no_antialias")
 
     # backbone
     bb = variant_cfg["backbone"]
@@ -712,7 +725,8 @@ def main() -> int:
         # the model's classification head to match BEFORE load_state_dict so
         # the shapes line up.
         print(f"[checkpoint] loading {args.checkpoint}", file=sys.stderr)
-        ckpt = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
+        from rfdetr.utilities.io import _safe_torch_load
+        ckpt = _safe_torch_load(args.checkpoint, trust=args.trust_checkpoint)
         if not isinstance(ckpt, dict) or "model" not in ckpt:
             print("error: checkpoint must be a dict with a 'model' state_dict key.",
                   file=sys.stderr)

@@ -1,34 +1,178 @@
 {
-  "nano/f32": {"median_ms": 55.84, "min_ms": 51.05},
-  "nano/f16": {"median_ms": 49.63, "min_ms": 48.40},
-  "nano/q8_0": {"median_ms": 59.33, "min_ms": 53.11},
-  "nano/q4_K": {"median_ms": 60.61, "min_ms": 59.77},
-  "small/f32": {"median_ms": 100.14, "min_ms": 97.54},
-  "small/f16": {"median_ms": 94.28, "min_ms": 93.00},
-  "small/q8_0": {"median_ms": 110.19, "min_ms": 102.86},
-  "small/q4_K": {"median_ms": 115.98, "min_ms": 113.01},
-  "base/f32": {"median_ms": 144.02, "min_ms": 139.89},
-  "base/f16": {"median_ms": 136.13, "min_ms": 135.42},
-  "base/q8_0": {"median_ms": 145.70, "min_ms": 145.13},
-  "base/q4_K": {"median_ms": 166.28, "min_ms": 162.63},
-  "medium/f32": {"median_ms": 139.89, "min_ms": 134.90},
-  "medium/f16": {"median_ms": 143.90, "min_ms": 130.94},
-  "medium/q8_0": {"median_ms": 145.82, "min_ms": 138.38},
-  "medium/q4_K": {"median_ms": 155.83, "min_ms": 154.05},
-  "large/f32": {"median_ms": 236.59, "min_ms": 233.98},
-  "large/f16": {"median_ms": 237.10, "min_ms": 229.54},
-  "large/q8_0": {"median_ms": 251.20, "min_ms": 242.18},
-  "large/q4_K": {"median_ms": 271.98, "min_ms": 262.62},
-  "seg-nano/f32": {"median_ms": 114.74, "min_ms": 106.49},
-  "seg-nano/f16": {"median_ms": 108.62, "min_ms": 103.25},
-  "seg-nano/q8_0": {"median_ms": 118.96, "min_ms": 107.88},
-  "seg-nano/q4_K": {"median_ms": 151.63, "min_ms": 131.26},
-  "seg-small/f32": {"median_ms": 155.22, "min_ms": 146.67},
-  "seg-small/f16": {"median_ms": 150.21, "min_ms": 142.15},
-  "seg-small/q8_0": {"median_ms": 148.76, "min_ms": 147.64},
-  "seg-small/q4_K": {"median_ms": 171.16, "min_ms": 168.40},
-  "seg-medium/f32": {"median_ms": 199.47, "min_ms": 198.21},
-  "seg-medium/f16": {"median_ms": 208.52, "min_ms": 197.38},
-  "seg-medium/q8_0": {"median_ms": 218.51, "min_ms": 203.68},
-  "seg-medium/q4_K": {"median_ms": 244.15, "min_ms": 236.60}
+  "nano/f32": {
+    "median_ms": 55.84,
+    "min_ms": 51.05
+  },
+  "nano/f16": {
+    "median_ms": 49.63,
+    "min_ms": 48.4
+  },
+  "nano/q8_0": {
+    "median_ms": 59.33,
+    "min_ms": 53.11
+  },
+  "nano/q4_K": {
+    "median_ms": 60.61,
+    "min_ms": 59.77
+  },
+  "small/f32": {
+    "median_ms": 100.14,
+    "min_ms": 97.54
+  },
+  "small/f16": {
+    "median_ms": 94.28,
+    "min_ms": 93.0
+  },
+  "small/q8_0": {
+    "median_ms": 110.19,
+    "min_ms": 102.86
+  },
+  "small/q4_K": {
+    "median_ms": 115.98,
+    "min_ms": 113.01
+  },
+  "base/f32": {
+    "median_ms": 144.02,
+    "min_ms": 139.89
+  },
+  "base/f16": {
+    "median_ms": 136.13,
+    "min_ms": 135.42
+  },
+  "base/q8_0": {
+    "median_ms": 145.7,
+    "min_ms": 145.13
+  },
+  "base/q4_K": {
+    "median_ms": 166.28,
+    "min_ms": 162.63
+  },
+  "medium/f32": {
+    "median_ms": 139.89,
+    "min_ms": 134.9
+  },
+  "medium/f16": {
+    "median_ms": 143.9,
+    "min_ms": 130.94
+  },
+  "medium/q8_0": {
+    "median_ms": 145.82,
+    "min_ms": 138.38
+  },
+  "medium/q4_K": {
+    "median_ms": 155.83,
+    "min_ms": 154.05
+  },
+  "large/f32": {
+    "median_ms": 236.59,
+    "min_ms": 233.98
+  },
+  "large/f16": {
+    "median_ms": 237.1,
+    "min_ms": 229.54
+  },
+  "large/q8_0": {
+    "median_ms": 251.2,
+    "min_ms": 242.18
+  },
+  "large/q4_K": {
+    "median_ms": 271.98,
+    "min_ms": 262.62
+  },
+  "seg-nano/f32": {
+    "median_ms": 114.74,
+    "min_ms": 106.49
+  },
+  "seg-nano/f16": {
+    "median_ms": 108.62,
+    "min_ms": 103.25
+  },
+  "seg-nano/q8_0": {
+    "median_ms": 118.96,
+    "min_ms": 107.88
+  },
+  "seg-nano/q4_K": {
+    "median_ms": 151.63,
+    "min_ms": 131.26
+  },
+  "seg-small/f32": {
+    "median_ms": 155.22,
+    "min_ms": 146.67
+  },
+  "seg-small/f16": {
+    "median_ms": 150.21,
+    "min_ms": 142.15
+  },
+  "seg-small/q8_0": {
+    "median_ms": 148.76,
+    "min_ms": 147.64
+  },
+  "seg-small/q4_K": {
+    "median_ms": 171.16,
+    "min_ms": 168.4
+  },
+  "seg-medium/f32": {
+    "median_ms": 199.47,
+    "min_ms": 198.21
+  },
+  "seg-medium/f16": {
+    "median_ms": 208.52,
+    "min_ms": 197.38
+  },
+  "seg-medium/q8_0": {
+    "median_ms": 218.51,
+    "min_ms": 203.68
+  },
+  "seg-medium/q4_K": {
+    "median_ms": 244.15,
+    "min_ms": 236.6
+  },
+  "seg-large/f32": {
+    "median_ms": 647.35,
+    "min_ms": 615.91
+  },
+  "seg-large/f16": {
+    "median_ms": 638.41,
+    "min_ms": 630.53
+  },
+  "seg-large/q8_0": {
+    "median_ms": 565.13,
+    "min_ms": 557.34
+  },
+  "seg-large/q4_K": {
+    "median_ms": 610.55,
+    "min_ms": 602.39
+  },
+  "seg-xlarge/f32": {
+    "median_ms": 1197.28,
+    "min_ms": 1181.47
+  },
+  "seg-xlarge/f16": {
+    "median_ms": 1183.22,
+    "min_ms": 1169.44
+  },
+  "seg-xlarge/q8_0": {
+    "median_ms": 1086.45,
+    "min_ms": 1068.12
+  },
+  "seg-xlarge/q4_K": {
+    "median_ms": 1157.51,
+    "min_ms": 1135.43
+  },
+  "seg-2xlarge/f32": {
+    "median_ms": 2160.96,
+    "min_ms": 2142.47
+  },
+  "seg-2xlarge/f16": {
+    "median_ms": 2158.54,
+    "min_ms": 2146.34
+  },
+  "seg-2xlarge/q8_0": {
+    "median_ms": 2023.36,
+    "min_ms": 1998.14
+  },
+  "seg-2xlarge/q4_K": {
+    "median_ms": 2131.43,
+    "min_ms": 2095.9
+  }
 }

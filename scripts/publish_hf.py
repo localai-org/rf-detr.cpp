@@ -1,21 +1,28 @@
 #!/usr/bin/env python3
 """Publish rfdetr.cpp GGUF models to HuggingFace Hub.
 
-Creates one repo per variant under ``mudler/rfdetr-cpp-<variant>``, each
+Creates one repo per variant under ``<hf-user>/rfdetr-cpp-<variant>``, each
 containing the F32 / F16 / Q8_0 / Q4_K quantizations plus a data-driven
 model card backed by the Phase 2 accuracy sweep and the per-cell latency
 microbench.
 
 Usage:
-    .venv/bin/python scripts/publish_hf.py [--dry-run]
+    .venv/bin/python scripts/publish_hf.py --hf-user <you> [--dry-run]
+                                           [--github-repo <you>/rf-detr.cpp]
                                            [--only nano,base,...]
                                            [--skip-uploads]
+
+--hf-user is required (no hardcoded default) so this can never accidentally
+publish to someone else's namespace.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
+import importlib.util
 import json
 import os
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -31,10 +38,55 @@ RESULTS_DIR = REPO_ROOT / "benchmarks" / "results"
 ACCURACY_JSON = RESULTS_DIR / "accuracy_sweep.json"
 LATENCY_JSON = RESULTS_DIR / "per_cell_latency.json"
 
-HF_USER = "mudler"
 QUANTS = ["f32", "f16", "q8_0", "q4_K"]
 
-# All 11 variants, in publish order.
+# Default GitHub org/repo used for links when --github-repo isn't given.
+# This must point at a repo the reader can actually clone; pass
+# --github-repo <user>/rf-detr.cpp to point at a personal fork.
+DEFAULT_GITHUB_REPO = "localai-org/rf-detr.cpp"
+
+
+def _git_commit_sha() -> str:
+    """Current commit SHA of this checkout, for model-card provenance."""
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT,
+            capture_output=True, text=True, check=True)
+        return out.stdout.strip()
+    except Exception:
+        return "unknown"
+
+
+def _rfdetr_version() -> str:
+    try:
+        import importlib.metadata
+        return importlib.metadata.version("rfdetr")
+    except Exception:
+        return "unknown"
+
+
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _load_converter_module():
+    """Import scripts/convert_rfdetr_to_gguf.py as a module to reuse its
+    VARIANTS config instead of duplicating architecture constants here."""
+    spec = importlib.util.spec_from_file_location(
+        "convert_rfdetr_to_gguf", REPO_ROOT / "scripts" / "convert_rfdetr_to_gguf.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_CONV = _load_converter_module()
+
+# All 11 variants, in publish order (converter VARIANTS dict is unordered
+# w.r.t. our desired publish order, so keep an explicit list here).
 VARIANTS = [
     "nano",
     "small",
@@ -49,21 +101,19 @@ VARIANTS = [
     "seg-2xlarge",
 ]
 
-# Static per-variant architecture facts (resolution, decoder layers, queries,
-# patch size). These come from the upstream rfdetr 1.7.0 model registry —
-# they're not changing per quant so we keep them as a small lookup.
+# Per-variant architecture facts, derived from the converter's VARIANTS
+# config (scripts/convert_rfdetr_to_gguf.py) rather than duplicated here, so
+# the two can never drift. All variants use a DINOv2-small backbone
+# (dim=384, heads=6) per that config.
 ARCH = {
-    "nano":        {"resolution": 384, "patch": 14, "decoder_layers": 2, "queries": 300, "backbone": "DINOv2-small"},
-    "small":       {"resolution": 512, "patch": 14, "decoder_layers": 3, "queries": 300, "backbone": "DINOv2-small"},
-    "base":        {"resolution": 560, "patch": 14, "decoder_layers": 3, "queries": 300, "backbone": "DINOv2-small"},
-    "medium":      {"resolution": 576, "patch": 14, "decoder_layers": 4, "queries": 300, "backbone": "DINOv2-small"},
-    "large":       {"resolution": 704, "patch": 14, "decoder_layers": 4, "queries": 300, "backbone": "DINOv2-small"},
-    "seg-nano":    {"resolution": 312, "patch": 12, "decoder_layers": 4, "queries": 100, "backbone": "DINOv2-small"},
-    "seg-small":   {"resolution": 384, "patch": 12, "decoder_layers": 4, "queries": 100, "backbone": "DINOv2-small"},
-    "seg-medium":  {"resolution": 432, "patch": 12, "decoder_layers": 5, "queries": 200, "backbone": "DINOv2-small"},
-    "seg-large":   {"resolution": 504, "patch": 12, "decoder_layers": 5, "queries": 200, "backbone": "DINOv2-small"},
-    "seg-xlarge":  {"resolution": 624, "patch": 12, "decoder_layers": 6, "queries": 300, "backbone": "DINOv2-small"},
-    "seg-2xlarge": {"resolution": 768, "patch": 12, "decoder_layers": 6, "queries": 300, "backbone": "DINOv2-small"},
+    v: {
+        "resolution": cfg["image_size"],
+        "patch": cfg["patch_size"],
+        "decoder_layers": cfg["decoder"]["layers"],
+        "queries": cfg["num_queries"],
+        "backbone": "DINOv2-small",
+    }
+    for v, cfg in _CONV.VARIANTS.items()
 }
 
 # Pretty display names.
@@ -103,6 +153,12 @@ class CellMetrics:
     min_ms: Optional[float] = None
 
 
+def load_sweep_meta() -> dict:
+    with open(ACCURACY_JSON) as f:
+        sweep = json.load(f)
+    return sweep.get("meta", {})
+
+
 def load_metrics() -> Dict[str, Dict[str, CellMetrics]]:
     """Returns metrics[variant][quant] = CellMetrics.
 
@@ -140,7 +196,11 @@ def load_metrics() -> Dict[str, Dict[str, CellMetrics]]:
     return out
 
 
-def build_model_card(variant: str, cells: Dict[str, CellMetrics]) -> str:
+def build_model_card(variant: str, cells: Dict[str, CellMetrics], *,
+                     hf_user: str, github_repo: str,
+                     commit_sha: str, rfdetr_version: str,
+                     checksums: Dict[str, str],
+                     sweep_meta: dict) -> str:
     """Generate a Markdown model card for one variant repo.
 
     If `cells` is empty, the per-quant metrics table is replaced with a
@@ -153,6 +213,23 @@ def build_model_card(variant: str, cells: Dict[str, CellMetrics]) -> str:
     pipeline_tag = "image-segmentation" if is_seg else "object-detection"
     seg_tag = "image-segmentation" if is_seg else "object-detection"
     has_metrics = bool(cells)
+
+    # Accurately describe the sweep that actually produced `cells`, instead
+    # of a hardcoded claim — n_images/image_names come straight from
+    # accuracy_sweep.json's meta block.
+    n_images = sweep_meta.get("n_images", 0)
+    image_names = sweep_meta.get("image_names", [])
+    sweep_rfdetr_version = sweep_meta.get("rfdetr_version", rfdetr_version)
+    if n_images:
+        img_desc = f"{n_images} image" + ("s" if n_images != 1 else "")
+        if image_names:
+            img_desc += f" ({', '.join(image_names)})"
+    else:
+        img_desc = "a held-out image set"
+    methodology_note = (
+        f"against the upstream PyTorch reference (`rfdetr {sweep_rfdetr_version}`) "
+        f"on {img_desc} at threshold {sweep_meta.get('threshold', 0.5)}"
+    )
 
     # YAML frontmatter
     tags = [
@@ -183,7 +260,7 @@ def build_model_card(variant: str, cells: Dict[str, CellMetrics]) -> str:
     lines.append("")
     lines.append(
         f"GGUF-format weights of [Roboflow RF-DETR {pretty}]({UPSTREAM}) "
-        f"({kind} variant) for use with [rfdetr.cpp](https://github.com/mudler/rf-detr.cpp), "
+        f"({kind} variant) for use with [rfdetr.cpp](https://github.com/{github_repo}), "
         f"a C++/ggml implementation that matches the upstream PyTorch model on CPU."
     )
     lines.append("")
@@ -247,19 +324,22 @@ def build_model_card(variant: str, cells: Dict[str, CellMetrics]) -> str:
             lines.append(f"| `{fname}`{rec_marker} | {quant_label[q]} | {size_mb:.1f} |")
         lines.append("")
         lines.append("> Accuracy + latency for this variant haven't been added to the "
-                     "[BENCHMARK.md](https://github.com/mudler/rf-detr.cpp/blob/main/BENCHMARK.md) "
+                     f"[BENCHMARK.md](https://github.com/{github_repo}/blob/main/BENCHMARK.md) "
                      "sweep yet; the C++ implementation is verified to load and run "
                      "`rfdetr-cli detect` end-to-end on every quant. Run "
                      "`scripts/sweep_accuracy.py --variant " + variant + "` locally "
                      "for parity numbers.")
     lines.append("")
 
-    # Methodology note
-    lines.append("All accuracy numbers are computed against the upstream PyTorch "
-                 "reference (`rfdetr 1.7.0`) on 7 COCO val2017 images at threshold "
-                 "0.5. Latency is measured with `rfdetr-cli bench` (8 iters + 3 "
-                 "warmup) at T=8 threads on a single AMD Ryzen 9 9950X3D image "
-                 "(`coco_kitchen.jpg`, 640x427).")
+    # Methodology note. Latency comes from a separate microbench
+    # (per_cell_latency.json) that is NOT run on the accuracy-sweep image
+    # set above -- do not reuse `image_names` here, they're unrelated runs.
+    lines.append(
+        f"All accuracy numbers above are computed {methodology_note}. "
+        "Latency is measured separately with `rfdetr-cli bench` (8 iters + 3 "
+        "warmup) at T=8 threads on a single Intel Core i7-12800HX, on "
+        "`tests/fixtures/ci/test_image.jpg`."
+    )
     lines.append("")
 
     # Architecture
@@ -291,17 +371,37 @@ def build_model_card(variant: str, cells: Dict[str, CellMetrics]) -> str:
                  "drop relative to F16/Q8_0 (see file table above).")
     lines.append("")
 
+    # Compatibility
+    lines.append("## Compatibility")
+    lines.append("")
+    lines.append(
+        "These GGUFs stamp `rfdetr.preprocess.resize_mode = \"bilinear_no_antialias\"`, "
+        "matching RF-DETR 1.9's antialias-free float bilinear resize "
+        "(`align_corners=false`, half-pixel coordinates, no intermediate uint8 rounding). "
+        "rf-detr.cpp treats this key as **optional**: GGUFs that predate this metadata "
+        "(no `resize_mode` key) keep using the legacy stb-based resize path, so older "
+        "files continue to produce their original outputs unchanged. An unrecognized "
+        "`resize_mode` value is rejected rather than guessed."
+    )
+    lines.append("")
+    lines.append(
+        "**Keypoint-preview inference is not supported.** rf-detr.cpp does not implement "
+        "the keypoint output head; this repository only serves "
+        f"{'box detection + instance segmentation masks' if is_seg else 'box detection'} outputs."
+    )
+    lines.append("")
+
     # Usage
     lines.append("## Usage")
     lines.append("")
     lines.append("```bash")
     lines.append("# 1. Clone + build rfdetr.cpp")
-    lines.append("git clone https://github.com/mudler/rf-detr.cpp")
-    lines.append("cd rt-detr.cpp")
+    lines.append(f"git clone https://github.com/{github_repo}")
+    lines.append("cd rf-detr.cpp")
     lines.append("cmake -B build -DRFDETR_BUILD_CLI=ON && cmake --build build -j")
     lines.append("")
     lines.append("# 2. Download a quant (F16 recommended)")
-    lines.append(f"hf download {HF_USER}/rfdetr-cpp-{variant} rfdetr-{variant}-f16.gguf --local-dir models/")
+    lines.append(f"hf download {hf_user}/rfdetr-cpp-{variant} rfdetr-{variant}-f16.gguf --local-dir models/")
     lines.append("")
     if is_seg:
         lines.append(f"# 3. Run segmentation (writes per-detection PNG masks to /tmp/seg_masks/)")
@@ -325,8 +425,7 @@ def build_model_card(variant: str, cells: Dict[str, CellMetrics]) -> str:
     lines.append("## Accuracy methodology")
     lines.append("")
     lines.append(
-        "All accuracy metrics are computed against the upstream PyTorch reference "
-        "(rfdetr 1.7.0) on 7 COCO val2017 images at threshold 0.5. Each detection "
+        f"All accuracy metrics are computed {methodology_note}. Each detection "
         "match uses greedy Hungarian-style assignment by IoU (≥ 0.5 lenient, "
         "≥ 0.95 strict) with class equality required."
     )
@@ -340,10 +439,32 @@ def build_model_card(variant: str, cells: Dict[str, CellMetrics]) -> str:
         )
         lines.append("")
     lines.append(
-        "See [BENCHMARK.md](https://github.com/mudler/rf-detr.cpp/blob/main/BENCHMARK.md) "
-        "and [`benchmarks/results/accuracy_sweep.json`](https://github.com/mudler/rf-detr.cpp/blob/main/benchmarks/results/accuracy_sweep.json) "
+        f"See [BENCHMARK.md](https://github.com/{github_repo}/blob/main/BENCHMARK.md) "
+        f"and [`benchmarks/results/accuracy_sweep.json`](https://github.com/{github_repo}/blob/main/benchmarks/results/accuracy_sweep.json) "
         "for the full sweep across the (variant × quant) cells."
     )
+    lines.append("")
+
+    # Provenance
+    lines.append("## Provenance")
+    lines.append("")
+    lines.append(f"- Source project: [Roboflow RF-DETR]({UPSTREAM})")
+    lines.append(f"- Upstream package: `rfdetr=={rfdetr_version}`")
+    lines.append(f"- Converted with [rfdetr.cpp](https://github.com/{github_repo}) "
+                 f"at commit [`{commit_sha[:12]}`](https://github.com/{github_repo}/commit/{commit_sha})")
+    lines.append(f"- Checkpoint: official pretrained `rfdetr-{variant}` weights "
+                 f"(downloaded by the `rfdetr` package on first use)")
+    lines.append("")
+    lines.append("### Checksums (SHA-256)")
+    lines.append("")
+    lines.append("Also available as `SHA256SUMS` in this repo.")
+    lines.append("")
+    lines.append("```")
+    for q in QUANTS:
+        fname = f"rfdetr-{variant}-{q}.gguf"
+        if fname in checksums:
+            lines.append(f"{checksums[fname]}  {fname}")
+    lines.append("```")
     lines.append("")
 
     # License
@@ -395,12 +516,18 @@ def upload_with_retry(api: HfApi, local_path: Path, remote_name: str, repo_id: s
 
 
 def publish_variant(api: HfApi, variant: str, cells: Dict[str, CellMetrics], *,
+                    hf_user: str, github_repo: str,
+                    commit_sha: str, rfdetr_version: str, sweep_meta: dict,
                     dry_run: bool, skip_existing: bool) -> Dict[str, object]:
     """Publish one variant. Returns a status dict for the summary table."""
-    repo_id = f"{HF_USER}/rfdetr-cpp-{variant}"
+    repo_id = f"{hf_user}/rfdetr-cpp-{variant}"
     print(f"\n=== {repo_id} ===")
     local_files = list_local_files(variant)
-    card = build_model_card(variant, cells)
+    checksums = {p.name: sha256_file(p) for p in local_files}
+    sha256sums_content = "\n".join(f"{checksums[p.name]}  {p.name}" for p in local_files) + "\n"
+    card = build_model_card(variant, cells, hf_user=hf_user, github_repo=github_repo,
+                            commit_sha=commit_sha, rfdetr_version=rfdetr_version,
+                            checksums=checksums, sweep_meta=sweep_meta)
 
     total_bytes = sum(p.stat().st_size for p in local_files)
     print(f"  4 GGUF files, total {total_bytes / 1e6:.1f} MB")
@@ -408,8 +535,10 @@ def publish_variant(api: HfApi, variant: str, cells: Dict[str, CellMetrics], *,
     if dry_run:
         print(f"  [dry-run] would create repo {repo_id} (public)")
         print(f"  [dry-run] would upload README.md ({len(card)} bytes)")
+        print(f"  [dry-run] would upload SHA256SUMS ({len(sha256sums_content)} bytes)")
         for p in local_files:
-            print(f"  [dry-run] would upload {p.name} ({p.stat().st_size / 1e6:.1f} MB)")
+            print(f"  [dry-run] would upload {p.name} ({p.stat().st_size / 1e6:.1f} MB, "
+                  f"sha256={checksums[p.name][:16]}...)")
         return {
             "repo_id": repo_id,
             "url": f"https://huggingface.co/{repo_id}",
@@ -421,16 +550,26 @@ def publish_variant(api: HfApi, variant: str, cells: Dict[str, CellMetrics], *,
     # Create repo (idempotent)
     api.create_repo(repo_id=repo_id, repo_type="model", private=False, exist_ok=True)
 
-    # List existing remote files for skip-existing
-    existing: set[str] = set()
+    # List existing remote files + their content hashes for skip-existing.
+    # A same-named file is only skipped if its remote sha256 matches the
+    # local one — this correctly overwrites stale pre-1.9 artifacts instead
+    # of silently leaving them in place.
+    existing_sha256: Dict[str, str] = {}
     if skip_existing:
         try:
-            existing = set(api.list_repo_files(repo_id=repo_id, repo_type="model"))
-            if existing:
-                print(f"  existing files in repo: {sorted(existing)}")
+            names = set(api.list_repo_files(repo_id=repo_id, repo_type="model"))
+            gguf_names = [p.name for p in local_files if p.name in names]
+            if gguf_names:
+                infos = api.get_paths_info(repo_id=repo_id, paths=gguf_names, repo_type="model")
+                for info in infos:
+                    lfs = getattr(info, "lfs", None)
+                    if lfs is not None and getattr(lfs, "sha256", None):
+                        existing_sha256[info.path] = lfs.sha256
+            if names:
+                print(f"  existing files in repo: {sorted(names)}")
         except HfHubHTTPError as e:
             print(f"  could not list existing files (will re-upload all): {e}", file=sys.stderr)
-            existing = set()
+            existing_sha256 = {}
 
     uploaded = 0
     bytes_up = 0
@@ -458,15 +597,45 @@ def publish_variant(api: HfApi, variant: str, cells: Dict[str, CellMetrics], *,
                 delay *= 2
             else:
                 raise
-    # README upload doesn't count in the 32 GGUF count, but we track bytes
+    # README upload doesn't count in the 44 GGUF count, but we track bytes
     bytes_up += len(card)
     uploaded += 1
 
-    # Upload GGUFs
+    # Upload SHA256SUMS (always overwrite, same rationale as README)
+    print(f"  uploading SHA256SUMS ({len(sha256sums_content)} bytes)")
+    delay = 2.0
+    for attempt in range(3):
+        try:
+            api.upload_file(
+                path_or_fileobj=sha256sums_content.encode("utf-8"),
+                path_in_repo="SHA256SUMS",
+                repo_id=repo_id,
+                repo_type="model",
+                commit_message=f"Add/update SHA256SUMS for {variant}",
+            )
+            print(f"     ok")
+            break
+        except HfHubHTTPError as e:
+            print(f"     attempt {attempt + 1}/3 failed: {e}", file=sys.stderr)
+            if attempt < 2:
+                time.sleep(delay)
+                delay *= 2
+            else:
+                raise
+    bytes_up += len(sha256sums_content)
+    uploaded += 1
+
+    # Upload GGUFs — only skip a same-named remote file if its content hash
+    # matches ours; otherwise it's a stale (e.g. pre-1.9) artifact and gets
+    # overwritten.
     for p in local_files:
-        if p.name in existing:
-            print(f"  -> {p.name} already in repo, skipping")
+        remote_sha = existing_sha256.get(p.name)
+        if remote_sha is not None and remote_sha == checksums[p.name]:
+            print(f"  -> {p.name} already in repo with matching sha256, skipping")
             continue
+        if remote_sha is not None:
+            print(f"  -> {p.name} exists remotely but sha256 differs "
+                  f"(remote {remote_sha[:12]}... vs local {checksums[p.name][:12]}...); overwriting")
         upload_with_retry(api, p, p.name, repo_id)
         uploaded += 1
         bytes_up += p.stat().st_size
@@ -482,6 +651,13 @@ def publish_variant(api: HfApi, variant: str, cells: Dict[str, CellMetrics], *,
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--hf-user", type=str, default=None,
+                        help="HF namespace to publish under (e.g. your HF username). "
+                             "If omitted, discovered from the authenticated HF identity "
+                             "(hf whoami) and confirmed against a --dry-run pass.")
+    parser.add_argument("--github-repo", type=str, default=DEFAULT_GITHUB_REPO,
+                        help=f"GitHub '<owner>/<repo>' used for links in the model card "
+                             f"(default: {DEFAULT_GITHUB_REPO}; pass your fork once merged).")
     parser.add_argument("--dry-run", action="store_true",
                         help="show what would happen without uploading")
     parser.add_argument("--only", type=str, default="",
@@ -498,6 +674,10 @@ def main() -> int:
         return 2
 
     metrics = load_metrics()
+    sweep_meta = load_sweep_meta()
+    commit_sha = _git_commit_sha()
+    rfdetr_version = sweep_meta.get("rfdetr_version") or _rfdetr_version()
+    print(f"provenance: commit={commit_sha[:12]} rfdetr=={rfdetr_version}")
 
     variants = VARIANTS
     if args.only:
@@ -507,15 +687,20 @@ def main() -> int:
             print(f"error: --only={args.only} matched no known variants", file=sys.stderr)
             return 2
 
-    # Auth check
+    # Auth check + hf-user resolution. Always authenticate (even in
+    # --dry-run) so a missing/expired token is caught before any upload.
     api = HfApi()
-    if not args.dry_run:
-        try:
-            me = api.whoami()
-            print(f"authenticated as: {me['name']}")
-        except Exception as e:
-            print(f"error: HF auth failed: {e}", file=sys.stderr)
-            return 2
+    try:
+        me = api.whoami()
+        print(f"authenticated as: {me['name']}")
+    except Exception as e:
+        print(f"error: HF auth failed: {e}", file=sys.stderr)
+        return 2
+
+    hf_user = args.hf_user or me["name"]
+    if not args.hf_user:
+        print(f"--hf-user not given; using authenticated identity: {hf_user}")
+    print(f"publishing to namespace: {hf_user}/  (github links -> {args.github_repo})")
 
     results: List[Dict[str, object]] = []
     t_start = time.time()
@@ -526,12 +711,15 @@ def main() -> int:
                   f"placeholder model card", file=sys.stderr)
         try:
             r = publish_variant(api, v, cells,
+                                hf_user=hf_user, github_repo=args.github_repo,
+                                commit_sha=commit_sha, rfdetr_version=rfdetr_version,
+                                sweep_meta=sweep_meta,
                                 dry_run=args.dry_run,
                                 skip_existing=not args.no_skip_existing)
             results.append(r)
         except Exception as e:
             print(f"\n!!! variant {v} failed: {type(e).__name__}: {e}", file=sys.stderr)
-            results.append({"repo_id": f"{HF_USER}/rfdetr-cpp-{v}", "url": "", "uploaded_files": 0, "bytes": 0, "error": str(e)})
+            results.append({"repo_id": f"{hf_user}/rfdetr-cpp-{v}", "url": "", "uploaded_files": 0, "bytes": 0, "error": str(e)})
 
     elapsed = time.time() - t_start
 

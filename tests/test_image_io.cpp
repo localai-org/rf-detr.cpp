@@ -134,7 +134,8 @@ int main() {
 
         float* data = nullptr;
         int w = 0, h = 0;
-        rfdetr_status pp_st = rfdetr_preprocess(img, 56, 56, mean, std_, &data, &w, &h);
+        rfdetr_status pp_st = rfdetr_preprocess(
+            img, 56, 56, mean, std_, false, &data, &w, &h);
         RFDETR_ASSERT_EQ_INT(pp_st, RFDETR_OK);
         RFDETR_ASSERT_EQ_INT(w, 56);
         RFDETR_ASSERT_EQ_INT(h, 56);
@@ -146,6 +147,40 @@ int main() {
             if (data[i] != 0.0f) all_zero = false;
         }
         RFDETR_ASSERT(!all_zero);
+
+        std::free(data);
+        rfdetr_image_free(img);
+    }
+
+    /* RF-DETR 1.9 preprocessing: float bilinear, align_corners=false,
+     * antialias=false, and no intermediate uint8 rounding. */
+    {
+        const uint8_t rgb[] = {
+              0,  10,  20,   100, 110, 120,
+            200, 210, 220,   255, 250, 245,
+        };
+        rfdetr_status st;
+        rfdetr_image* img = rfdetr_image_from_rgb_buffer(rgb, 2, 2, &st);
+        RFDETR_ASSERT(img != nullptr);
+        RFDETR_ASSERT_EQ_INT(st, RFDETR_OK);
+
+        const float mean[3] = {0.0f, 0.0f, 0.0f};
+        const float std_[3] = {1.0f, 1.0f, 1.0f};
+        float* data = nullptr;
+        int w = 0, h = 0;
+        rfdetr_status pp_st = rfdetr_preprocess(
+            img, 3, 3, mean, std_, true, &data, &w, &h);
+        RFDETR_ASSERT_EQ_INT(pp_st, RFDETR_OK);
+        RFDETR_ASSERT_EQ_INT(w, 3);
+        RFDETR_ASSERT_EQ_INT(h, 3);
+
+        /* Center is the average of all four source pixels. Channels are
+         * planar, so the center offsets are 4, 13, and 22. */
+        RFDETR_ASSERT_NEAR(data[4],  138.75f / 255.0f, 1e-6);
+        RFDETR_ASSERT_NEAR(data[13], 145.00f / 255.0f, 1e-6);
+        RFDETR_ASSERT_NEAR(data[22], 151.25f / 255.0f, 1e-6);
+        RFDETR_ASSERT_NEAR(data[1],   50.00f / 255.0f, 1e-6);
+        RFDETR_ASSERT_NEAR(data[8],  255.00f / 255.0f, 1e-6);
 
         std::free(data);
         rfdetr_image_free(img);
