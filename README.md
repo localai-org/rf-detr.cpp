@@ -114,7 +114,7 @@ ls /tmp/seg_masks/
 ```
 
 The `--masks <dir>` flag writes one PNG per detection (binary mask at the original
-image resolution). Mask quality matches PyTorch at IoU 0.997 and 99.98% pixel agreement
+image resolution). Mask quality matches PyTorch at IoU 0.9913 and 99.98% pixel agreement
 on Seg-Nano F32; the remaining differences are sub-pixel boundary FP rounding.
 
 ## Quickstart: convert from upstream
