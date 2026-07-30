@@ -51,13 +51,14 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=0,
         help="Side length of square input (default depends on model: 560 for "
-             "rfdetr-base, 312 for rfdetr-seg-nano).",
+             "rfdetr-base, otherwise the native resolution of --seg-variant).",
     )
     p.add_argument(
-        "--seg",
-        action="store_true",
-        help="Use RFDETRSegNano (segmentation variant) instead of RFDETRBase. "
-             "Adds segmentation_head hook captures.",
+        "--seg-variant",
+        choices=["nano", "small", "medium", "large", "xlarge", "2xlarge"],
+        default=None,
+        help="Capture a segmentation variant instead of RFDETRBase. Adds "
+             "segmentation_head hook captures. Omit for rfdetr-base.",
     )
     return p.parse_args()
 
@@ -527,18 +528,33 @@ def write_baseline(
     return written
 
 
+# Native inference resolution per seg variant. Must match the table in
+# scripts/convert_rfdetr_to_gguf.py:160-201.
+SEG_VARIANTS = {
+    "nano":    ("RFDETRSegNano",    312),
+    "small":   ("RFDETRSegSmall",   384),
+    "medium":  ("RFDETRSegMedium",  432),
+    "large":   ("RFDETRSegLarge",   504),
+    "xlarge":  ("RFDETRSegXLarge",  624),
+    "2xlarge": ("RFDETRSeg2XLarge", 768),
+}
+
+
 def main() -> int:
     args = parse_args()
+
+    is_seg = args.seg_variant is not None
 
     # Default image size depends on model variant.
     image_size = args.image_size
     if image_size <= 0:
-        image_size = 312 if args.seg else 560
+        image_size = SEG_VARIANTS[args.seg_variant][1] if is_seg else 560
 
-    if args.seg:
-        print("Loading rfdetr-seg-nano...", file=sys.stderr)
-        from rfdetr import RFDETRSegNano
-        m = RFDETRSegNano()
+    if is_seg:
+        cls_name = SEG_VARIANTS[args.seg_variant][0]
+        print(f"Loading rfdetr-seg-{args.seg_variant} ({cls_name})...", file=sys.stderr)
+        import rfdetr
+        m = getattr(rfdetr, cls_name)()
     else:
         print("Loading rfdetr-base...", file=sys.stderr)
         from rfdetr import RFDETRBase
@@ -553,7 +569,7 @@ def main() -> int:
     captured["preprocess.input"] = x.detach().clone()
 
     hooks = install_hooks(inner, captured)
-    if args.seg:
+    if is_seg:
         hooks.extend(install_seg_decoder_intermediate_hook(inner, captured))
         hooks.extend(install_seg_hooks(inner, captured))
     print(f"Installed {len(hooks)} forward hooks.", file=sys.stderr)

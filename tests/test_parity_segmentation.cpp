@@ -128,27 +128,54 @@ void report(const char* name, const std::vector<float>& got,
 
 /* Phase 1: isolated seg head — feed baseline's seg.spatial_features.input
  * and per-layer post-norm decoder outputs into the C++ seg head, compare
- * each intermediate against the baseline. */
+ * each intermediate against the baseline.
+ *
+ * Every shape is derived from the loaded model's config (decoder layer
+ * count, image size, mask downsample ratio) and from the baseline's own
+ * tensor shapes — nothing here assumes a 4-block / 312px seg-nano. */
 int phase1_isolated(rfdetr::Model* m, ggml_backend_t backend,
-                    const Baseline& base) {
-    auto have = [&](const char* k) {
+                    const Baseline& base, const char* label) {
+    auto have = [&](const std::string& k) {
         return base.tensors.find(k) != base.tensors.end();
     };
-    if (!have("seg.spatial_features.input") ||
-        !have("decoder.layer.0.post_norm") ||
-        !have("decoder.layer.1.post_norm") ||
-        !have("decoder.layer.2.post_norm") ||
-        !have("decoder.layer.3.post_norm") ||
-        !have("seg.masks.final")) {
+
+    const int n_layers   = (int)m->config.decoder.layers;
+    const int image_size = (int)m->config.image_size;
+    const int ratio      = (int)m->config.mask_downsample_ratio;
+
+    if (!have("seg.spatial_features.input") || !have("seg.masks.final")) {
         std::fprintf(stderr,
-            "[Phase 1] SKIPPED: baseline missing per-layer post_norm or seg captures.\n");
+            "[Phase 1: %s] SKIPPED: baseline missing seg captures.\n", label);
         return 0;
     }
+    for (int i = 0; i < n_layers; ++i) {
+        const std::string k = "decoder.layer." + std::to_string(i) + ".post_norm";
+        if (!have(k)) {
+            std::fprintf(stderr,
+                "[Phase 1: %s] SKIPPED: baseline missing %s (model has %d "
+                "decoder layers — baseline was generated for a different "
+                "variant?).\n", label, k.c_str(), n_layers);
+            return 0;
+        }
+    }
 
-    std::fprintf(stderr, "[Phase 1] Isolated seg head vs torch baseline:\n");
+    /* Input geometry comes from the baseline tensors themselves. GGUF/ggml
+     * order is reversed vs torch: torch (1, C, H, W) → ne = (W, H, C, 1),
+     * torch (1, NQ, C) → ne = (C, NQ, 1, 1). */
+    const auto& sp_shape = base.shapes.at("seg.spatial_features.input");
+    const auto& qf_shape = base.shapes.at("decoder.layer.0.post_norm");
+    const int W_proj = (int)sp_shape[0];
+    const int H_proj = (int)sp_shape[1];
+    const int C      = (int)sp_shape[2];
+    const int NQ     = (int)qf_shape[1];
 
-    const int W_proj = 26, H_proj = 26, C = 256, NQ = 100;
-    const int W_mask = 78, H_mask = 78;
+    std::fprintf(stderr,
+        "[Phase 1: %s] Isolated seg head vs torch baseline: n_layers=%d "
+        "image_size=%d ratio=%d spatial=(%dx%dx%d) NQ=%d masks=%dx%d\n",
+        label, n_layers, image_size, ratio, W_proj, H_proj, C, NQ,
+        image_size / ratio, image_size / ratio);
+
+    RFDETR_ASSERT_EQ_INT((int)qf_shape[0], C);
 
     ggml_init_params ip{};
     ip.mem_size   = 256 * 1024 * 1024;
@@ -159,14 +186,14 @@ int phase1_isolated(rfdetr::Model* m, ggml_backend_t backend,
 
     /* Inputs to the seg head:
      *   spatial_features ne = (W_proj, H_proj, C, 1)
-     *   per-layer decoder outputs ne = (C, NQ, 1) — 4 of them
+     *   per-layer decoder outputs ne = (C, NQ, 1) — one per decoder layer
      */
     ggml_tensor* spatial_in = ggml_new_tensor_4d(gctx, GGML_TYPE_F32,
                                                   W_proj, H_proj, C, 1);
     ggml_set_name(spatial_in, "seg.spatial_in");
 
-    ggml_tensor* qf_in[4];
-    for (int i = 0; i < 4; ++i) {
+    std::vector<ggml_tensor*> qf_in((size_t)n_layers);
+    for (int i = 0; i < n_layers; ++i) {
         qf_in[i] = ggml_new_tensor_3d(gctx, GGML_TYPE_F32, C, NQ, 1);
         ggml_set_name(qf_in[i], ("seg.qf_in." + std::to_string(i)).c_str());
     }
@@ -179,10 +206,9 @@ int phase1_isolated(rfdetr::Model* m, ggml_backend_t backend,
             traced[name] = tt;
         });
 
-    ggml_tensor* qf_arr[4] = { qf_in[0], qf_in[1], qf_in[2], qf_in[3] };
     ggml_tensor* masks = rfdetr::segmentation_forward(
-        gctx, *m, spatial_in, qf_arr, 4,
-        /*image_h*/ 312, /*image_w*/ 312, /*ratio*/ 4);
+        gctx, *m, spatial_in, qf_in.data(), n_layers,
+        /*image_h*/ image_size, /*image_w*/ image_size, /*ratio*/ ratio);
     RFDETR_ASSERT(masks != nullptr);
 
     ggml_cgraph* graph = ggml_new_graph_custom(gctx, /*size*/ 16384,
@@ -198,7 +224,7 @@ int phase1_isolated(rfdetr::Model* m, ggml_backend_t backend,
     /* Stage the baseline data into the input tensors. */
     const auto& spd = base.tensors.at("seg.spatial_features.input");
     ggml_backend_tensor_set(spatial_in, spd.data(), 0, spd.size() * sizeof(float));
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < n_layers; ++i) {
         const auto& qd = base.tensors.at("decoder.layer." + std::to_string(i) + ".post_norm");
         ggml_backend_tensor_set(qf_in[i], qd.data(), 0, qd.size() * sizeof(float));
     }
@@ -220,7 +246,10 @@ int phase1_isolated(rfdetr::Model* m, ggml_backend_t backend,
     auto check = [&](const char* trace_name, const char* baseline_name) {
         auto it = traced.find(trace_name);
         if (it == traced.end()) {
-            std::fprintf(stderr, "  [%-38s] not in traced map\n", trace_name);
+            /* A checkpoint the seg head is supposed to publish went missing
+             * — e.g. a block that never ran. That is a failure, not a skip. */
+            std::fprintf(stderr, "  [%-38s] FAIL not in traced map\n", trace_name);
+            ++n_fail;
             return;
         }
         const auto baseline_it = base.tensors.find(baseline_name);
@@ -234,62 +263,60 @@ int phase1_isolated(rfdetr::Model* m, ggml_backend_t backend,
     };
 
     check("seg.spatial_features.resized", "seg.spatial_features.resized");
-    check("seg.block.0.spatial_out",      "seg.block.0.spatial_out");
-    check("seg.block.0.spatial_proj",     "seg.block.0.spatial_proj");
-    check("seg.block.0.qf_proj",          "seg.block.0.qf_proj");
-    check("seg.masks.0",                  "seg.masks.0");
-    check("seg.block.1.spatial_out",      "seg.block.1.spatial_out");
-    check("seg.block.1.spatial_proj",     "seg.block.1.spatial_proj");
-    check("seg.block.1.qf_proj",          "seg.block.1.qf_proj");
-    check("seg.masks.1",                  "seg.masks.1");
-    check("seg.block.2.spatial_out",      "seg.block.2.spatial_out");
-    check("seg.block.2.spatial_proj",     "seg.block.2.spatial_proj");
-    check("seg.block.2.qf_proj",          "seg.block.2.qf_proj");
-    check("seg.masks.2",                  "seg.masks.2");
-    check("seg.block.3.spatial_out",      "seg.block.3.spatial_out");
-    check("seg.block.3.spatial_proj",     "seg.block.3.spatial_proj");
-    check("seg.block.3.qf_proj",          "seg.block.3.qf_proj");
-    check("seg.masks.3",                  "seg.masks.3");
+    for (int i = 0; i < n_layers; ++i) {
+        const std::string b = "seg.block." + std::to_string(i) + ".";
+        const std::string mk = "seg.masks." + std::to_string(i);
+        check((b + "spatial_out").c_str(),  (b + "spatial_out").c_str());
+        check((b + "spatial_proj").c_str(), (b + "spatial_proj").c_str());
+        check((b + "qf_proj").c_str(),      (b + "qf_proj").c_str());
+        check(mk.c_str(),                   mk.c_str());
+    }
     check("seg.masks.final",              "seg.masks.final");
+
+    /* A dropped block would leave the last block's intermediates untraced
+     * rather than mismatched, so assert the traced count explicitly: one
+     * seg.block.{i}.spatial_out per decoder layer, no more, no fewer. */
+    int n_traced_blocks = 0;
+    for (const auto& [name, _] : traced) {
+        if (name.rfind("seg.block.", 0) == 0 &&
+            name.find(".spatial_out") != std::string::npos) {
+            ++n_traced_blocks;
+        }
+    }
+    std::fprintf(stderr, "  traced seg blocks: %d (expected %d)\n",
+                 n_traced_blocks, n_layers);
+    if (n_traced_blocks != n_layers) ++n_fail;
 
     ggml_backend_buffer_free(buf);
     ggml_free(gctx);
     return n_fail;
 }
 
-}  // namespace
-
-int main() {
-    const std::string fixtures   = RFDETR_TEST_FIXTURES;
-    const std::string base_path  = fixtures + "/baseline_torch_seg.gguf";
-
-    std::string model_path;
-    for (const std::string& candidate : {
-            fixtures + "/rfdetr-seg-nano-f32.gguf",
-            fixtures + "/../../models/rfdetr-seg-nano-f32.gguf",
-        }) {
-        if (file_exists(candidate)) { model_path = candidate; break; }
-    }
-    if (model_path.empty()) {
+/* Run phase 1 (and the phase-2 cumulative log) for one seg variant.
+ *
+ * The layer count, image size and mask ratio are read from the loaded
+ * model's config rather than passed in, so a 5-block variant exercises all
+ * 5 blocks. Returns true if the variant actually ran, false if its fixtures
+ * were absent and it was skipped. Phase-1 failures are added to `n_fail`. */
+bool run_phase1(const std::string& baseline_path,
+                const std::string& model_path,
+                const char* label,
+                int& n_fail) {
+    if (!file_exists(baseline_path) || !file_exists(model_path)) {
         std::fprintf(stderr,
-            "[test_parity_segmentation] SKIPPED: rfdetr-seg-nano-f32.gguf not found.\n");
-        return 0;
-    }
-    if (!file_exists(base_path)) {
-        std::fprintf(stderr,
-            "[test_parity_segmentation] SKIPPED: seg baseline not present (%s).\n",
-            base_path.c_str());
-        return 0;
+            "[Phase 1: %s] SKIPPED: fixtures not present (%s / %s).\n",
+            label, baseline_path.c_str(), model_path.c_str());
+        return false;
     }
 
-    Baseline base = load_baseline(base_path);
+    Baseline base = load_baseline(baseline_path);
     auto have = [&](const char* k) {
         return base.tensors.find(k) != base.tensors.end();
     };
     if (!have("preprocess.input") || !have("seg.masks.final")) {
         std::fprintf(stderr,
-            "[test_parity_segmentation] SKIPPED: baseline missing seg checkpoints.\n");
-        return 0;
+            "[Phase 1: %s] SKIPPED: baseline missing seg checkpoints.\n", label);
+        return false;
     }
 
     rfdetr_status st = RFDETR_OK;
@@ -302,12 +329,12 @@ int main() {
     RFDETR_ASSERT(backend != nullptr);
     RFDETR_ASSERT_EQ_INT(rfdetr::model_realize_weights(*m, backend), RFDETR_OK);
 
-    int n_fail = phase1_isolated(m, backend, base);
+    n_fail += phase1_isolated(m, backend, base, label);
 
     /* Phase 2: full end-to-end. Cumulative drift includes backbone +
      * projector + decoder + seg head. We log it but don't enforce a tight
      * tolerance — Phase 1 already proves the seg head itself is correct. */
-    std::fprintf(stderr, "[Phase 2] End-to-end vs torch baseline:\n");
+    std::fprintf(stderr, "[Phase 2: %s] End-to-end vs torch baseline:\n", label);
 
     const auto& in_data  = base.tensors.at("preprocess.input");
     const auto& in_shape = base.shapes.at("preprocess.input");
@@ -319,6 +346,7 @@ int main() {
     RFDETR_ASSERT(!fout.masks.empty());
 
     const auto& want = base.tensors.at("seg.masks.final");
+    RFDETR_ASSERT_EQ_INT((int)fout.masks.size(), (int)want.size());
     DiffStats ds = diff(fout.masks, want);
     std::fprintf(stderr,
         "  [seg.masks.final (cumulative)         ] max_abs=%.4g mean_abs=%.4g "
@@ -327,6 +355,36 @@ int main() {
 
     rfdetr::model_free(m);
     rfdetr::free_backend(backend);
+    return true;
+}
+
+}  // namespace
+
+int main() {
+    const std::string fx = RFDETR_TEST_FIXTURES;
+
+    /* Model GGUFs may sit next to the fixtures or in the repo's models/. */
+    auto find_model = [&](const std::string& name) -> std::string {
+        for (const std::string& candidate : {
+                fx + "/" + name,
+                fx + "/../../models/" + name,
+            }) {
+            if (file_exists(candidate)) return candidate;
+        }
+        return fx + "/../../models/" + name;  /* reported in the skip message */
+    };
+
+    int n_fail = 0;
+    const bool ran_nano = run_phase1(fx + "/baseline_torch_seg.gguf",
+                                     find_model("rfdetr-seg-nano-f32.gguf"),
+                                     "seg-nano (4 blocks)", n_fail);
+    const bool ran_medium = run_phase1(fx + "/baseline_torch_seg_medium.gguf",
+                                       find_model("rfdetr-seg-medium-f32.gguf"),
+                                       "seg-medium (5 blocks)", n_fail);
+    if (!ran_nano && !ran_medium) {
+        std::fprintf(stderr,
+            "[test_parity_segmentation] SKIPPED: no seg fixtures present.\n");
+    }
 
     return n_fail > 0 ? 1 : 0;
 }
