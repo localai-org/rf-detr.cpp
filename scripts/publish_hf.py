@@ -331,12 +331,14 @@ def build_model_card(variant: str, cells: Dict[str, CellMetrics], *,
                      "for parity numbers.")
     lines.append("")
 
-    # Methodology note
+    # Methodology note. Latency comes from a separate microbench
+    # (per_cell_latency.json) that is NOT run on the accuracy-sweep image
+    # set above -- do not reuse `image_names` here, they're unrelated runs.
     lines.append(
         f"All accuracy numbers above are computed {methodology_note}. "
-        "Latency is measured with `rfdetr-cli bench` (8 iters + 3 warmup) at "
-        "T=8 threads on a single Intel Core i7-12800HX image "
-        f"({', '.join(image_names) if image_names else 'the same test image'})."
+        "Latency is measured separately with `rfdetr-cli bench` (8 iters + 3 "
+        "warmup) at T=8 threads on a single Intel Core i7-12800HX, on "
+        "`tests/fixtures/ci/test_image.jpg`."
     )
     lines.append("")
 
