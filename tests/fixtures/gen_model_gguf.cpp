@@ -294,12 +294,18 @@ int main(int argc, char** argv) {
     }
     const char* out_path = argv[1];
     const char* skip_name = nullptr;
+    /* Left null by default so the fixture carries no
+     * rfdetr.preprocess.resize_mode key at all, which is what a GGUF converted
+     * before that key existed looks like. */
+    const char* resize_mode = nullptr;
     unsigned seed = 0;
     bool seeded = false;
     ggml_type tensor_dtype = GGML_TYPE_F32;
     for (int i = 2; i + 1 < argc; ++i) {
         if (std::strcmp(argv[i], "--missing") == 0) {
             skip_name = argv[i + 1];
+        } else if (std::strcmp(argv[i], "--resize-mode") == 0) {
+            resize_mode = argv[i + 1];
         } else if (std::strcmp(argv[i], "--seed") == 0) {
             seed = (unsigned)std::strtoul(argv[i + 1], nullptr, 10);
             seeded = true;
@@ -385,6 +391,11 @@ int main(int argc, char** argv) {
     float stdv[3] = {0.229f, 0.224f, 0.225f};
     gguf_set_arr_data(gguf, "rfdetr.preprocess.mean", GGUF_TYPE_FLOAT32, mean, 3);
     gguf_set_arr_data(gguf, "rfdetr.preprocess.std",  GGUF_TYPE_FLOAT32, stdv, 3);
+    /* Only written when --resize-mode is given, so the default fixture keeps
+     * exercising the absent-key (legacy) path. */
+    if (resize_mode) {
+        gguf_set_val_str(gguf, "rfdetr.preprocess.resize_mode", resize_mode);
+    }
 
     /* --- Backbone --- */
     gguf_set_val_u32(gguf, "rfdetr.backbone.dim",                  v.bb_dim);

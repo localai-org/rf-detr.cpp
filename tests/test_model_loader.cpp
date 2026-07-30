@@ -38,6 +38,12 @@ int main() {
     // Preprocess
     RFDETR_ASSERT_NEAR(m->config.preprocess_mean[0], 0.485f, 1e-4);
     RFDETR_ASSERT_NEAR(m->config.preprocess_std[2],  0.225f, 1e-4);
+    // This fixture carries no rfdetr.preprocess.resize_mode key, exactly like
+    // every GGUF converted before that key existed. Absent must mean the
+    // legacy stb resize, or those files silently change their output. Do not
+    // "fix" a failure here by stamping the key into the fixture; the absence
+    // is the thing under test.
+    RFDETR_ASSERT(m->config.preprocess_bilinear_no_antialias == false);
 
     // Backbone (shrunk fixture: dim=64, depth=12, heads=8, ffn=128, 4 windows)
     RFDETR_ASSERT_EQ_INT(m->config.backbone.dim,          64);
@@ -122,6 +128,39 @@ int main() {
         RFDETR_ASSERT_EQ_INT(v, RFDETR_ERR_MODEL_LOAD);
 
         rfdetr::model_free(bm);
+    }
+
+    // ---- rfdetr.preprocess.resize_mode: explicit values ----
+    // The absent-key case is asserted above on model_base.gguf. These two cover
+    // the values a converter can actually write.
+    {
+        rfdetr_status st_;
+        rfdetr::Model* bl = rfdetr::model_load(
+            fixtures + "/model_base_resize_bilinear.gguf", &st_);
+        RFDETR_ASSERT(bl != nullptr);
+        RFDETR_ASSERT_EQ_INT(st_, RFDETR_OK);
+        RFDETR_ASSERT(bl->config.preprocess_bilinear_no_antialias == true);
+        rfdetr::model_free(bl);
+
+        // An unrecognized mode is a hard error, not a silent fall back to
+        // legacy: quietly ignoring it would hide a converter/runtime skew and
+        // produce wrong preprocessing with no signal.
+        std::vector<std::string> errors;
+        rfdetr_set_log_callback(capture_errors_cb, &errors);
+        rfdetr_status st_bogus = RFDETR_OK;
+        rfdetr::Model* bogus = rfdetr::model_load(
+            fixtures + "/model_base_resize_bogus.gguf", &st_bogus);
+        rfdetr_set_log_callback(nullptr, nullptr);
+
+        RFDETR_ASSERT(bogus == nullptr);
+        RFDETR_ASSERT_EQ_INT(st_bogus, RFDETR_ERR_MODEL_FORMAT);
+        // The message must name the key so the user knows what to look at.
+        RFDETR_ASSERT(!errors.empty());
+        bool named_key = false;
+        for (const auto& e : errors) {
+            if (e.find("resize_mode") != std::string::npos) named_key = true;
+        }
+        RFDETR_ASSERT(named_key);
     }
 
     // ---- expected_tensor_names produces the right count for base ----

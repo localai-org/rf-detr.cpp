@@ -153,7 +153,14 @@ int main() {
     }
 
     /* RF-DETR 1.9 preprocessing: float bilinear, align_corners=false,
-     * antialias=false, and no intermediate uint8 rounding. */
+     * antialias=false, and no intermediate uint8 rounding.
+     *
+     * This 2x2 -> 3x3 case pins the half-pixel offset, the edge clamping and
+     * the planar channel layout, but it does NOT distinguish
+     * align_corners=false from align_corners=true: at 2 -> 3 both conventions
+     * map the three output columns to source x = 0, 0.5, 1, so every value
+     * below is the same either way. The 2x2 -> 4x4 case that follows is the
+     * one that separates them. */
     {
         const uint8_t rgb[] = {
               0,  10,  20,   100, 110, 120,
@@ -186,6 +193,72 @@ int main() {
         RFDETR_ASSERT_NEAR(data[1],   50.00f / 255.0f, 1e-6);
         /* Bottom-right corner clamps to source (1,1), red channel = 255. */
         RFDETR_ASSERT_NEAR(data[8],  255.00f / 255.0f, 1e-6);
+
+        std::free(data);
+        rfdetr_image_free(img_);
+    }
+
+    /* 2x2 -> 4x4: the case where align_corners=false and align_corners=true
+     * actually diverge, so a mix-up cannot pass unnoticed.
+     *
+     * Correct (align_corners=false, half-pixel centers): scale = 2/4 = 0.5 and
+     * src = (i + 0.5) * 0.5 - 0.5, giving src = -0.25, 0.25, 0.75, 1.25 for
+     * i = 0..3. The outer two land outside the source pixel centers and clamp,
+     * so the sampled positions are effectively 0, 0.25, 0.75, 1.
+     * Wrong (align_corners=true): src = i * (2-1)/(4-1) = 0, 1/3, 2/3, 1.
+     *
+     * Expected values are hand-derived from the half-pixel formula, not read
+     * back from the implementation. Source pixels, (x, y) -> (R, G, B):
+     *   (0,0)=(0,10,20)     (1,0)=(100,110,120)
+     *   (0,1)=(200,210,220) (1,1)=(255,250,245)
+     * Red row 0 is [0, 100], red row 1 is [200, 255]. Along x the weights are
+     * clamp / 0.25 / 0.75 / clamp, so red resolves to:
+     *   src row 0:            [  0,  25.0000,  75.0000, 100  ]
+     *   0.75*row0+0.25*row1:  [ 50,  72.1875, 116.5625, 138.75]
+     *   0.25*row0+0.75*row1:  [150, 166.5625, 199.6875, 216.25]
+     *   src row 1:            [200, 213.7500, 241.2500, 255  ]
+     * Channels are planar with a 4x4 = 16 float stride, so the index of
+     * (c, y, x) is c*16 + y*4 + x. */
+    {
+        const uint8_t rgb[] = {
+              0,  10,  20,   100, 110, 120,
+            200, 210, 220,   255, 250, 245,
+        };
+        rfdetr_status st_;
+        rfdetr_image* img_ = rfdetr_image_from_rgb_buffer(rgb, 2, 2, &st_);
+        RFDETR_ASSERT(img_ != nullptr);
+        RFDETR_ASSERT_EQ_INT(st_, RFDETR_OK);
+
+        const float mean0[3] = {0.0f, 0.0f, 0.0f};
+        const float std1[3]  = {1.0f, 1.0f, 1.0f};
+        float* data = nullptr;
+        int w = 0, h = 0;
+        rfdetr_status pp_st = rfdetr_preprocess(
+            img_, 4, 4, mean0, std1, true, &data, &w, &h);
+        RFDETR_ASSERT_EQ_INT(pp_st, RFDETR_OK);
+        RFDETR_ASSERT_EQ_INT(w, 4);
+        RFDETR_ASSERT_EQ_INT(h, 4);
+
+        /* The four discriminating values. Each differs substantially under
+         * align_corners=true, so this is what makes the convention testable:
+         *   (0,1) red: 25.0000 here vs 33.3333 if align_corners were true
+         *   (0,2) red: 75.0000 here vs 66.6667
+         *   (1,0) red: 50.0000 here vs 66.6667
+         *   (1,1) red: 72.1875 here vs 95.0000 */
+        RFDETR_ASSERT_NEAR(data[1],   25.0000f / 255.0f, 1e-6);
+        RFDETR_ASSERT_NEAR(data[2],   75.0000f / 255.0f, 1e-6);
+        RFDETR_ASSERT_NEAR(data[4],   50.0000f / 255.0f, 1e-6);
+        RFDETR_ASSERT_NEAR(data[5],   72.1875f / 255.0f, 1e-6);
+        /* Third row, second column: exercises the other vertical weight. */
+        RFDETR_ASSERT_NEAR(data[9],  166.5625f / 255.0f, 1e-6);
+        /* Opposite corners clamp to the nearest source pixel (same under
+         * either convention, so these guard clamping, not the convention). */
+        RFDETR_ASSERT_NEAR(data[0],    0.0000f / 255.0f, 1e-6);
+        RFDETR_ASSERT_NEAR(data[15], 255.0000f / 255.0f, 1e-6);
+        /* Green plane (c=1) and blue plane (c=2) confirm the 16-float stride
+         * rather than an interleaved or transposed layout. */
+        RFDETR_ASSERT_NEAR(data[17],  35.0000f / 255.0f, 1e-6);
+        RFDETR_ASSERT_NEAR(data[37],  90.3125f / 255.0f, 1e-6);
 
         std::free(data);
         rfdetr_image_free(img_);

@@ -73,9 +73,32 @@ add_custom_command(
 add_custom_target(rfdetr_model_fixture_seeded ALL
     DEPENDS ${RFDETR_TEST_FIXTURES}/model_base_seeded.gguf)
 
+# rfdetr.preprocess.resize_mode variants. model_base.gguf above deliberately
+# omits the key, so these cover the two explicit values: a valid one that must
+# enable the 1.9 path, and a bogus one that must be rejected rather than
+# silently falling back to legacy.
+add_custom_command(
+    OUTPUT  ${RFDETR_TEST_FIXTURES}/model_base_resize_bilinear.gguf
+    COMMAND gen_model_gguf ${RFDETR_TEST_FIXTURES}/model_base_resize_bilinear.gguf
+            --resize-mode bilinear_no_antialias
+    DEPENDS gen_model_gguf
+    VERBATIM
+)
+add_custom_command(
+    OUTPUT  ${RFDETR_TEST_FIXTURES}/model_base_resize_bogus.gguf
+    COMMAND gen_model_gguf ${RFDETR_TEST_FIXTURES}/model_base_resize_bogus.gguf
+            --resize-mode lanczos_from_the_future
+    DEPENDS gen_model_gguf
+    VERBATIM
+)
+add_custom_target(rfdetr_model_fixture_resize_mode ALL
+    DEPENDS ${RFDETR_TEST_FIXTURES}/model_base_resize_bilinear.gguf
+            ${RFDETR_TEST_FIXTURES}/model_base_resize_bogus.gguf)
+
 rfdetr_add_test(test_model_loader)
 add_dependencies(test_model_loader rfdetr_model_fixture)
 add_dependencies(test_model_loader rfdetr_model_fixture_missing)
+add_dependencies(test_model_loader rfdetr_model_fixture_resize_mode)
 
 rfdetr_add_test(test_capi)
 add_dependencies(test_capi rfdetr_model_fixture rfdetr_fixtures)

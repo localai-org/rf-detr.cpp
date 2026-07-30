@@ -210,22 +210,28 @@ extern "C" rfdetr_status rfdetr_preprocess(const rfdetr_image* img,
          * bilinear with align_corners=false (half-pixel source centers), no
          * prefilter, and no round-trip through uint8. stb's easy resize API
          * instead selects Mitchell/cubic and rounds back to uint8, which
-         * materially shifts borderline detection scores. */
-        const float scale_x = (float)img->width  / (float)target_w;
-        const float scale_y = (float)img->height / (float)target_h;
+         * materially shifts borderline detection scores.
+         *
+         * Source coordinates and interpolation weights are computed in double.
+         * In float they drift: ((float)w + 0.5f) * scale_x - 0.5f loses enough
+         * of the fraction on wide sources (~1.5e-4 of a weight at width 2471)
+         * to move a normalized output value by ~5e-5, and the error grows with
+         * the source width. The sampled pixels and the output stay float. */
+        const double scale_x = (double)img->width  / (double)target_w;
+        const double scale_y = (double)img->height / (double)target_h;
         for (int h = 0; h < target_h; ++h) {
-            const float src_y  = ((float)h + 0.5f) * scale_y - 0.5f;
-            const int   y0_raw = (int)std::floor(src_y);
-            const int   y0     = std::clamp(y0_raw,     0, img->height - 1);
-            const int   y1     = std::clamp(y0_raw + 1, 0, img->height - 1);
-            const float wy     = src_y - (float)y0_raw;
+            const double src_y  = ((double)h + 0.5) * scale_y - 0.5;
+            const int    y0_raw = (int)std::floor(src_y);
+            const int    y0     = std::clamp(y0_raw,     0, img->height - 1);
+            const int    y1     = std::clamp(y0_raw + 1, 0, img->height - 1);
+            const float  wy     = (float)(src_y - (double)y0_raw);
 
             for (int w = 0; w < target_w; ++w) {
-                const float src_x  = ((float)w + 0.5f) * scale_x - 0.5f;
-                const int   x0_raw = (int)std::floor(src_x);
-                const int   x0     = std::clamp(x0_raw,     0, img->width - 1);
-                const int   x1     = std::clamp(x0_raw + 1, 0, img->width - 1);
-                const float wx     = src_x - (float)x0_raw;
+                const double src_x  = ((double)w + 0.5) * scale_x - 0.5;
+                const int    x0_raw = (int)std::floor(src_x);
+                const int    x0     = std::clamp(x0_raw,     0, img->width - 1);
+                const int    x1     = std::clamp(x0_raw + 1, 0, img->width - 1);
+                const float  wx     = (float)(src_x - (double)x0_raw);
 
                 for (int c = 0; c < 3; ++c) {
                     const float p00 = (float)img->rgb[((size_t)y0 * img->width + x0) * 3 + c];
