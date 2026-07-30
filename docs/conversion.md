@@ -376,6 +376,33 @@ for increasing `n` and compares against `rfdetr.decoder.layers`:
 This is a hard failure by design. Loading a stale file and emitting wrong masks
 silently is worse than refusing it.
 
+#### Two-stage proposal validity mask (grids >= 50, fixed in `d256d3e`)
+
+A separate defect, unrelated to the weights, affected the same large variants.
+Upstream's `gen_encoder_output_proposals` (`rfdetr/models/transformer.py`)
+zeroes both `output_memory` and `output_proposals` for every token whose
+proposal centre falls outside the open interval `(0.01, 0.99)`. The C++
+two-stage module omitted that mask until `d256d3e`.
+
+Because a proposal centre is `(w + 0.5) / S`, the predicate can only fire on a
+patch grid of side `S >= 50`, where it masks the one-cell border ring of
+`4S - 4` tokens. Only two variants reach that grid:
+
+| Variant | Patch grid | Affected before `d256d3e` |
+|---------|-----------:|---------------------------|
+| all detection variants | 24 to 44 | no |
+| seg-nano, seg-small, seg-medium, seg-large | 26 to 42 | no |
+| seg-xlarge | 52 | yes, 204 border tokens |
+| seg-2xlarge | 64 | yes, 252 border tokens |
+
+Sub-50 grids are bit-identical before and after the fix, so no other variant's
+output moved.
+
+**This was an engine bug, not a conversion bug.** No GGUF is wrong because of
+it and nothing needs re-converting on this account. Only inference results
+produced by a build older than `d256d3e`, for seg-xlarge or seg-2xlarge, are
+affected.
+
 ### Tensor count summary (rfdetr-base)
 
 | Section          | Count |

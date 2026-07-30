@@ -46,12 +46,12 @@ segmentation models overlays the per-detection mask in the same class color.
 
 ## Quickstart: prebuilt models
 
-All 44 GGUF models (11 variants x 4 quantizations) are published on HuggingFace. 16 of
-them are currently stale: the published Seg-Medium, Seg-Large, Seg-XLarge and Seg-2XLarge
-files (4 quantizations each) were converted with too few segmentation-head blocks, and
-**they now fail to load** with an error telling you to re-download or re-convert. They are
-waiting on a re-conversion and re-publish. The other 28 are fine; pull one and run
-detection in three commands:
+All 44 GGUF models (11 variants x 4 quantizations) are published on HuggingFace. The 16
+Seg-Medium, Seg-Large, Seg-XLarge and Seg-2XLarge files were re-converted and re-uploaded
+on 2026-07-30, because the originals carried too few segmentation-head blocks. If you
+pulled one of those four variants before that date, re-download it: the old files **fail
+to load** with an error telling you to do exactly that. Everything else is unchanged. Pull
+a model and run detection in three commands:
 
 ```bash
 # `--recursive` is mandatory: third_party/ggml is a submodule.
@@ -83,13 +83,13 @@ hf download mudler/rfdetr-cpp-base rfdetr-base-f16.gguf --local-dir models/
 | Large       | [`mudler/rfdetr-cpp-large`](https://huggingface.co/mudler/rfdetr-cpp-large)                  | 126 MB | 68 MB | 41 MB | 33 MB |
 | Seg-Nano    | [`mudler/rfdetr-cpp-seg-nano`](https://huggingface.co/mudler/rfdetr-cpp-seg-nano)            | 127 MB | 68 MB | 40 MB | 32 MB |
 | Seg-Small   | [`mudler/rfdetr-cpp-seg-small`](https://huggingface.co/mudler/rfdetr-cpp-seg-small)          | 128 MB | 68 MB | 40 MB | 32 MB |
-| Seg-Medium † | [`mudler/rfdetr-cpp-seg-medium`](https://huggingface.co/mudler/rfdetr-cpp-seg-medium)       | 134 MB | 72 MB | 42 MB | 34 MB |
-| Seg-Large † | [`mudler/rfdetr-cpp-seg-large`](https://huggingface.co/mudler/rfdetr-cpp-seg-large)          | 134 MB | 72 MB | 43 MB | 34 MB |
-| Seg-XLarge † | [`mudler/rfdetr-cpp-seg-xlarge`](https://huggingface.co/mudler/rfdetr-cpp-seg-xlarge)       | 141 MB | 76 MB | 45 MB | 36 MB |
-| Seg-2XLarge † | [`mudler/rfdetr-cpp-seg-2xlarge`](https://huggingface.co/mudler/rfdetr-cpp-seg-2xlarge)    | 143 MB | 78 MB | 48 MB | 38 MB |
+| Seg-Medium  | [`mudler/rfdetr-cpp-seg-medium`](https://huggingface.co/mudler/rfdetr-cpp-seg-medium)        | 134 MB | 72 MB | 43 MB | 34 MB |
+| Seg-Large   | [`mudler/rfdetr-cpp-seg-large`](https://huggingface.co/mudler/rfdetr-cpp-seg-large)          | 135 MB | 72 MB | 43 MB | 34 MB |
+| Seg-XLarge  | [`mudler/rfdetr-cpp-seg-xlarge`](https://huggingface.co/mudler/rfdetr-cpp-seg-xlarge)        | 142 MB | 77 MB | 46 MB | 37 MB |
+| Seg-2XLarge | [`mudler/rfdetr-cpp-seg-2xlarge`](https://huggingface.co/mudler/rfdetr-cpp-seg-2xlarge)     | 144 MB | 79 MB | 48 MB | 39 MB |
 
-† The GGUFs currently published for these four variants (16 files) fail to load until they
-are re-converted and re-published. The sizes shown are the pre-fix ones.
+Segmentation sizes are the post-fix files; see [`models/MANIFEST.md`](models/MANIFEST.md)
+for the exact byte sizes.
 
 Use F16 by default. It matches F32 accuracy, is 1.86x smaller, and is the fastest variant
 on CPU on every model we measured. See [Benchmarks](#benchmarks) for the full numbers.
@@ -238,11 +238,11 @@ Recommendation (numbers are for rfdetr-base):
 3. **Q6_K**: when you need slightly smaller than Q8_0 with near-identical accuracy.
 4. **Q4_K**: last resort for ≤32 MB deployments. Real but not catastrophic accuracy loss.
 
-See [`BENCHMARK.md`](BENCHMARK.md) for mask quality across the 12 seg cells we measured.
-Mean mask IoU across F32/F16/Q8_0 stays ≥ 0.99 on Seg-Nano and Seg-Small, and ≥ 0.98 on
-Seg-Medium. Seg-Large, Seg-XLarge and Seg-2XLarge have never been benchmarked, and the
-four Seg-Medium cells were recorded before the segmentation-head block-count fix, so
-treat those as historical rather than current.
+See [`BENCHMARK.md`](BENCHMARK.md) for mask quality across all 24 seg cells (6 variants x
+4 quantizations). Mean mask IoU across F32/F16/Q8_0 stays ≥ 0.99 on every segmentation
+variant, and pixel agreement stays ≥ 99.97% on the same cells. Every segmentation cell was
+measured against rfdetr 1.9.0 after the segmentation-head block-count fix, and the two
+largest variants were measured again after the two-stage validity-mask fix.
 
 ## Embedding via the C API
 
