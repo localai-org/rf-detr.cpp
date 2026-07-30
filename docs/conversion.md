@@ -68,11 +68,13 @@ All keys live under the `rfdetr.` namespace.
 | `rfdetr.has_segmentation_head`               | bool        | `true` for the six `seg-*` variants, `false` otherwise. **Optional; an absent key means `false`.** See "Segmentation head" below. |
 | `rfdetr.mask_downsample_ratio`               | uint32      | `4`. Written only when `has_segmentation_head` is true, and then required: the loader rejects a seg model without it, or with a value of `0`. |
 
-Two keys are optional, and for both the absence carries meaning rather than
-being an error: `rfdetr.preprocess.resize_mode` (absent means legacy) and
+Three keys are not unconditionally required. Two are optional with a meaningful
+absence: `rfdetr.preprocess.resize_mode` (absent means legacy) and
 `rfdetr.has_segmentation_head` (absent means false, which is what detection
-GGUFs converted before the seg field existed look like). Every other key in
-the table is mandatory and its absence fails the load.
+GGUFs converted before the seg field existed look like). The third,
+`rfdetr.mask_downsample_ratio`, is conditional rather than optional: the loader
+reads it only when `has_segmentation_head` is true, and in that case requires
+it. Every other key in the table is mandatory and its absence fails the load.
 
 ## Conventions
 
@@ -397,12 +399,13 @@ values, chiefly `image_size`, `patch_size`, `num_windows`,
 `pos_embed_train_size`, `num_queries`, and `decoder.layers`, plus the
 segmentation keys on the `seg-*` variants.
 
-Two of those values change tensor counts rather than just shapes:
-`decoder.layers` (22 tensors per layer, and on `seg-*` variants another 6 per
-layer in the segmentation head) and `backbone.depth` (18 tensors per block).
-Bringing up a new variant means introspecting it rather than assuming
-rfdetr-base's numbers carry over, including whether single-scale (P4 only)
-still holds.
+Only one of those values changes tensor counts rather than just shapes:
+`decoder.layers`, at 22 tensors per layer, plus another 6 per layer in the
+segmentation head on `seg-*` variants. The backbone is the same DINOv2-small
+everywhere (`dim` 384, `depth` 12, `heads` 6, `ffn_dim` 1536 on all 11
+variants), so its 222 tensors do not move. Bringing up a new variant still
+means introspecting it rather than assuming rfdetr-base's numbers carry over,
+including whether single-scale (P4 only) still holds.
 
 ## Environment and checkpoint loading
 

@@ -459,6 +459,8 @@ Images: `bus.jpg`, `coco_cats.jpg`, `coco_indoor.jpg`, `coco_kitchen.jpg`, `coco
 | Seg-Medium | Q8_0 | 42.4 | 0.987 | 0.954 | 0.9810 | 0.9996 | 0.0116 |
 | Seg-Medium | Q4_K | 33.6 | 0.943 | 0.647 | 0.9658 | 0.9989 | 0.0238 |
 
+**The four Seg-Medium rows are historical, not current.** They were measured against a segmentation head built with a hardcoded 4 `DepthwiseConvBlock`s. Seg-Medium has 5 decoder layers and needs 5 blocks, so those masks came from an incomplete head. The block-count fix landed after this sweep and the affected GGUFs have not been re-converted or re-measured, so the rows are kept as the record of what was run rather than as a current result. Seg-Nano and Seg-Small have 4 decoder layers, so the old hardcoded 4 was correct for them and their rows are unaffected. Seg-Large, Seg-XLarge and Seg-2XLarge have never been swept.
+
 Raw per-cell + per-image data: [`benchmarks/results/accuracy_sweep.json`](benchmarks/results/accuracy_sweep.json).
 
 ### Takeaways
@@ -466,7 +468,7 @@ Raw per-cell + per-image data: [`benchmarks/results/accuracy_sweep.json`](benchm
 - F16 matches F32 across the matrix. Recall@0.5 and Recall@0.95 match F32 to within 0 detections on every detection variant; mean |Δscore| ≤ 0.013 everywhere. F16 stays the sweet-spot for production.
 - Q8_0 keeps recall but drops score precision slightly. Recall@0.95 holds at F32 levels for Nano/Base/Medium and is within 1 detection for Small/Large. Mean |Δscore| rises from about 0.007 (F32/F16) to about 0.009 (Q8_0); invisible at any reasonable threshold.
 - Q4_K is real lossy, especially at strict IoU. Recall@0.5 drops 1 to 7 points; Recall@0.95 drops 8 to 21 points. For seg variants the Recall@0.95 drop is the steepest (Seg-Small Q4_K: 1.000 to 0.376): the mask quality survives (mean mask IoU 0.97) but bbox alignment degrades enough that strict-IoU matching fails. Use Q4_K only if size is the binding constraint.
-- Mask quality stays above 99% pixel agreement under quantization. Mean mask IoU ≥ 0.99 for F32/F16/Q8_0 across all three seg variants; pixel agreement ≥ 99.96%. Even Q4_K stays at ≥ 0.96 mask IoU and ≥ 99.89% pixel agreement.
+- Mask quality stays above 99% pixel agreement under quantization. Mean mask IoU for F32/F16/Q8_0 is ≥ 0.99 on Seg-Nano and Seg-Small and ≥ 0.98 on Seg-Medium (whose rows are the historical ones noted above); pixel agreement ≥ 99.95% on all three. Even Q4_K stays at ≥ 0.96 mask IoU and ≥ 99.88% pixel agreement. (The bounds are taken from the raw sweep, which carries more digits than the 4-decimal table above: the tightest cells are Seg-Medium Q8_0 at 0.999569 and Seg-Small Q4_K at 0.998887.)
 - Seg-Nano F16 dropped one detection (Recall@0.5 0.955 to 0.927): a single low-confidence detection on one of the 7 images fell below the 0.5 score threshold under F16. Recall@0.95 mirrors Recall@0.5 because once a det makes the cut, it always lands at IoU ≥ 0.95.
 
 Sweep produced by [`scripts/sweep_accuracy.py`](scripts/sweep_accuracy.py); table rendered by [`scripts/accuracy_table.py`](scripts/accuracy_table.py).

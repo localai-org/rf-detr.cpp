@@ -15,10 +15,10 @@ quantizations published as GGUFs on [HuggingFace](https://huggingface.co/mudler)
 > Status: end-to-end detection and segmentation work on real model weights. C++ F16 is
 > about 9% faster than PyTorch CPU on every COCO image we tested, matches F32 accuracy
 > (max |Δscore| ≤ 0.006), and is 1.86x smaller. Detection match vs PyTorch is 54/55 at
-> IoU ≥ 0.95 across 7 COCO val2017 images. Mask IoU is 0.9924 mean over the three seg
-> variants we benchmarked (Seg-Nano, Seg-Small, Seg-Medium); the Seg-Medium figures were
-> taken with the pre-fix segmentation head and need re-measuring, and the three largest
-> seg variants have not been benchmarked at all.
+> IoU ≥ 0.95 across 7 COCO val2017 images. Mean mask IoU vs PyTorch is 0.9913 on Seg-Nano
+> F32 and 0.9924 on Seg-Small F32; the Seg-Medium figures were taken with the pre-fix
+> segmentation head and need re-measuring, and the three largest seg variants have not
+> been benchmarked at all.
 
 > **RF-DETR 1.9:** conversion now targets `rfdetr==1.9.0`. New GGUFs record 1.9's
 > antialias-free bilinear preprocessing; GGUFs without that metadata keep the previous
@@ -238,11 +238,11 @@ Recommendation (numbers are for rfdetr-base):
 3. **Q6_K**: when you need slightly smaller than Q8_0 with near-identical accuracy.
 4. **Q4_K**: last resort for ≤32 MB deployments. Real but not catastrophic accuracy loss.
 
-See [`BENCHMARK.md`](BENCHMARK.md) for mask quality across the 12 seg cells we measured
-(mask IoU stays ≥ 0.99 across F32/F16/Q8_0 on the three seg variants benchmarked:
-Seg-Nano, Seg-Small, Seg-Medium). Seg-Large, Seg-XLarge and Seg-2XLarge have never been
-benchmarked, and the four Seg-Medium cells were recorded before the segmentation-head
-block-count fix, so treat those as historical rather than current.
+See [`BENCHMARK.md`](BENCHMARK.md) for mask quality across the 12 seg cells we measured.
+Mean mask IoU across F32/F16/Q8_0 stays ≥ 0.99 on Seg-Nano and Seg-Small, and ≥ 0.98 on
+Seg-Medium. Seg-Large, Seg-XLarge and Seg-2XLarge have never been benchmarked, and the
+four Seg-Medium cells were recorded before the segmentation-head block-count fix, so
+treat those as historical rather than current.
 
 ## Embedding via the C API
 
