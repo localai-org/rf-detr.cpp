@@ -60,6 +60,12 @@ VARIANTS: list[tuple[str, str, str, bool]] = [
     ("seg-nano",      "RFDETRSegNano",     "rfdetr-seg-nano",    True),
     ("seg-small",     "RFDETRSegSmall",    "rfdetr-seg-small",   True),
     ("seg-medium",    "RFDETRSegMedium",   "rfdetr-seg-medium",  True),
+    ("seg-large",     "RFDETRSegLarge",    "rfdetr-seg-large",   True),
+    ("seg-2xlarge",   "RFDETRSeg2XLarge",  "rfdetr-seg-2xlarge", True),
+    # seg-xlarge is deliberately absent: its 624px pipeline is broken
+    # end-to-end (drift 78.82, with class_logits already wrong before the
+    # seg head). Re-add it here once that is fixed -- sweeping it now would
+    # only record meaningless numbers.
 ]
 
 QUANTS = ["f32", "f16", "q8_0", "q4_K"]
