@@ -350,19 +350,18 @@ ForwardOutput rfdetr_model_forward(const Model& m,
         return out;
     }
 
-    /* SegmentationHead. For seg models with N_dec layers, the head has 4
-     * DepthwiseConvBlocks that we iterate against the last 4 per-layer
-     * decoder outputs (when N_dec=4 that's all of them; when N_dec > 4 we
-     * keep zip-of-shortest semantics from PyTorch: zip(blocks, hs) walks 4
-     * layers because there are 4 blocks). */
+    /* SegmentationHead. SegmentationHead.__init__ constructs exactly one
+     * DepthwiseConvBlock per decoder layer, so PyTorch's
+     * zip(self.blocks, query_features) always pairs 1:1 with no truncation.
+     * The old min(n_dec_layers, 4) here silently dropped the 5th block on
+     * seg-medium/large and the 5th and 6th on seg-xlarge/2xlarge. */
     ggml_tensor* seg_masks_t = nullptr;
     if (has_seg) {
-        const int n_seg_iters = std::min(n_dec_layers, 4);
         seg_masks_t = segmentation_forward(
             gctxB, m,
             proj_in,
-            dec_per_layer.data(),  // first n_seg_iters used
-            n_seg_iters,
+            dec_per_layer.data(),
+            n_dec_layers,
             /*image_h*/ input_size, /*image_w*/ input_size,
             (int)m.config.mask_downsample_ratio);
         if (!seg_masks_t) {

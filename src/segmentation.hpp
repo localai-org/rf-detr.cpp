@@ -25,25 +25,28 @@ namespace rfdetr {
  * Inference uses masks[-1] (the last decoder layer's mask). For parity
  * verification we also publish each intermediate via the trace mechanism:
  *   seg.spatial_features.resized
- *   seg.block.{0..3}.spatial_out
- *   seg.block.{0..3}.spatial_proj
- *   seg.block.{0..3}.qf_proj
- *   seg.masks.{0..3}
+ *   seg.block.{0..n_layers-1}.spatial_out
+ *   seg.block.{0..n_layers-1}.spatial_proj
+ *   seg.block.{0..n_layers-1}.qf_proj
+ *   seg.masks.{0..n_layers-1}
  *   seg.masks.final
  *
  * Inputs (ggml memory layout):
  *   spatial_features    ne = (W, H, C=256, 1)         — projector output BEFORE resize
  *   query_features_per_layer  ne = (C=256, NQ, 1) per layer; pass `n_layers`
- *                             tensors via the array. The seg head's number of
- *                             blocks (always 4) must match the number of
- *                             provided layers — if you only have the last
- *                             layer post-norm tensor, pass it 4 times to
- *                             reproduce the export-time (skip_blocks=False)
+ *                             tensors via the array. SegmentationHead builds
+ *                             exactly one DepthwiseConvBlock per decoder
+ *                             layer, so the block count always equals
+ *                             n_layers: 4 for nano/small, 5 for medium/large,
+ *                             6 for xlarge/2xlarge. If you only have the last
+ *                             layer post-norm tensor, pass it n_layers times
+ *                             to reproduce the export-time (skip_blocks=False)
  *                             behaviour, but **the resulting masks[-1] will
  *                             NOT match the inference output** because the
- *                             spatial features get processed by 4 different
- *                             query streams in the real forward. For parity
- *                             pass exactly 4 per-layer tensors.
+ *                             spatial features get processed by n_layers
+ *                             different query streams in the real forward.
+ *                             For parity pass exactly n_layers per-layer
+ *                             tensors.
  *
  * Output (ggml memory layout):
  *   masks_final          ne = (W_mask, H_mask, NQ, 1)  — raw logits

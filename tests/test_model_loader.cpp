@@ -2,6 +2,7 @@
 #include "model_loader.hpp"
 #include "backend.hpp"
 #include "rfdetr.h"
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -163,6 +164,44 @@ int main() {
                              RFDETR_ERR_INVALID_ARG);
 
         rfdetr::model_free(mm);
+    }
+
+    // ---- Seg head has one block per decoder layer, not a hardcoded 4 ----
+    {
+        // A 5-decoder-layer seg variant (seg-medium) must expect blocks 0..4.
+        rfdetr::Config cfg;
+        cfg.has_segmentation_head = true;
+        cfg.decoder.layers = 5;
+        std::vector<std::string> names = rfdetr::expected_tensor_names(cfg);
+
+        auto has = [&names](const std::string& n) {
+            return std::find(names.begin(), names.end(), n) != names.end();
+        };
+        RFDETR_ASSERT(has("segmentation_head.blocks.0.dwconv.weight"));
+        RFDETR_ASSERT(has("segmentation_head.blocks.4.dwconv.weight"));
+        RFDETR_ASSERT(has("segmentation_head.blocks.4.pwconv1.bias"));
+        RFDETR_ASSERT(!has("segmentation_head.blocks.5.dwconv.weight"));
+
+        // A 6-layer variant (seg-xlarge) expects blocks 0..5.
+        rfdetr::Config cfg6;
+        cfg6.has_segmentation_head = true;
+        cfg6.decoder.layers = 6;
+        std::vector<std::string> names6 = rfdetr::expected_tensor_names(cfg6);
+        auto has6 = [&names6](const std::string& n) {
+            return std::find(names6.begin(), names6.end(), n) != names6.end();
+        };
+        RFDETR_ASSERT(has6("segmentation_head.blocks.5.dwconv.weight"));
+
+        // A 4-layer variant (seg-nano) is unchanged: blocks 0..3 only.
+        rfdetr::Config cfg4;
+        cfg4.has_segmentation_head = true;
+        cfg4.decoder.layers = 4;
+        std::vector<std::string> names4 = rfdetr::expected_tensor_names(cfg4);
+        auto has4 = [&names4](const std::string& n) {
+            return std::find(names4.begin(), names4.end(), n) != names4.end();
+        };
+        RFDETR_ASSERT(has4("segmentation_head.blocks.3.dwconv.weight"));
+        RFDETR_ASSERT(!has4("segmentation_head.blocks.4.dwconv.weight"));
     }
 
     return 0;

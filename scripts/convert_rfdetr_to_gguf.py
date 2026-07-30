@@ -395,8 +395,12 @@ def build_tensor_name_map(variant_cfg):
     # ---- Segmentation head (seg variants only) ----
     if variant_cfg.get("segmentation_head", False):
         SH = "segmentation_head."
-        # 4 × DepthwiseConvBlock
-        for b in range(4):
+        # One DepthwiseConvBlock per decoder layer. SegmentationHead.forward
+        # zips self.blocks with per-decoder-layer query_features, so the
+        # counts are equal by construction: 4 for nano/small, 5 for
+        # medium/large, 6 for xlarge/2xlarge. A hardcoded 4 here silently
+        # dropped block(s) for every variant except nano/small.
+        for b in range(dec_layers):
             sp = SH + f"blocks.{b}."
             dp = f"segmentation_head.blocks.{b}."
             m[dp + "dwconv.weight"] = (sp + "dwconv.weight", None)
