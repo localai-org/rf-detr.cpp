@@ -19,9 +19,11 @@ The keypoint-preview head is not yet supported.
 > IoU ≥ 0.95 across 7 COCO val2017 images. Mask IoU is 0.9924 mean across segmentation
 > variants.
 >
-> **RF-DETR 1.9:** Nano conversion and inference are validated against `rfdetr==1.9.0`.
-> New GGUFs record the antialias-free bilinear preprocessing introduced upstream, while
-> GGUFs without that metadata retain the prior resize path for output compatibility.
+> **RF-DETR 1.9:** all 11 variants (44 GGUFs) are converted, verified, and parity-swept
+> against `rfdetr==1.9.0` — see [RF-DETR 1.9 parity](#rf-detr-19-parity-full-44-model-matrix)
+> for the full per-variant, per-quant table. New GGUFs record the antialias-free bilinear
+> preprocessing introduced upstream, while GGUFs without that metadata retain the prior
+> resize path for output compatibility.
 
 ## Examples
 
@@ -161,6 +163,13 @@ checkpoint at `scripts/build_custom_checkpoint.py`.
 
 ## Benchmarks
 
+The latency/quantization tables below (AMD Ryzen 9 9950X3D, `rfdetr-base`, 7 COCO val2017
+images) predate the RF-DETR 1.9 upgrade — the detection/segmentation architectures
+themselves are unchanged, so latency and relative quant behavior still apply, but they were
+measured against `rfdetr` checkpoints converted with the pre-1.9 converter. See
+[**RF-DETR 1.9 parity**](#rf-detr-19-parity-full-44-model-matrix) below for the accuracy
+numbers actually measured against `rfdetr==1.9.0` on the current 44-model matrix.
+
 End-to-end CPU inference on AMD Ryzen 9 9950X3D (single batch, `--threads 8`). C++ F16 is
 faster than PyTorch on every image, at 1.86x smaller:
 
@@ -181,6 +190,65 @@ allocator.
 
 See [`BENCHMARK.md`](BENCHMARK.md) for the per-image breakdown, F16 fast-path explanation,
 thread-scaling sweep, methodology, and reproduction recipe.
+
+### RF-DETR 1.9 parity: full 44-model matrix
+
+PyTorch-vs-C++ parity swept across every (variant × quant) cell against the actual
+`rfdetr==1.9.0` conversion pipeline (greedy IoU matching, class-equal, on
+`tests/fixtures/ci/test_image.jpg`; raw data in
+[`benchmarks/results/accuracy_sweep.json`](benchmarks/results/accuracy_sweep.json)):
+
+| Variant | Quant | Recall@0.5 | Recall@0.95 | Mean \|Δscore\| | Mask IoU |
+|---|---|---:|---:|---:|---:|
+| nano | f32 | 1.000 | 1.000 | 0.0030 | — |
+| nano | f16 | 1.000 | 1.000 | 0.0024 | — |
+| nano | q8_0 | 1.000 | 1.000 | 0.0120 | — |
+| nano | q4_K | 0.857 | 0.857 | 0.0206 | — |
+| small | f32 | 1.000 | 1.000 | 0.0021 | — |
+| small | f16 | 1.000 | 1.000 | 0.0012 | — |
+| small | q8_0 | 1.000 | 1.000 | 0.0098 | — |
+| small | q4_K | 0.833 | 0.500 ⚠ | 0.0164 | — |
+| base | f32 | 1.000 | 1.000 | 0.0025 | — |
+| base | f16 | 1.000 | 1.000 | 0.0024 | — |
+| base | q8_0 | 1.000 | 1.000 | 0.0041 | — |
+| base | q4_K | 0.833 | 0.750 | 0.0082 | — |
+| medium | f32 | 1.000 | 1.000 | 0.0008 | — |
+| medium | f16 | 1.000 | 1.000 | 0.0023 | — |
+| medium | q8_0 | 1.000 | 1.000 | 0.0063 | — |
+| medium | q4_K | 1.000 | 1.000 | 0.0230 | — |
+| large | f32 | 1.000 | 1.000 | 0.0023 | — |
+| large | f16 | 1.000 | 1.000 | 0.0012 | — |
+| large | q8_0 | 1.000 | 1.000 | 0.0038 | — |
+| large | q4_K | 0.875 | 0.875 | 0.0174 | — |
+| seg-nano | f32 | 1.000 | 1.000 | 0.0025 | 0.9949 |
+| seg-nano | f16 | 1.000 | 1.000 | 0.0023 | 0.9946 |
+| seg-nano | q8_0 | 1.000 | 1.000 | 0.0061 | 0.9931 |
+| seg-nano | q4_K | 0.875 | 0.500 ⚠ | 0.0299 | 0.9540 |
+| seg-small | f32 | 1.000 | 1.000 | 0.0025 | 0.9967 |
+| seg-small | f16 | 1.000 | 1.000 | 0.0032 | 0.9966 |
+| seg-small | q8_0 | 1.000 | 1.000 | 0.0043 | 0.9926 |
+| seg-small | q4_K | 0.875 | 0.125 ⚠ | 0.0216 | 0.9764 |
+| seg-medium | f32 | 1.000 | 1.000 | 0.0058 | 0.9959 |
+| seg-medium | f16 | 1.000 | 1.000 | 0.0095 | 0.9962 |
+| seg-medium | q8_0 | 1.000 | 1.000 | 0.0083 | 0.9920 |
+| seg-medium | q4_K | 1.000 | 0.571 ⚠ | 0.0252 | 0.9725 |
+| seg-large | f32 | 1.000 | 1.000 | 0.0049 | 0.9990 |
+| seg-large | f16 | 1.000 | 1.000 | 0.0055 | 0.9990 |
+| seg-large | q8_0 | 1.000 | 1.000 | 0.0042 | 0.9977 |
+| seg-large | q4_K | 1.000 | 0.400 ⚠ | 0.0247 | 0.9852 |
+| seg-xlarge | f32 | 1.000 | 1.000 | 0.0061 | 0.9972 |
+| seg-xlarge | f16 | 1.000 | 1.000 | 0.0066 | 0.9965 |
+| seg-xlarge | q8_0 | 1.000 | 1.000 | 0.0065 | 0.9936 |
+| seg-xlarge | q4_K | 0.833 | 0.833 | 0.0245 | 0.9740 |
+| seg-2xlarge | f32 | 1.000 | 1.000 | 0.0047 | 0.9983 |
+| seg-2xlarge | f16 | 1.000 | 1.000 | 0.0071 | 0.9947 |
+| seg-2xlarge | q8_0 | 1.000 | 1.000 | 0.0119 | 0.9935 |
+| seg-2xlarge | q4_K | 0.857 | 0.714 | 0.0392 | 0.9729 |
+
+⚠ = Recall@0.95 < 0.6. F32/F16/Q8_0 are clean everywhere (Recall@0.5 = 1.0, mask IoU ≥ 0.95
+on every segmentation variant). **Q4_K accuracy is real and variant-dependent** — worst case
+is seg-small (Recall@0.95 = 0.125) — check this table for your specific variant before
+choosing Q4_K for an accuracy-sensitive deployment; F16 or Q8_0 are the safe defaults.
 
 ### Variants comparison
 
