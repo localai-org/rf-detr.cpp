@@ -11,7 +11,9 @@ Current: `"2"`
 
 Plan 7 bumped the schema from `"1"` to `"2"` because the prior schema was
 aspirational (an LW-DETR-shaped encoder/decoder with packed QKV) and is
-incompatible with the real rfdetr 1.7.0 release weights:
+incompatible with the real rfdetr 1.7.0 release weights, which was the current
+release at the time. Version `"2"` still describes 1.9.0's weights; the list
+below is the original 1.7.0 rationale and has not needed revising:
 
 - DINOv2-small backbone with separate Q/K/V projections (not packed).
 - Per-block layer-scale gammas (`layer_scale1`, `layer_scale2`).
@@ -33,7 +35,7 @@ All keys live under the `rfdetr.` namespace.
 | Key                                          | Type        | Description / example |
 |----------------------------------------------|-------------|-----------------------|
 | `rfdetr.format.version`                      | string      | `"2"` (see above)     |
-| `rfdetr.variant`                             | string      | `"base"` (only one supported for now) |
+| `rfdetr.variant`                             | string      | `"base"`. One of the 11 supported variants: `nano`, `small`, `base`, `medium`, `large`, `seg-nano`, `seg-small`, `seg-medium`, `seg-large`, `seg-xlarge`, `seg-2xlarge`. |
 | `rfdetr.image_size`                          | uint32      | Square input side; `560` for rfdetr-base |
 | `rfdetr.patch_size`                          | uint32      | DINOv2 patch side; `14` |
 | `rfdetr.num_queries`                         | uint32      | `300` (group 0 of 13 active at inference) |
@@ -52,7 +54,6 @@ All keys live under the `rfdetr.` namespace.
 | `rfdetr.backbone.out_feature_indices`        | int32[4]    | `[2, 5, 8, 11]` (block indices tapped for projector input; concatenated channelwise) |
 | `rfdetr.backbone.pos_embed_train_size`       | uint32      | `37` (side length of the stored positional grid; runtime image of 560/14=40 patches is bilinearly interpolated from 37x37+1) |
 | `rfdetr.projector.in_dim`                    | uint32      | `1536` (= 4 x backbone.dim) |
-
 | `rfdetr.projector.out_dim`                   | uint32      | `256` |
 | `rfdetr.projector.bottleneck_dim`            | uint32      | `128` |
 | `rfdetr.projector.n_bottlenecks`             | uint32      | `3` |
@@ -64,14 +65,22 @@ All keys live under the `rfdetr.` namespace.
 | `rfdetr.decoder.cross_attn_n_levels`         | uint32      | `1` (rfdetr-base is single-scale, P4 only) |
 | `rfdetr.decoder.cross_attn_n_points`         | uint32      | `2` (sampling points per head per level) |
 | `rfdetr.two_stage.n_groups`                  | uint32      | `13` (= `group_detr`; one enc_output set per group) |
+| `rfdetr.has_segmentation_head`               | bool        | `true` for the six `seg-*` variants, `false` otherwise. **Optional; an absent key means `false`.** See "Segmentation head" below. |
+| `rfdetr.mask_downsample_ratio`               | uint32      | `4`. Written only when `has_segmentation_head` is true, and then required: the loader rejects a seg model without it, or with a value of `0`. |
+
+Two keys are optional, and for both the absence carries meaning rather than
+being an error: `rfdetr.preprocess.resize_mode` (absent means legacy) and
+`rfdetr.has_segmentation_head` (absent means false, which is what detection
+GGUFs converted before the seg field existed look like). Every other key in
+the table is mandatory and its absence fails the load.
 
 ## Conventions
 
 ### Preprocessing resize mode
 
 `rfdetr.preprocess.resize_mode` selects how the input image is resized to the
-model's square input before normalization. It is the one optional key in the
-table above, and the only key whose absence is meaningful:
+model's square input before normalization. It is one of the two optional keys
+in the table above:
 
 | Value | Behaviour |
 |-------|-----------|
@@ -296,6 +305,75 @@ per-decoder-layer head.
 
 Total heads: 8.
 
+### Segmentation head (`seg-*` variants only)
+
+Present only when `rfdetr.has_segmentation_head` is true. rfdetr-base has no
+segmentation head, so none of these tensors appear in the counts below.
+
+Unlike every other section, GGUF names here are identical to the upstream
+`state_dict` keys, so there is no rename column below.
+
+**The block count is one `DepthwiseConvBlock` per decoder layer.** This is the
+part of the contract a converter can get wrong silently, so it is stated
+explicitly: `SegmentationHead` (`rfdetr.models.heads.segmentation`) builds
+`rfdetr.decoder.layers` blocks, not a fixed number. The counts are equal by
+construction, because `SegmentationHead.forward` zips `self.blocks` with the
+per-decoder-layer query features.
+
+| Variant | `rfdetr.decoder.layers` | `segmentation_head.blocks.*` |
+|---------|------------------------:|-----------------------------:|
+| seg-nano    | 4 | 4 |
+| seg-small   | 4 | 4 |
+| seg-medium  | 5 | 5 |
+| seg-large   | 5 | 5 |
+| seg-xlarge  | 6 | 6 |
+| seg-2xlarge | 6 | 6 |
+
+Each block contributes 6 tensors, for `b` in `0 .. decoder.layers-1`:
+
+```
+segmentation_head.blocks.{b}.dwconv.weight
+segmentation_head.blocks.{b}.dwconv.bias
+segmentation_head.blocks.{b}.norm.weight
+segmentation_head.blocks.{b}.norm.bias
+segmentation_head.blocks.{b}.pwconv1.weight
+segmentation_head.blocks.{b}.pwconv1.bias
+```
+
+Plus 11 block-independent tensors, all under the same `segmentation_head.`
+prefix: `spatial_features_proj.{weight,bias}`,
+`query_features_block.norm_in.{weight,bias}`,
+`query_features_block.layers.{0,2}.{weight,bias}`,
+`query_features_proj.{weight,bias}`, and `bias`.
+
+Total for a seg variant: `6 x decoder.layers + 11`, so 35 tensors for
+seg-nano/seg-small, 41 for seg-medium/seg-large, 47 for
+seg-xlarge/seg-2xlarge.
+
+#### Load-time rejection of stale segmentation GGUFs
+
+An earlier version of the C++ side hardcoded 4 blocks. GGUFs converted against
+that assumption carry only 4 blocks regardless of variant, which means
+seg-medium, seg-large, seg-xlarge and seg-2xlarge files were missing one or two
+blocks and computed masks from an incomplete head. The masks those files
+produce are wrong.
+
+`model_validate_tensors` now counts `segmentation_head.blocks.{n}.dwconv.weight`
+for increasing `n` and compares against `rfdetr.decoder.layers`:
+
+- **Fewer blocks than decoder layers** fails with `RFDETR_ERR_MODEL_LOAD` and an
+  error naming both counts, saying the file predates the block-count fix and
+  that its masks are incorrect, and telling the user to re-download or
+  re-convert with `scripts/convert_rfdetr_to_gguf.py`.
+- **Zero blocks** fails with a different message. With no seg tensors at all,
+  a stale-file diagnosis would be a guess, so the loader reports only what it
+  knows: the metadata declares a segmentation head but the file has none of
+  the blocks, so either the conversion did not complete or the metadata does
+  not match the weights.
+
+This is a hard failure by design. Loading a stale file and emitting wrong masks
+silently is worse than refusing it.
+
 ### Tensor count summary (rfdetr-base)
 
 | Section          | Count |
@@ -312,11 +390,19 @@ dropped by converter).
 
 ## Per-variant notes
 
-Only `base` is supported for now. `nano`, `small`, `medium`, `large` are
-deferred. They reuse the same schema but with different `backbone.dim`,
-`backbone.depth`, `backbone.heads`, `projector.in_dim`, `projector.out_dim`,
-and (potentially) `decoder.layers`. Each variant must be introspected to
-confirm whether single-scale (P4 only) holds.
+All 11 variants are supported: `nano`, `small`, `base`, `medium`, `large`, and
+the six `seg-*` variants. The tables above use rfdetr-base as the worked
+example. Every variant shares this schema and differs only in the metadata
+values, chiefly `image_size`, `patch_size`, `num_windows`,
+`pos_embed_train_size`, `num_queries`, and `decoder.layers`, plus the
+segmentation keys on the `seg-*` variants.
+
+Two of those values change tensor counts rather than just shapes:
+`decoder.layers` (22 tensors per layer, and on `seg-*` variants another 6 per
+layer in the segmentation head) and `backbone.depth` (18 tensors per block).
+Bringing up a new variant means introspecting it rather than assuming
+rfdetr-base's numbers carry over, including whether single-scale (P4 only)
+still holds.
 
 ## Environment and checkpoint loading
 
