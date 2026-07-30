@@ -656,7 +656,10 @@ std::vector<std::string> expected_tensor_names(const Config& cfg) {
 
     // --- Segmentation head (RFDETRSeg* variants only) ---
     if (cfg.has_segmentation_head) {
-        for (int b = 0; b < 4; ++b) {
+        // SegmentationHead chains one DepthwiseConvBlock per decoder layer
+        // (rfdetr.models.heads.segmentation.SegmentationHead): 4 for
+        // nano/small, 5 for medium/large, 6 for xlarge/2xlarge.
+        for (uint32_t b = 0; b < cfg.decoder.layers; ++b) {
             const std::string p = "segmentation_head.blocks." + std::to_string(b) + ".";
             names.emplace_back(p + "dwconv.weight");
             names.emplace_back(p + "dwconv.bias");

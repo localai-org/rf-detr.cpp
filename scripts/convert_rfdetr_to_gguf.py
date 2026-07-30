@@ -397,8 +397,15 @@ def build_tensor_name_map(variant_cfg):
     # ---- Segmentation head (seg variants only) ----
     if variant_cfg.get("segmentation_head", False):
         SH = "segmentation_head."
-        # 4 × DepthwiseConvBlock
-        for b in range(4):
+        # SegmentationHead.forward_export chains one DepthwiseConvBlock per
+        # decoder layer (rfdetr.models.heads.segmentation.SegmentationHead:
+        # num_blocks == len(decoder layers) since forward() zips
+        # self.blocks with per-decoder-layer query_features). nano/small
+        # have 4 decoder layers -> 4 blocks; medium/large have 5 -> 5
+        # blocks; xlarge/2xlarge have 6 -> 6 blocks. Using a hardcoded 4
+        # here silently dropped block(s) for every variant except
+        # nano/small.
+        for b in range(dec_layers):
             sp = SH + f"blocks.{b}."
             dp = f"segmentation_head.blocks.{b}."
             m[dp + "dwconv.weight"] = (sp + "dwconv.weight", None)
