@@ -126,6 +126,16 @@ void report(const char* name, const std::vector<float>& got,
     if (ds.max_abs > tol) ++n_fail;
 }
 
+/* Outcome of a phase-1 run. `ran` says whether the comparisons actually
+ * executed — a bare `n_fail == 0` cannot distinguish "everything matched"
+ * from "we bailed out before comparing anything", and this test is the
+ * acceptance gate for the 5-block seg path, so that distinction has to
+ * survive all the way to the caller. */
+struct PhaseResult {
+    bool ran    = false;
+    int  n_fail = 0;
+};
+
 /* Phase 1: isolated seg head — feed baseline's seg.spatial_features.input
  * and per-layer post-norm decoder outputs into the C++ seg head, compare
  * each intermediate against the baseline.
@@ -133,8 +143,8 @@ void report(const char* name, const std::vector<float>& got,
  * Every shape is derived from the loaded model's config (decoder layer
  * count, image size, mask downsample ratio) and from the baseline's own
  * tensor shapes — nothing here assumes a 4-block / 312px seg-nano. */
-int phase1_isolated(rfdetr::Model* m, ggml_backend_t backend,
-                    const Baseline& base, const char* label) {
+PhaseResult phase1_isolated(rfdetr::Model* m, ggml_backend_t backend,
+                            const Baseline& base, const char* label) {
     auto have = [&](const std::string& k) {
         return base.tensors.find(k) != base.tensors.end();
     };
@@ -145,17 +155,18 @@ int phase1_isolated(rfdetr::Model* m, ggml_backend_t backend,
 
     if (!have("seg.spatial_features.input") || !have("seg.masks.final")) {
         std::fprintf(stderr,
-            "[Phase 1: %s] SKIPPED: baseline missing seg captures.\n", label);
-        return 0;
+            "[Phase 1: %s] NOT RUN: baseline file is present but missing seg "
+            "captures.\n", label);
+        return PhaseResult{};
     }
     for (int i = 0; i < n_layers; ++i) {
         const std::string k = "decoder.layer." + std::to_string(i) + ".post_norm";
         if (!have(k)) {
             std::fprintf(stderr,
-                "[Phase 1: %s] SKIPPED: baseline missing %s (model has %d "
+                "[Phase 1: %s] NOT RUN: baseline missing %s (model has %d "
                 "decoder layers — baseline was generated for a different "
                 "variant?).\n", label, k.c_str(), n_layers);
-            return 0;
+            return PhaseResult{};
         }
     }
 
@@ -254,8 +265,12 @@ int phase1_isolated(rfdetr::Model* m, ggml_backend_t backend,
         }
         const auto baseline_it = base.tensors.find(baseline_name);
         if (baseline_it == base.tensors.end()) {
-            std::fprintf(stderr, "  [%-38s] missing baseline %s\n",
+            /* Symmetric with the missing-trace branch above: a checkpoint we
+             * expect to compare that has no baseline counterpart means the
+             * gate silently stopped covering it. Fail, don't shrug. */
+            std::fprintf(stderr, "  [%-38s] FAIL missing baseline %s\n",
                          trace_name, baseline_name);
+            ++n_fail;
             return;
         }
         auto got = rfdetr::copy_tensor_to_f32(it->second);
@@ -289,15 +304,25 @@ int phase1_isolated(rfdetr::Model* m, ggml_backend_t backend,
 
     ggml_backend_buffer_free(buf);
     ggml_free(gctx);
-    return n_fail;
+    return PhaseResult{/*ran*/ true, n_fail};
 }
 
 /* Run phase 1 (and the phase-2 cumulative log) for one seg variant.
  *
  * The layer count, image size and mask ratio are read from the loaded
  * model's config rather than passed in, so a 5-block variant exercises all
- * 5 blocks. Returns true if the variant actually ran, false if its fixtures
- * were absent and it was skipped. Phase-1 failures are added to `n_fail`. */
+ * 5 blocks.
+ *
+ * Returns true only if the phase-1 comparisons actually executed. Two
+ * distinct outcomes are deliberately NOT conflated:
+ *   - fixtures absent          → SKIPPED, returns false, no failure (a fresh
+ *                                clone without the generated GGUFs must pass);
+ *   - fixtures present but the
+ *     comparisons could not run → FAIL, returns false and bumps `n_fail`. A
+ *                                 fixture that exists but cannot be compared
+ *                                 against means this gate is covering nothing,
+ *                                 which must never read as green.
+ * Phase-1 comparison failures are also added to `n_fail`. */
 bool run_phase1(const std::string& baseline_path,
                 const std::string& model_path,
                 const char* label,
@@ -315,7 +340,11 @@ bool run_phase1(const std::string& baseline_path,
     };
     if (!have("preprocess.input") || !have("seg.masks.final")) {
         std::fprintf(stderr,
-            "[Phase 1: %s] SKIPPED: baseline missing seg checkpoints.\n", label);
+            "[Phase 1: %s] FAIL: baseline %s is present but missing "
+            "preprocess.input / seg.masks.final — regenerate it with "
+            "scripts/gen_torch_baseline.py --seg-variant.\n",
+            label, baseline_path.c_str());
+        ++n_fail;
         return false;
     }
 
@@ -329,7 +358,19 @@ bool run_phase1(const std::string& baseline_path,
     RFDETR_ASSERT(backend != nullptr);
     RFDETR_ASSERT_EQ_INT(rfdetr::model_realize_weights(*m, backend), RFDETR_OK);
 
-    n_fail += phase1_isolated(m, backend, base, label);
+    const PhaseResult p1 = phase1_isolated(m, backend, base, label);
+    n_fail += p1.n_fail;
+    if (!p1.ran) {
+        /* The fixtures are on disk, so the operator asked for this variant to
+         * be checked and it was not. Never let that read as a pass. */
+        std::fprintf(stderr,
+            "[Phase 1: %s] FAIL: fixtures present but the comparisons never "
+            "ran (see the NOT RUN line above).\n", label);
+        ++n_fail;
+        rfdetr::model_free(m);
+        rfdetr::free_backend(backend);
+        return false;
+    }
 
     /* Phase 2: full end-to-end. Cumulative drift includes backbone +
      * projector + decoder + seg head. We log it but don't enforce a tight
@@ -381,6 +422,14 @@ int main() {
     const bool ran_medium = run_phase1(fx + "/baseline_torch_seg_medium.gguf",
                                        find_model("rfdetr-seg-medium-f32.gguf"),
                                        "seg-medium (5 blocks)", n_fail);
+    /* State the verdict explicitly: ctest only surfaces the exit code, and
+     * "green" must never be ambiguous about whether the 5-block variant was
+     * actually exercised. */
+    std::fprintf(stderr,
+        "[test_parity_segmentation] seg-nano: %s | seg-medium (5 blocks): %s "
+        "| failures: %d\n",
+        ran_nano ? "RAN" : "not run", ran_medium ? "RAN" : "not run", n_fail);
+
     if (!ran_nano && !ran_medium) {
         std::fprintf(stderr,
             "[test_parity_segmentation] SKIPPED: no seg fixtures present.\n");

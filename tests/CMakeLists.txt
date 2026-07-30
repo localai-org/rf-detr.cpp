@@ -186,13 +186,24 @@ target_link_libraries(test_parity_heads PRIVATE ggml)
 rfdetr_add_test(test_parity_e2e)
 target_link_libraries(test_parity_e2e PRIVATE ggml)
 
-# Plan C: segmentation head end-to-end parity vs the seg torch baseline.
-# Skips gracefully if either the rfdetr-seg-nano-f32 GGUF or the seg baseline
-# bundle isn't present. To regenerate:
-#   .venv/bin/python scripts/gen_torch_baseline.py --seg \
+# Plan C: segmentation head end-to-end parity vs the seg torch baselines.
+#
+# Runs two variants: seg-nano (4 seg blocks) and seg-medium (5 blocks). The
+# 5-block variant is the acceptance gate for "one segmentation block per
+# decoder layer" — seg-nano cannot catch a dropped block. Each variant skips
+# only if BOTH of its fixtures are absent; a fixture that is present but
+# unusable is a failure, not a skip.
+#
+# To regenerate all four artifacts (all gitignored, ~640MB total, needs the
+# .venv with rfdetr 1.9.0 + torch 2.5.1):
+#   .venv/bin/python scripts/gen_torch_baseline.py --seg-variant nano \
 #       --output tests/fixtures/baseline_torch_seg.gguf
+#   .venv/bin/python scripts/gen_torch_baseline.py --seg-variant medium \
+#       --output tests/fixtures/baseline_torch_seg_medium.gguf
 #   .venv/bin/python scripts/convert_rfdetr_to_gguf.py --variant seg-nano \
 #       --dtype f32 --output models/rfdetr-seg-nano-f32.gguf
+#   .venv/bin/python scripts/convert_rfdetr_to_gguf.py --variant seg-medium \
+#       --dtype f32 --output models/rfdetr-seg-medium-f32.gguf
 rfdetr_add_test(test_parity_segmentation)
 target_link_libraries(test_parity_segmentation PRIVATE ggml)
 
