@@ -20,7 +20,7 @@ The keypoint-preview head is not yet supported.
 > variants.
 >
 > **RF-DETR 1.9:** all 11 variants (44 GGUFs) are converted, verified, and parity-swept
-> against `rfdetr==1.9.0` — see [RF-DETR 1.9 parity](#rf-detr-19-parity-full-44-model-matrix)
+> against `rfdetr==1.9.0` — see [RF-DETR 1.9 parity](#rf-detr-19-parity)
 > for the full per-variant, per-quant table. New GGUFs record the antialias-free bilinear
 > preprocessing introduced upstream, while GGUFs without that metadata retain the prior
 > resize path for output compatibility.
@@ -167,7 +167,7 @@ The latency/quantization tables below (AMD Ryzen 9 9950X3D, `rfdetr-base`, 7 COC
 images) predate the RF-DETR 1.9 upgrade — the detection/segmentation architectures
 themselves are unchanged, so latency and relative quant behavior still apply, but they were
 measured against `rfdetr` checkpoints converted with the pre-1.9 converter. See
-[**RF-DETR 1.9 parity**](#rf-detr-19-parity-full-44-model-matrix) below for the accuracy
+[**RF-DETR 1.9 parity**](#rf-detr-19-parity) below for the accuracy
 numbers actually measured against `rfdetr==1.9.0` on the current 44-model matrix.
 
 End-to-end CPU inference on AMD Ryzen 9 9950X3D (single batch, `--threads 8`). C++ F16 is
@@ -191,130 +191,18 @@ allocator.
 See [`BENCHMARK.md`](BENCHMARK.md) for the per-image breakdown, F16 fast-path explanation,
 thread-scaling sweep, methodology, and reproduction recipe.
 
-### RF-DETR 1.9 parity: full 44-model matrix
+### RF-DETR 1.9 parity
 
-PyTorch-vs-C++ parity swept across every (variant × quant) cell against the actual
-`rfdetr==1.9.0` conversion pipeline (greedy IoU matching, class-equal, on
-`tests/fixtures/ci/test_image.jpg`; raw data in
-[`benchmarks/results/accuracy_sweep.json`](benchmarks/results/accuracy_sweep.json)):
+PyTorch-vs-C++ parity is swept across every (variant × quant) cell of the current 44-model
+matrix, using the same 7-image methodology (and the same 1.7.0 baseline) as the tables
+above. F32/F16/Q8_0 hold up or improve across the board; Q4_K remains real, variant-dependent
+lossy accuracy (worst case Recall@0.95 = 0.394 on Seg-Small) — consistent with the 1.7.0
+Q4_K findings on the same variant.
 
-| Variant | Quant | Recall@0.5 | Recall@0.95 | Mean \|Δscore\| | Mask IoU |
-|---|---|---:|---:|---:|---:|
-| nano | f32 | 1.000 | 1.000 | 0.0030 | — |
-| nano | f16 | 1.000 | 1.000 | 0.0024 | — |
-| nano | q8_0 | 1.000 | 1.000 | 0.0120 | — |
-| nano | q4_K | 0.857 | 0.857 | 0.0206 | — |
-| small | f32 | 1.000 | 1.000 | 0.0021 | — |
-| small | f16 | 1.000 | 1.000 | 0.0012 | — |
-| small | q8_0 | 1.000 | 1.000 | 0.0098 | — |
-| small | q4_K | 0.833 | 0.500 ⚠ | 0.0164 | — |
-| base | f32 | 1.000 | 1.000 | 0.0025 | — |
-| base | f16 | 1.000 | 1.000 | 0.0024 | — |
-| base | q8_0 | 1.000 | 1.000 | 0.0041 | — |
-| base | q4_K | 0.833 | 0.750 | 0.0082 | — |
-| medium | f32 | 1.000 | 1.000 | 0.0008 | — |
-| medium | f16 | 1.000 | 1.000 | 0.0023 | — |
-| medium | q8_0 | 1.000 | 1.000 | 0.0063 | — |
-| medium | q4_K | 1.000 | 1.000 | 0.0230 | — |
-| large | f32 | 1.000 | 1.000 | 0.0023 | — |
-| large | f16 | 1.000 | 1.000 | 0.0012 | — |
-| large | q8_0 | 1.000 | 1.000 | 0.0038 | — |
-| large | q4_K | 0.875 | 0.875 | 0.0174 | — |
-| seg-nano | f32 | 1.000 | 1.000 | 0.0025 | 0.9949 |
-| seg-nano | f16 | 1.000 | 1.000 | 0.0023 | 0.9946 |
-| seg-nano | q8_0 | 1.000 | 1.000 | 0.0061 | 0.9931 |
-| seg-nano | q4_K | 0.875 | 0.500 ⚠ | 0.0299 | 0.9540 |
-| seg-small | f32 | 1.000 | 1.000 | 0.0025 | 0.9967 |
-| seg-small | f16 | 1.000 | 1.000 | 0.0032 | 0.9966 |
-| seg-small | q8_0 | 1.000 | 1.000 | 0.0043 | 0.9926 |
-| seg-small | q4_K | 0.875 | 0.125 ⚠ | 0.0216 | 0.9764 |
-| seg-medium | f32 | 1.000 | 1.000 | 0.0058 | 0.9959 |
-| seg-medium | f16 | 1.000 | 1.000 | 0.0095 | 0.9962 |
-| seg-medium | q8_0 | 1.000 | 1.000 | 0.0083 | 0.9920 |
-| seg-medium | q4_K | 1.000 | 0.571 ⚠ | 0.0252 | 0.9725 |
-| seg-large | f32 | 1.000 | 1.000 | 0.0049 | 0.9990 |
-| seg-large | f16 | 1.000 | 1.000 | 0.0055 | 0.9990 |
-| seg-large | q8_0 | 1.000 | 1.000 | 0.0042 | 0.9977 |
-| seg-large | q4_K | 1.000 | 0.400 ⚠ | 0.0247 | 0.9852 |
-| seg-xlarge | f32 | 1.000 | 1.000 | 0.0061 | 0.9972 |
-| seg-xlarge | f16 | 1.000 | 1.000 | 0.0066 | 0.9965 |
-| seg-xlarge | q8_0 | 1.000 | 1.000 | 0.0065 | 0.9936 |
-| seg-xlarge | q4_K | 0.833 | 0.833 | 0.0245 | 0.9740 |
-| seg-2xlarge | f32 | 1.000 | 1.000 | 0.0047 | 0.9983 |
-| seg-2xlarge | f16 | 1.000 | 1.000 | 0.0071 | 0.9947 |
-| seg-2xlarge | q8_0 | 1.000 | 1.000 | 0.0119 | 0.9935 |
-| seg-2xlarge | q4_K | 0.857 | 0.714 | 0.0392 | 0.9729 |
-
-⚠ = Recall@0.95 < 0.6. F32/F16/Q8_0 are clean everywhere (Recall@0.5 = 1.0, mask IoU ≥ 0.95
-on every segmentation variant). **Q4_K accuracy is real and variant-dependent** — worst case
-is seg-small (Recall@0.95 = 0.125) — check this table for your specific variant before
-choosing Q4_K for an accuracy-sensitive deployment; F16 or Q8_0 are the safe defaults.
-
-### Variants comparison
-
-All 5 detection variants share the DINOv2-small backbone; they differ in input resolution
-and decoder layer count. C++ F16 is faster than PyTorch on each:
-
-| Variant | Resolution | Dec layers | C++ F16 median ms @ T=8 | PyTorch median ms |
-|---------|-----------:|-----------:|------------------------:|------------------:|
-| Nano    |        384 |          2 |                **61.5** |              88.4 |
-| Small   |        512 |          3 |                **116.0** |             120.5 |
-| Base    |        560 |          3 |                **136.9** |             149.5 |
-| Medium  |        576 |          4 |                **149.6** |             182.8 |
-| Large   |        704 |          4 |                **237.8** |             228.7* |
-
-\* Large is the one variant where PyTorch is competitive at T=8 (within run-to-run variance).
-
-![Variants overview](benchmarks/plots/variants_overview.png)
-
-### Quantization tradeoffs
-
-K-quants (Q4_K / Q5_K / Q6_K) produced via the C++ quantizer beat legacy block quants
-(Q4_0 / Q5_0) at the same target bit-width. The full matrix:
-
-![Quant tradeoffs](benchmarks/plots/quant_tradeoffs.png)
-
-| Variant      | Recall@0.5 | Recall@0.95 | Max \|Δscore\| | Notes |
-|--------------|-----------:|------------:|---------------:|-------|
-| F32          |      1.000 |       0.989 |         0.008 | Reference |
-| **F16**      |      1.000 |       0.989 |         0.008 | Matches F32, fastest variant |
-| Q8_0         |      1.000 |       0.989 |         0.009 | 3.10x compression, no accuracy loss |
-| Q6_K         |      1.000 |       0.989 |         0.011 | 3.40x compression, about 10% slower than Q8_0 |
-| Q5_K         |      0.953 |       0.879 |         0.014 | Mild accuracy loss; still usable |
-| Q4_K         |      0.953 |       0.879 |         0.020 | Halves Δscore vs legacy Q4_0 at same size |
-| Q4_0 (legacy) | 0.891 |       0.727 |         0.226 | Steep accuracy drop; not recommended |
-
-Recommendation (numbers are for rfdetr-base):
-
-1. **F16**: production default. Fastest, matches F32, 1.86x smaller than F32.
-2. **Q8_0**: when disk size matters. 3.10x compression, no accuracy loss, about 7% latency
-   tax vs F16.
-3. **Q6_K**: when you need slightly smaller than Q8_0 with near-identical accuracy.
-4. **Q4_K**: last resort for ≤32 MB deployments. Real but not catastrophic accuracy loss.
-
-See [`BENCHMARK.md`](BENCHMARK.md) for mask quality across all 12 seg cells (mask IoU stays
-≥ 0.99 across F32/F16/Q8_0 on every segmentation variant).
-
-### 1.7.0 vs 1.9.0 (rfdetr-base)
-
-The only apples-to-apples overlap between the two sweeps is `rfdetr-base`, the one variant
-the pre-1.9 sweep covered per-quant. **Methodology differs** — the 1.7.0 numbers are
-median-of-7-COCO-images with **max** |Δscore|; the 1.9.0 numbers (this branch, converted
-with the 1.9-aware pipeline) are a single-image regression check with **mean** |Δscore| — so
-treat this as directional, not a strict regression comparison:
-
-| Quant | 1.7.0 R@0.5 | 1.9.0 R@0.5 | 1.7.0 R@0.95 | 1.9.0 R@0.95 | 1.7.0 Max \|Δscore\| | 1.9.0 Mean \|Δscore\| |
-|---|---:|---:|---:|---:|---:|---:|
-| F32  | 1.000 | 1.000 | 0.989 | 1.000 | 0.008 | 0.0025 |
-| F16  | 1.000 | 1.000 | 0.989 | 1.000 | 0.008 | 0.0024 |
-| Q8_0 | 1.000 | 1.000 | 0.989 | 1.000 | 0.009 | 0.0041 |
-| Q4_K | 0.953 | 0.833 | 0.879 | 0.750 | 0.020 | 0.0082 |
-
-F32/F16/Q8_0 hold up or improve at IoU 0.95 on this image; Q4_K is directionally consistent
-(real accuracy loss vs the other three quants in both sweeps) but the single-image 1.9.0
-check is more sensitive to exactly which detections sit near the threshold — see the full
-44-model table above for Q4_K's actual per-variant spread before reading too much into one
-image's Q4_K number.
+See [**BENCHMARK.md § Accuracy across the full model matrix (rfdetr 1.9.0)**](BENCHMARK.md#accuracy-across-the-full-model-matrix-rfdetr-190)
+for the full per-variant, per-quant table (and its 1.7.0 predecessor, and a takeaways
+section comparing the two). Raw data:
+[`benchmarks/results/accuracy_sweep.json`](benchmarks/results/accuracy_sweep.json).
 
 ## Embedding via the C API
 

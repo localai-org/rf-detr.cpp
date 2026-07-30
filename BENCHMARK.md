@@ -1,12 +1,20 @@
 # Benchmark: rf-detr.cpp vs upstream Python rfdetr
 
 End-to-end CPU inference comparison between this C++ implementation and the
-reference Python `rfdetr==1.7.0` package, on the same model weights, same
-images, same CPU. Both implementations run on CPU only.
+reference Python `rfdetr` package, on the same model weights, same images,
+same CPU. Both implementations run on CPU only.
 
 The headline finding is in three plots. Raw data lives in
 `benchmarks/results/bench_data.json`; the rendering script
 (`scripts/plot_community.py`) is deterministic from that file.
+
+**Version note:** the latency/quantization plots and tables below (Headline
+through Variant comparison) predate the RF-DETR 1.9 upgrade and were measured
+against `rfdetr==1.7.0` — the detection/segmentation architectures are
+unchanged, so this data still applies. The accuracy section further down has
+both the original `rfdetr==1.7.0` sweep and the current
+[`rfdetr==1.9.0` sweep](#accuracy-across-the-full-model-matrix-rfdetr-190),
+clearly labeled.
 
 ---
 
@@ -411,11 +419,17 @@ to re-run after a partial conversion. Each variant downloads its pretrained
 
 ---
 
-## Accuracy across the full model matrix
+## Accuracy across the full model matrix (rfdetr 1.7.0, historical)
 
 All C++ values measured vs PyTorch ground truth on 7 COCO val images at threshold=0.5. Sweep recorded 2026-05-27 with rfdetr 1.7.0 (torch 2.5.1+cu124). Greedy 1-1 matching, score-desc, same class, IoU ≥ 0.5 (for `Recall@0.5`) or IoU ≥ 0.95 (for `Recall@0.95`). Score deltas are absolute, over matched pairs only. `Extra dets` is the average number of unmatched C++ detections per image (should be 0 in the ideal case). For segmentation variants, `Mean mask IoU` and `Pixel agreement` are computed over matched-pair binary masks (both at image resolution).
 
 Images: `bus.jpg`, `coco_cats.jpg`, `coco_indoor.jpg`, `coco_kitchen.jpg`, `coco_living_room.jpg`, `coco_skater.jpg`, `coco_street.jpg`
+
+Superseded by the [rfdetr 1.9.0 sweep](#accuracy-across-the-full-model-matrix-rfdetr-190)
+below, covering the same 7-image methodology on the current 44-model matrix (this table
+only ever covered nano/small/base/medium/large + seg-nano/small/medium — the 32-model
+predecessor to today's 44-model matrix, which adds seg-large/xlarge/2xlarge). Kept for the
+record, not as the current reference.
 
 ### Detection variants
 
@@ -470,6 +484,89 @@ Raw per-cell + per-image data: [`benchmarks/results/accuracy_sweep.json`](benchm
 - Seg-Nano F16 dropped one detection (Recall@0.5 0.955 to 0.927): a single low-confidence detection on one of the 7 images fell below the 0.5 score threshold under F16. Recall@0.95 mirrors Recall@0.5 because once a det makes the cut, it always lands at IoU ≥ 0.95.
 
 Sweep produced by [`scripts/sweep_accuracy.py`](scripts/sweep_accuracy.py); table rendered by [`scripts/accuracy_table.py`](scripts/accuracy_table.py).
+
+---
+
+## Accuracy across the full model matrix (rfdetr 1.9.0)
+
+All C++ values measured vs PyTorch ground truth on 7 COCO val images at threshold=0.5. Sweep recorded 2026-07-30 with rfdetr 1.9.0 (torch 2.5.1+cu124). Same methodology as the 1.7.0 sweep above (greedy 1-1 matching, score-desc, same class, IoU ≥ 0.5 / ≥ 0.95, absolute score deltas over matched pairs) — the same 7-image set, refetched from `images.cocodataset.org` at `val2017/{id:012d}.jpg` plus `bus.jpg` (see [Reproducing](#reproducing)), so this table and the one above are directly comparable. This is the current 44-model matrix (11 variants × 4 quants); the 1.7.0 table above only ever covered 32.
+
+Images: `000000000139.jpg`, `000000000632.jpg`, `000000039769.jpg`, `000000087038.jpg`, `000000252219.jpg`, `000000397133.jpg`, `bus.jpg`
+
+### Detection variants
+
+| Variant | Quant | Size (MB) | Recall@0.5 | Recall@0.95 | Max \|Δscore\| | Mean \|Δscore\| | Extra dets |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Nano | F32 | 112.7 | 1.000 | 1.000 | 0.0030 | 0.0012 | 0.00 |
+| Nano | F16 | 60.5 | 1.000 | 1.000 | 0.0020 | 0.0007 | 0.00 |
+| Nano | Q8_0 | 36.0 | 1.000 | 1.000 | 0.0147 | 0.0053 | 0.00 |
+| Nano | Q4_K | 29.7 | 0.949 | 0.859 | 0.0970 | 0.0311 | 0.43 |
+| Small | F32 | 119.0 | 0.976 | 0.976 | 0.0042 | 0.0012 | 0.00 |
+| Small | F16 | 64.0 | 0.976 | 0.976 | 0.0046 | 0.0013 | 0.00 |
+| Small | Q8_0 | 38.2 | 0.948 | 0.948 | 0.0118 | 0.0041 | 0.00 |
+| Small | Q4_K | 31.2 | 0.924 | 0.829 | 0.0512 | 0.0206 | 0.00 |
+| Base | F32 | 119.2 | 1.000 | 1.000 | 0.0048 | 0.0012 | 0.00 |
+| Base | F16 | 64.2 | 1.000 | 1.000 | 0.0045 | 0.0014 | 0.00 |
+| Base | Q8_0 | 38.5 | 0.988 | 0.988 | 0.0096 | 0.0032 | 0.00 |
+| Base | Q4_K | 31.5 | 0.954 | 0.884 | 0.0505 | 0.0196 | 0.29 |
+| Medium | F32 | 125.0 | 0.973 | 0.962 | 0.0092 | 0.0024 | 0.00 |
+| Medium | F16 | 67.2 | 0.978 | 0.967 | 0.0085 | 0.0022 | 0.00 |
+| Medium | Q8_0 | 40.2 | 0.989 | 0.969 | 0.0248 | 0.0070 | 0.14 |
+| Medium | Q4_K | 32.5 | 0.883 | 0.739 | 0.0523 | 0.0199 | 0.14 |
+| Large | F32 | 125.9 | 1.000 | 1.000 | 0.0056 | 0.0018 | 0.00 |
+| Large | F16 | 68.2 | 1.000 | 1.000 | 0.0043 | 0.0016 | 0.00 |
+| Large | Q8_0 | 41.1 | 0.973 | 0.973 | 0.0091 | 0.0035 | 0.00 |
+| Large | Q4_K | 33.4 | 0.909 | 0.853 | 0.0445 | 0.0184 | 0.00 |
+
+### Segmentation variants
+
+| Variant | Quant | Size (MB) | Recall@0.5 | Recall@0.95 | Mean mask IoU | Pixel agreement | Mean \|Δscore\| |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Seg-Nano | F32 | 127.1 | 1.000 | 1.000 | 0.9984 | 0.9999 | 0.0019 |
+| Seg-Nano | F16 | 67.8 | 1.000 | 1.000 | 0.9984 | 0.9999 | 0.0021 |
+| Seg-Nano | Q8_0 | 39.9 | 0.976 | 0.964 | 0.9926 | 0.9998 | 0.0075 |
+| Seg-Nano | Q4_K | 31.8 | 0.912 | 0.530 | 0.9633 | 0.9990 | 0.0359 |
+| Seg-Small | F32 | 127.6 | 1.000 | 1.000 | 0.9982 | 0.9999 | 0.0040 |
+| Seg-Small | F16 | 68.3 | 1.000 | 1.000 | 0.9981 | 0.9999 | 0.0038 |
+| Seg-Small | Q8_0 | 40.4 | 0.980 | 0.980 | 0.9937 | 0.9999 | 0.0064 |
+| Seg-Small | Q4_K | 32.4 | 0.944 | 0.394 | 0.9721 | 0.9990 | 0.0323 |
+| Seg-Medium | F32 | 133.9 | 0.984 | 0.984 | 0.9978 | 0.9999 | 0.0037 |
+| Seg-Medium | F16 | 71.6 | 0.984 | 0.984 | 0.9970 | 0.9999 | 0.0037 |
+| Seg-Medium | Q8_0 | 42.5 | 0.984 | 0.984 | 0.9935 | 0.9999 | 0.0059 |
+| Seg-Medium | Q4_K | 33.6 | 0.914 | 0.479 | 0.9687 | 0.9993 | 0.0248 |
+| Seg-Large | F32 | 134.6 | 0.976 | 0.976 | 0.9982 | 0.9999 | 0.0035 |
+| Seg-Large | F16 | 72.3 | 0.976 | 0.976 | 0.9980 | 0.9999 | 0.0036 |
+| Seg-Large | Q8_0 | 43.1 | 0.988 | 0.988 | 0.9943 | 0.9999 | 0.0077 |
+| Seg-Large | Q4_K | 34.3 | 0.964 | 0.693 | 0.9730 | 0.9993 | 0.0264 |
+| Seg-XLarge | F32 | 141.9 | 0.982 | 0.982 | 0.9964 | 0.9999 | 0.0070 |
+| Seg-XLarge | F16 | 76.7 | 0.982 | 0.982 | 0.9965 | 0.9999 | 0.0071 |
+| Seg-XLarge | Q8_0 | 46.1 | 1.000 | 1.000 | 0.9941 | 0.9998 | 0.0076 |
+| Seg-XLarge | Q4_K | 36.6 | 0.905 | 0.672 | 0.9726 | 0.9994 | 0.0265 |
+| Seg-2XLarge | F32 | 143.9 | 1.000 | 1.000 | 0.9964 | 0.9999 | 0.0090 |
+| Seg-2XLarge | F16 | 78.7 | 0.982 | 0.970 | 0.9964 | 0.9999 | 0.0082 |
+| Seg-2XLarge | Q8_0 | 48.2 | 0.970 | 0.970 | 0.9932 | 0.9999 | 0.0085 |
+| Seg-2XLarge | Q4_K | 38.6 | 0.954 | 0.673 | 0.9724 | 0.9994 | 0.0323 |
+
+### Takeaways vs the 1.7.0 sweep
+
+- **Detection F32/F16/Q8_0 hold up or improve.** Nano goes from 0.989/0.989 (1.7.0) to a
+  clean 1.000/1.000 at F32/F16; Medium goes from 0.939/0.894 to 0.973/0.962. This reflects
+  the combination of the new antialias-free bilinear preprocessing and, for some variants,
+  refreshed 1.9.0 pretrained checkpoints upstream — both changed at once, so this table
+  can't isolate which contributed more.
+- **Q4_K's failure mode is consistent across both sweeps**, which is the strongest
+  cross-check available: Seg-Small Q4_K Recall@0.95 was 0.376 under 1.7.0 and 0.394 under
+  1.9.0 — same variant, same weak point, two independent sweeps five months apart.
+- **Q4_K remains real, variant-dependent lossy accuracy** — worst case is Seg-Small at
+  Recall@0.95 = 0.394, consistent with the historical table's own worst case on the same
+  variant. Mask quality still holds (mean mask IoU ≥ 0.96 even at Q4_K).
+- The three newly-added segmentation variants (Seg-Large/XLarge/2XLarge) show the same
+  quant ordering as the original three (F32 ≈ F16 > Q8_0 ≫ Q4_K), which is expected — this
+  is also the first sweep of these variants after fixing the segmentation-head block-count
+  bug ("fix: segmentation head block count for medium/large/xlarge/2xlarge"), so there is no
+  prior data to compare them against.
+
+Sweep produced by [`scripts/sweep_accuracy.py`](scripts/sweep_accuracy.py); table rendered by [`scripts/accuracy_table.py`](scripts/accuracy_table.py). Raw data: [`benchmarks/results/accuracy_sweep.json`](benchmarks/results/accuracy_sweep.json).
 
 ---
 
@@ -538,11 +635,16 @@ cmake -B build -DRFDETR_BUILD_TESTS=ON
 cmake --build build -j
 
 # 1. Fetch a handful of COCO val2017 images into benchmarks/images/.
+#    COCO filenames are zero-padded to 12 digits; naively prefixing "000000"
+#    only works for 6-digit ids (397133, 252219) and silently 404s for the
+#    others, so pad properly with printf.
 mkdir -p benchmarks/images && cd benchmarks/images
 for id in 397133 39769 139 632 252219 87038; do
-    curl -sSLkO "https://images.cocodataset.org/val2017/000000${id}.jpg"
+    padded=$(printf "%012d" "$id")
+    curl -sSLkO "https://images.cocodataset.org/val2017/${padded}.jpg"
 done
-# Bring your own bus.jpg or any other JPEG to add to the set.
+# Bring your own bus.jpg or any other JPEG to add to the set (this repo's
+# sweep used https://raw.githubusercontent.com/ultralytics/yolov5/master/data/images/bus.jpg).
 cd ../..
 
 # 2. Convert / download model variants into models/ (one-time).
