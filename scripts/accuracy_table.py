@@ -17,14 +17,17 @@ import sys
 from pathlib import Path
 
 VARIANT_LABEL = {
-    "nano":       "Nano",
-    "small":      "Small",
-    "base":       "Base",
-    "medium":     "Medium",
-    "large":      "Large",
-    "seg-nano":   "Seg-Nano",
-    "seg-small":  "Seg-Small",
-    "seg-medium": "Seg-Medium",
+    "nano":        "Nano",
+    "small":       "Small",
+    "base":        "Base",
+    "medium":      "Medium",
+    "large":       "Large",
+    "seg-nano":    "Seg-Nano",
+    "seg-small":   "Seg-Small",
+    "seg-medium":  "Seg-Medium",
+    "seg-large":   "Seg-Large",
+    "seg-xlarge":  "Seg-XLarge",
+    "seg-2xlarge": "Seg-2XLarge",
 }
 
 QUANT_LABEL = {
@@ -34,8 +37,13 @@ QUANT_LABEL = {
     "q4_K": "Q4_K",
 }
 
-VARIANT_ORDER = ["nano", "small", "base", "medium", "large",
-                 "seg-nano", "seg-small", "seg-medium"]
+DETECTION_ORDER = ["nano", "small", "base", "medium", "large"]
+# seg-xlarge is intentionally absent: its 624px pipeline is broken end-to-end,
+# so it has never been swept. It is still in VARIANT_LABEL so render_all() can
+# name it in the "not swept" line rather than silently omitting it.
+SEGMENTATION_ORDER = ["seg-nano", "seg-small", "seg-medium",
+                      "seg-large", "seg-2xlarge"]
+VARIANT_ORDER = DETECTION_ORDER + SEGMENTATION_ORDER
 QUANT_ORDER = ["f32", "f16", "q8_0", "q4_K"]
 
 
@@ -50,7 +58,7 @@ def render_detection(cells: list[dict]) -> str:
     lines.append("")
     lines.append("| Variant | Quant | Size (MB) | Recall@0.5 | Recall@0.95 | Max \\|Δscore\\| | Mean \\|Δscore\\| | Extra dets |")
     lines.append("|---|---|---:|---:|---:|---:|---:|---:|")
-    for v in ["nano", "small", "base", "medium", "large"]:
+    for v in DETECTION_ORDER:
         for q in QUANT_ORDER:
             c = by.get((v, q))
             if c is None or "error" in c:
@@ -78,7 +86,7 @@ def render_segmentation(cells: list[dict]) -> str:
     lines.append("")
     lines.append("| Variant | Quant | Size (MB) | Recall@0.5 | Recall@0.95 | Mean mask IoU | Pixel agreement | Mean \\|Δscore\\| |")
     lines.append("|---|---|---:|---:|---:|---:|---:|---:|")
-    for v in ["seg-nano", "seg-small", "seg-medium"]:
+    for v in SEGMENTATION_ORDER:
         for q in QUANT_ORDER:
             c = by.get((v, q))
             if c is None or "error" in c:
@@ -99,6 +107,42 @@ def render_segmentation(cells: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def render_provenance(meta: dict, cells: list[dict]) -> str:
+    """Describe which rows were measured when, and against which rfdetr.
+
+    Derived entirely from the sweep's own metadata so it cannot drift away
+    from the numbers in the tables above it.
+    """
+    resweep = meta.get("resweep")
+    swept = {c["variant"] for c in cells}
+    never_swept = [VARIANT_LABEL[v] for v in VARIANT_ORDER if v not in swept]
+    never_swept += [VARIANT_LABEL[v] for v in VARIANT_LABEL
+                    if v not in VARIANT_ORDER and v not in swept]
+
+    lines: list[str] = []
+    if resweep:
+        rs_variants = sorted(resweep.get("variants", []))
+        labels = [VARIANT_LABEL.get(v, v) for v in rs_variants]
+        base_v = meta.get("rfdetr_version", "")
+        base_date = meta.get("date", "")
+        rs_v = resweep.get("rfdetr_version", "")
+        rs_date = resweep.get("date", "")
+        lines.append(
+            f"**Provenance: this table mixes two sweeps.** "
+            f"{', '.join(labels)} were re-swept on {rs_date} against rfdetr {rs_v}. "
+            f"Every other row is the original {base_date} sweep against "
+            f"rfdetr {base_v} and is unchanged."
+        )
+        reason = resweep.get("reason")
+        if reason:
+            lines.append("")
+            lines.append(f"Why they were re-swept: {reason}")
+    if never_swept:
+        lines.append("")
+        lines.append("Not swept: " + ", ".join(never_swept) + ".")
+    return "\n".join(lines)
+
+
 def render_all(data: dict) -> str:
     meta = data.get("meta", {})
     cells = data.get("cells", [])
@@ -108,6 +152,14 @@ def render_all(data: dict) -> str:
     rfdetr_v = meta.get("rfdetr_version", "")
     torch_v = meta.get("pytorch_version", "")
     image_names = meta.get("image_names", [])
+    resweep = meta.get("resweep")
+
+    if resweep:
+        recorded = (f"Baseline sweep recorded {date} with rfdetr {rfdetr_v} "
+                    f"(torch {torch_v}); some rows were re-swept later, see "
+                    f"the provenance note below the tables. ")
+    else:
+        recorded = f"Sweep recorded {date} with rfdetr {rfdetr_v} (torch {torch_v}). "
 
     out: list[str] = []
     out.append("## Accuracy across the full model matrix")
@@ -115,7 +167,7 @@ def render_all(data: dict) -> str:
     out.append(
         f"All C++ values measured vs PyTorch ground truth on "
         f"{n_images} COCO val images at threshold={thresh}. "
-        f"Sweep recorded {date} with rfdetr {rfdetr_v} (torch {torch_v}). "
+        + recorded +
         f"Greedy 1-1 matching, score-desc, same class, IoU ≥ 0.5 "
         f"(for `Recall@0.5`) or IoU ≥ 0.95 (for `Recall@0.95`). "
         f"Score deltas are absolute, over matched pairs only. "
@@ -132,6 +184,10 @@ def render_all(data: dict) -> str:
     out.append("")
     out.append(render_segmentation(cells))
     out.append("")
+    prov = render_provenance(meta, cells)
+    if prov:
+        out.append(prov)
+        out.append("")
     out.append("Raw per-cell + per-image data: "
                "[`benchmarks/results/accuracy_sweep.json`]"
                "(benchmarks/results/accuracy_sweep.json).")

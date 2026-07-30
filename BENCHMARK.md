@@ -413,7 +413,7 @@ to re-run after a partial conversion. Each variant downloads its pretrained
 
 ## Accuracy across the full model matrix
 
-All C++ values measured vs PyTorch ground truth on 7 COCO val images at threshold=0.5. Sweep recorded 2026-05-27 with rfdetr 1.7.0 (torch 2.5.1+cu124). Greedy 1-1 matching, score-desc, same class, IoU ≥ 0.5 (for `Recall@0.5`) or IoU ≥ 0.95 (for `Recall@0.95`). Score deltas are absolute, over matched pairs only. `Extra dets` is the average number of unmatched C++ detections per image (should be 0 in the ideal case). For segmentation variants, `Mean mask IoU` and `Pixel agreement` are computed over matched-pair binary masks (both at image resolution).
+All C++ values measured vs PyTorch ground truth on 7 COCO val images at threshold=0.5. Baseline sweep recorded 2026-05-27 with rfdetr 1.7.0 (torch 2.5.1+cu124); some rows were re-swept later, see the provenance note below the tables. Greedy 1-1 matching, score-desc, same class, IoU ≥ 0.5 (for `Recall@0.5`) or IoU ≥ 0.95 (for `Recall@0.95`). Score deltas are absolute, over matched pairs only. `Extra dets` is the average number of unmatched C++ detections per image (should be 0 in the ideal case). For segmentation variants, `Mean mask IoU` and `Pixel agreement` are computed over matched-pair binary masks (both at image resolution).
 
 Images: `bus.jpg`, `coco_cats.jpg`, `coco_indoor.jpg`, `coco_kitchen.jpg`, `coco_living_room.jpg`, `coco_skater.jpg`, `coco_street.jpg`
 
@@ -454,21 +454,34 @@ Images: `bus.jpg`, `coco_cats.jpg`, `coco_indoor.jpg`, `coco_kitchen.jpg`, `coco
 | Seg-Small | F16 | 68.3 | 1.000 | 1.000 | 0.9925 | 0.9999 | 0.0049 |
 | Seg-Small | Q8_0 | 40.4 | 0.982 | 0.982 | 0.9912 | 0.9998 | 0.0045 |
 | Seg-Small | Q4_K | 32.4 | 0.953 | 0.376 | 0.9665 | 0.9989 | 0.0371 |
-| Seg-Medium | F32 | 133.7 | 0.971 | 0.958 | 0.9807 | 0.9996 | 0.0106 |
-| Seg-Medium | F16 | 71.5 | 1.000 | 0.987 | 0.9813 | 0.9996 | 0.0132 |
-| Seg-Medium | Q8_0 | 42.4 | 0.987 | 0.954 | 0.9810 | 0.9996 | 0.0116 |
-| Seg-Medium | Q4_K | 33.6 | 0.943 | 0.647 | 0.9658 | 0.9989 | 0.0238 |
+| Seg-Medium | F32 | 133.9 | 0.984 | 0.984 | 0.9975 | 0.9999 | 0.0041 |
+| Seg-Medium | F16 | 71.6 | 0.984 | 0.984 | 0.9975 | 0.9999 | 0.0052 |
+| Seg-Medium | Q8_0 | 42.5 | 0.984 | 0.964 | 0.9938 | 0.9999 | 0.0072 |
+| Seg-Medium | Q4_K | 33.6 | 0.930 | 0.642 | 0.9699 | 0.9993 | 0.0267 |
+| Seg-Large | F32 | 134.6 | 0.976 | 0.976 | 0.9982 | 0.9999 | 0.0031 |
+| Seg-Large | F16 | 72.3 | 1.000 | 0.976 | 0.9977 | 0.9999 | 0.0029 |
+| Seg-Large | Q8_0 | 43.1 | 0.988 | 0.988 | 0.9943 | 0.9999 | 0.0071 |
+| Seg-Large | Q4_K | 34.3 | 0.924 | 0.612 | 0.9729 | 0.9994 | 0.0310 |
+| Seg-2XLarge | F32 | 143.9 | 1.000 | 1.000 | 0.9965 | 0.9999 | 0.0100 |
+| Seg-2XLarge | F16 | 78.7 | 1.000 | 0.988 | 0.9967 | 0.9999 | 0.0095 |
+| Seg-2XLarge | Q8_0 | 48.2 | 0.982 | 0.982 | 0.9933 | 0.9999 | 0.0110 |
+| Seg-2XLarge | Q4_K | 38.6 | 0.942 | 0.641 | 0.9716 | 0.9994 | 0.0329 |
 
-**The four Seg-Medium rows are historical, not current.** They were measured against a segmentation head built with a hardcoded 4 `DepthwiseConvBlock`s. Seg-Medium has 5 decoder layers and needs 5 blocks, so those masks came from an incomplete head. The block-count fix landed after this sweep and the affected GGUFs have not been re-converted or re-measured, so the rows are kept as the record of what was run rather than as a current result. Seg-Nano and Seg-Small have 4 decoder layers, so the old hardcoded 4 was correct for them and their rows are unaffected. Seg-Large, Seg-XLarge and Seg-2XLarge have never been swept.
+**Provenance: this table mixes two sweeps.** Seg-2XLarge, Seg-Large, Seg-Medium were re-swept on 2026-07-30 against rfdetr 1.9.0. Every other row is the original 2026-05-27 sweep against rfdetr 1.7.0 and is unchanged.
+
+Why they were re-swept: seg-medium was previously measured against a segmentation head built with a hardcoded 4 DepthwiseConvBlocks instead of one per decoder layer; those cells were invalid and are replaced. seg-large and seg-2xlarge are newly added. All other variants' cells are unchanged 1.7.0 measurements. seg-xlarge is excluded: its 624px pipeline is broken end-to-end.
+
+Not swept: Seg-XLarge.
 
 Raw per-cell + per-image data: [`benchmarks/results/accuracy_sweep.json`](benchmarks/results/accuracy_sweep.json).
 
 ### Takeaways
 
-- F16 matches F32 across the matrix. Recall@0.5 and Recall@0.95 match F32 to within 0 detections on every detection variant; mean |Δscore| ≤ 0.013 everywhere. F16 stays the sweet-spot for production.
+- F16 matches F32 across the matrix. Recall@0.5 and Recall@0.95 match F32 to within 0 detections on every detection variant; mean |Δscore| ≤ 0.012 everywhere. F16 stays the sweet-spot for production.
 - Q8_0 keeps recall but drops score precision slightly. Recall@0.95 holds at F32 levels for Nano/Base/Medium and is within 1 detection for Small/Large. Mean |Δscore| rises from about 0.007 (F32/F16) to about 0.009 (Q8_0); invisible at any reasonable threshold.
 - Q4_K is real lossy, especially at strict IoU. Recall@0.5 drops 1 to 7 points; Recall@0.95 drops 8 to 21 points. For seg variants the Recall@0.95 drop is the steepest (Seg-Small Q4_K: 1.000 to 0.376): the mask quality survives (mean mask IoU 0.97) but bbox alignment degrades enough that strict-IoU matching fails. Use Q4_K only if size is the binding constraint.
-- Mask quality stays above 99% pixel agreement under quantization. Mean mask IoU for F32/F16/Q8_0 is ≥ 0.99 on Seg-Nano and Seg-Small and ≥ 0.98 on Seg-Medium (whose rows are the historical ones noted above); pixel agreement ≥ 99.95% on all three. Even Q4_K stays at ≥ 0.96 mask IoU and ≥ 99.88% pixel agreement. (The bounds are taken from the raw sweep, which carries more digits than the 4-decimal table above: the tightest cells are Seg-Medium Q8_0 at 0.999569 and Seg-Small Q4_K at 0.998887.)
+- Mask quality stays above 99% pixel agreement under quantization. Mean mask IoU for F32/F16/Q8_0 is ≥ 0.99 on all five swept seg variants, and pixel agreement ≥ 99.97% on the same cells. Even Q4_K stays at ≥ 0.96 mask IoU and ≥ 99.88% pixel agreement. (The bounds are taken from the raw sweep, which carries more digits than the 4-decimal table above: the tightest cells are Seg-Nano Q8_0 at 0.999765 and Seg-Small Q4_K at 0.998887.)
+- The segmentation-head fix moved Seg-Medium materially. Building one `DepthwiseConvBlock` per decoder layer instead of a hardcoded 4 lifted Seg-Medium F32 mean mask IoU from 0.9807 to 0.9975 and min mask IoU from 0.9579 to 0.9921 (the pre-fix figures are the 1.7.0 rows this table replaced; see git history for them). The worst masks moved most, which is the expected signature of a head that was missing a block. Seg-Nano and Seg-Small have 4 decoder layers, so the old hardcoded 4 was already correct for them and their rows did not need re-measuring.
 - Seg-Nano F16 dropped one detection (Recall@0.5 0.955 to 0.927): a single low-confidence detection on one of the 7 images fell below the 0.5 score threshold under F16. Recall@0.95 mirrors Recall@0.5 because once a det makes the cut, it always lands at IoU ≥ 0.95.
 
 Sweep produced by [`scripts/sweep_accuracy.py`](scripts/sweep_accuracy.py); table rendered by [`scripts/accuracy_table.py`](scripts/accuracy_table.py).
