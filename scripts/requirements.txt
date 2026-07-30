@@ -6,4 +6,3 @@ rfdetr==1.9.0
 gguf==0.10.0
 numpy==1.26.4
 pillow==10.4.0
-sentencepiece==0.2.2

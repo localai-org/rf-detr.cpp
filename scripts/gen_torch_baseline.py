@@ -14,7 +14,13 @@ Usage:
         --output tests/fixtures/baseline_torch.gguf \
         [--input-seed 7] [--image-size 560]
 
-Requires .venv/ with rfdetr 1.7.0, torch 2.5.1, gguf, numpy installed.
+    # Segmentation variant: adds segmentation_head captures and defaults
+    # --image-size to the variant's native resolution.
+    python3 scripts/gen_torch_baseline.py \
+        --seg-variant {nano,small,medium,large,xlarge,2xlarge} \
+        --output tests/fixtures/baseline_torch_seg.gguf
+
+Requires .venv/ with rfdetr 1.9.0, torch 2.5.1, gguf, numpy installed.
 """
 
 from __future__ import annotations

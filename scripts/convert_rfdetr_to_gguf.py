@@ -736,11 +736,13 @@ def main() -> int:
                 print(f"error: could not load checkpoint {args.checkpoint} ({e}).",
                       file=sys.stderr)
             else:
-                print(f"error: {args.checkpoint} cannot be loaded safely: it contains "
-                      "Python objects the restricted loader refuses to unpickle. "
-                      "Re-run with --trust-checkpoint if you produced this file or "
-                      "fully trust its source. That flag disables the safety check "
-                      "and lets the checkpoint execute arbitrary code while loading.",
+                print(f"error: {args.checkpoint} cannot be loaded safely: it likely "
+                      "contains Python objects the restricted loader refuses to "
+                      "unpickle, though a truncated or corrupt file fails the same "
+                      "way. Re-run with --trust-checkpoint if you produced this file "
+                      "or fully trust its source. That flag disables the safety check "
+                      "and lets the checkpoint execute arbitrary code while loading. "
+                      f"({e})",
                       file=sys.stderr)
             return 4
         if not isinstance(ckpt, dict) or "model" not in ckpt:

@@ -119,7 +119,7 @@ target_compile_definitions(test_capi_accessors PRIVATE
 # To regenerate the baseline:
 #   cmake --build build --target rfdetr_baseline_torch
 #
-# Slow: requires .venv/ with rfdetr 1.7.0 + torch 2.5.1 + gguf + numpy.
+# Slow: requires .venv/ with rfdetr 1.9.0 + torch 2.5.1 + gguf + numpy.
 # Runs real rfdetr-base forward with hooks at named checkpoints. The output
 # is consumed by test_parity_torch and (later, in Plans 8-12) by the per-
 # module C++ vs torch comparison loops.
@@ -135,7 +135,7 @@ add_custom_target(rfdetr_baseline_torch
     COMMAND ${_torch_baseline_python} ${CMAKE_SOURCE_DIR}/scripts/gen_torch_baseline.py
             --output ${RFDETR_TEST_FIXTURES}/baseline_torch.gguf
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    COMMENT "Generating torch parity baseline (requires .venv with rfdetr 1.7.0)"
+    COMMENT "Generating torch parity baseline (requires .venv with rfdetr 1.9.0)"
     VERBATIM)
 
 # Bundle loader stub: verifies format + required checkpoint coverage.
