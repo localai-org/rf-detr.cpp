@@ -14,7 +14,9 @@
 #define STBIR__HEADER_FILENAME "stb_image_resize.h"
 #include "stb_image_resize.h"
 
+#include <algorithm>
 #include <cerrno>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -182,6 +184,7 @@ bool rfdetr_encode_gray_png(const uint8_t* data, int width, int height,
 extern "C" rfdetr_status rfdetr_preprocess(const rfdetr_image* img,
                                            int target_w, int target_h,
                                            const float mean[3], const float std_[3],
+                                           bool bilinear_no_antialias,
                                            float** out_data, int* out_w, int* out_h) {
     if (!img || !out_data || !out_w || !out_h || !mean || !std_) {
         return RFDETR_ERR_INVALID_ARG;
@@ -191,21 +194,8 @@ extern "C" rfdetr_status rfdetr_preprocess(const rfdetr_image* img,
         return RFDETR_ERR_INVALID_ARG;
     }
 
-    /* 1. Resize via stb_image_resize2 (linear-space bilinear). Input is uint8 RGB packed HWC. */
-    std::vector<uint8_t> resized;
-    try {
-        resized.assign((size_t)target_w * (size_t)target_h * 3, 0);
-    } catch (const std::bad_alloc&) {
-        return RFDETR_ERR_OUT_OF_MEMORY;
-    }
-    if (!stbir_resize_uint8_linear(img->rgb.data(), img->width, img->height, 0,
-                                   resized.data(), target_w, target_h, 0,
-                                   STBIR_RGB)) {
-        rfdetr_logf(RFDETR_LOG_ERROR, "rfdetr_preprocess: stbir_resize_uint8_linear failed");
-        return RFDETR_ERR_IO;
-    }
-
-    /* 2-3. Allocate output F32 buffer and write NCHW row-major.
+    /* Allocate the normalized F32 NCHW output first, then fill it via the
+     * resize path selected by GGUF metadata.
      *
      * ggml ne = (W, H, 3, 1): ne[0]=W fastest-varying. Memory order:
      *   offset(c, h, w) = c*H*W + h*W + w
@@ -214,13 +204,66 @@ extern "C" rfdetr_status rfdetr_preprocess(const rfdetr_image* img,
     float* buf = (float*)std::malloc(n_elems * sizeof(float));
     if (!buf) return RFDETR_ERR_OUT_OF_MEMORY;
 
-    for (int c = 0; c < 3; ++c) {
+    if (bilinear_no_antialias) {
+        /* RF-DETR 1.9 uses torchvision F.resize(..., antialias=False) at
+         * inference to match its cv2.INTER_LINEAR training pipeline: plain
+         * bilinear with align_corners=false (half-pixel source centers), no
+         * prefilter, and no round-trip through uint8. stb's easy resize API
+         * instead selects Mitchell/cubic and rounds back to uint8, which
+         * materially shifts borderline detection scores. */
+        const float scale_x = (float)img->width  / (float)target_w;
+        const float scale_y = (float)img->height / (float)target_h;
         for (int h = 0; h < target_h; ++h) {
+            const float src_y  = ((float)h + 0.5f) * scale_y - 0.5f;
+            const int   y0_raw = (int)std::floor(src_y);
+            const int   y0     = std::clamp(y0_raw,     0, img->height - 1);
+            const int   y1     = std::clamp(y0_raw + 1, 0, img->height - 1);
+            const float wy     = src_y - (float)y0_raw;
+
             for (int w = 0; w < target_w; ++w) {
-                uint8_t px = resized[(size_t)(h * target_w + w) * 3 + c];
-                float v = (float)px / 255.0f;
-                v = (v - mean[c]) / std_[c];
-                buf[(size_t)c * target_h * target_w + (size_t)h * target_w + w] = v;
+                const float src_x  = ((float)w + 0.5f) * scale_x - 0.5f;
+                const int   x0_raw = (int)std::floor(src_x);
+                const int   x0     = std::clamp(x0_raw,     0, img->width - 1);
+                const int   x1     = std::clamp(x0_raw + 1, 0, img->width - 1);
+                const float wx     = src_x - (float)x0_raw;
+
+                for (int c = 0; c < 3; ++c) {
+                    const float p00 = (float)img->rgb[((size_t)y0 * img->width + x0) * 3 + c];
+                    const float p01 = (float)img->rgb[((size_t)y0 * img->width + x1) * 3 + c];
+                    const float p10 = (float)img->rgb[((size_t)y1 * img->width + x0) * 3 + c];
+                    const float p11 = (float)img->rgb[((size_t)y1 * img->width + x1) * 3 + c];
+                    const float top    = p00 + (p01 - p00) * wx;
+                    const float bottom = p10 + (p11 - p10) * wx;
+                    float v = (top + (bottom - top) * wy) / 255.0f;
+                    v = (v - mean[c]) / std_[c];
+                    buf[(size_t)c * target_h * target_w + (size_t)h * target_w + w] = v;
+                }
+            }
+        }
+    } else {
+        /* Legacy path, preserved so GGUFs converted before
+         * rfdetr.preprocess.resize_mode existed keep their exact outputs. */
+        std::vector<uint8_t> resized;
+        try {
+            resized.assign((size_t)target_w * (size_t)target_h * 3, 0);
+        } catch (const std::bad_alloc&) {
+            std::free(buf);
+            return RFDETR_ERR_OUT_OF_MEMORY;
+        }
+        if (!stbir_resize_uint8_linear(img->rgb.data(), img->width, img->height, 0,
+                                       resized.data(), target_w, target_h, 0,
+                                       STBIR_RGB)) {
+            std::free(buf);
+            rfdetr_logf(RFDETR_LOG_ERROR, "rfdetr_preprocess: legacy stb resize failed");
+            return RFDETR_ERR_IO;
+        }
+        for (int c = 0; c < 3; ++c) {
+            for (int h = 0; h < target_h; ++h) {
+                for (int w = 0; w < target_w; ++w) {
+                    const uint8_t px = resized[((size_t)h * target_w + w) * 3 + c];
+                    float v = ((float)px / 255.0f - mean[c]) / std_[c];
+                    buf[(size_t)c * target_h * target_w + (size_t)h * target_w + w] = v;
+                }
             }
         }
     }

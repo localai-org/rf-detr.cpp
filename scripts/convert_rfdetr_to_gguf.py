@@ -573,6 +573,10 @@ def write_gguf(out_path, variant_name, variant_cfg, name_map, state_dict,
     std  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
     writer.add_array("rfdetr.preprocess.mean", mean.tolist())
     writer.add_array("rfdetr.preprocess.std",  std.tolist())
+    # RF-DETR 1.9 disabled resize antialiasing at inference to match its
+    # cv2.INTER_LINEAR training pipeline. Stamp the mode so new conversions get
+    # 1.9 parity while GGUFs without the key retain their legacy stb behavior.
+    writer.add_string("rfdetr.preprocess.resize_mode", "bilinear_no_antialias")
 
     # backbone
     bb = variant_cfg["backbone"]

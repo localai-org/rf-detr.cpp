@@ -134,7 +134,8 @@ int main() {
 
         float* data = nullptr;
         int w = 0, h = 0;
-        rfdetr_status pp_st = rfdetr_preprocess(img, 56, 56, mean, std_, &data, &w, &h);
+        rfdetr_status pp_st = rfdetr_preprocess(
+            img, 56, 56, mean, std_, false, &data, &w, &h);
         RFDETR_ASSERT_EQ_INT(pp_st, RFDETR_OK);
         RFDETR_ASSERT_EQ_INT(w, 56);
         RFDETR_ASSERT_EQ_INT(h, 56);
@@ -149,6 +150,45 @@ int main() {
 
         std::free(data);
         rfdetr_image_free(img);
+    }
+
+    /* RF-DETR 1.9 preprocessing: float bilinear, align_corners=false,
+     * antialias=false, and no intermediate uint8 rounding. */
+    {
+        const uint8_t rgb[] = {
+              0,  10,  20,   100, 110, 120,
+            200, 210, 220,   255, 250, 245,
+        };
+        rfdetr_status st_;
+        rfdetr_image* img_ = rfdetr_image_from_rgb_buffer(rgb, 2, 2, &st_);
+        RFDETR_ASSERT(img_ != nullptr);
+        RFDETR_ASSERT_EQ_INT(st_, RFDETR_OK);
+
+        const float mean0[3] = {0.0f, 0.0f, 0.0f};
+        const float std1[3]  = {1.0f, 1.0f, 1.0f};
+        float* data = nullptr;
+        int w = 0, h = 0;
+        rfdetr_status pp_st = rfdetr_preprocess(
+            img_, 3, 3, mean0, std1, true, &data, &w, &h);
+        RFDETR_ASSERT_EQ_INT(pp_st, RFDETR_OK);
+        RFDETR_ASSERT_EQ_INT(w, 3);
+        RFDETR_ASSERT_EQ_INT(h, 3);
+
+        /* Upscaling 2x2 -> 3x3 with half-pixel centers puts the output
+         * center exactly between all four source pixels, so it is their
+         * unweighted mean. Corners land outside the source centers and clamp
+         * to the nearest source pixel. Channels are planar (3x3 = 9 floats
+         * each), so the centers are at offsets 4, 13, 22. */
+        RFDETR_ASSERT_NEAR(data[4],  138.75f / 255.0f, 1e-6);
+        RFDETR_ASSERT_NEAR(data[13], 145.00f / 255.0f, 1e-6);
+        RFDETR_ASSERT_NEAR(data[22], 151.25f / 255.0f, 1e-6);
+        /* Top-middle: mean of the two top pixels, red channel. */
+        RFDETR_ASSERT_NEAR(data[1],   50.00f / 255.0f, 1e-6);
+        /* Bottom-right corner clamps to source (1,1), red channel = 255. */
+        RFDETR_ASSERT_NEAR(data[8],  255.00f / 255.0f, 1e-6);
+
+        std::free(data);
+        rfdetr_image_free(img_);
     }
 
     return 0;

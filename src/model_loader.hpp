@@ -32,6 +32,10 @@ struct Config {
     std::vector<std::string> class_names;
     float preprocess_mean[3] = {0, 0, 0};
     float preprocess_std[3]  = {1, 1, 1};
+    /* Optional in format v2 for backward compatibility. Newly converted
+     * RF-DETR >=1.9 models set this true; GGUFs without the key keep the
+     * legacy stb resize so their established outputs do not change. */
+    bool preprocess_bilinear_no_antialias = false;
 
     struct {
         uint32_t dim                  = 0;
