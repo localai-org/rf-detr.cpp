@@ -11,9 +11,10 @@
 # Usage:
 #   scripts/build_all_quants.sh
 #
-# Coverage matrix (32 models):
+# Coverage matrix (11 variants × 4 formats = 44 models):
 #   detection × {nano, small, base, medium, large} × {F32, F16, Q8_0, Q4_K}
-#   segment   × {seg-nano, seg-small, seg-medium}   × {F32, F16, Q8_0, Q4_K}
+#   segment   × {seg-nano, seg-small, seg-medium,
+#                seg-large, seg-xlarge, seg-2xlarge} × {F32, F16, Q8_0, Q4_K}
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -25,7 +26,7 @@ if [[ ! -x "$CLI" ]]; then
 fi
 
 DET_VARIANTS=(nano small base medium large)
-SEG_VARIANTS=(seg-nano seg-small seg-medium)
+SEG_VARIANTS=(seg-nano seg-small seg-medium seg-large seg-xlarge seg-2xlarge)
 QUANTS=(f16 q8_0 q4_K)
 
 built=0
