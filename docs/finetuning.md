@@ -77,14 +77,16 @@ Each checkpoint is a `dict` with:
 
 What the converter does on `--checkpoint`:
 
-1. `torch.load()` the `.pth` (weights_only=False; required because rfdetr
-   embeds an `argparse.Namespace` in legacy checkpoints).
+1. Safely loads the `.pth` with RF-DETR 1.9's restricted loader. Legacy
+   `argparse.Namespace` metadata is allow-listed without enabling arbitrary
+   pickle execution. A fully trusted checkpoint that contains other custom
+   objects can opt into the unsafe fallback with `--trust-checkpoint`.
 2. Reads the actual head size from `checkpoint["model"]["class_embed.bias"].shape[0]`.
 3. Constructs `RFDETRBase()` and calls `reinitialize_detection_head(head_size)`
    so the classification head (shared `class_embed` + 13 `enc_out_class_embed`
    groups) matches the checkpoint shape.
-4. `load_state_dict(strict=False)` (mask_token is the one legitimate "unused"
-   entry, training-only).
+4. `load_state_dict(strict=False)` (`mask_token` and the detection-unused
+   `_kp_active_mask` buffer are legitimate unconverted entries).
 5. Writes GGUF with `rfdetr.num_classes = head_size` and a synthesized
    `class_<i>` placeholder list as `rfdetr.class_names`.
 

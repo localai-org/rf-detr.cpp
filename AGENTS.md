@@ -6,9 +6,8 @@ Durable reference for humans and agents maintaining rf-detr.cpp.
 
 rf-detr.cpp is a C++/ggml inference engine for Roboflow RF-DETR. It runs
 detection and segmentation natively on CPU with parity to the PyTorch
-reference, and is published on HuggingFace as a set of 32 quantized GGUF
-models (5 detection variants x 4 quants + 3 segmentation variants x 4 quants
-plus a few extras).
+reference, and is published on HuggingFace as a set of 44 quantized GGUF
+models (5 detection variants x 4 quants + 6 segmentation variants x 4 quants).
 
 The repo also exposes a flat C-API (`include/rfdetr_capi.h`) intended for
 dlopen-based language bindings, and is integrated into LocalAI as a native
@@ -48,7 +47,7 @@ cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
-Expected: 24/24 tests pass on a typical Linux dev box. Parity tests require
+Expected: 25/25 tests pass on a typical Linux dev box. Parity tests require
 `tests/fixtures/baseline_torch*.gguf` to be present (committed to the repo).
 
 ### CMake options
@@ -71,11 +70,11 @@ Notes:
 
 ## Converting a model
 
-Set up a Python venv with the upstream rfdetr package first.
+Set up a Python venv with the pinned RF-DETR conversion toolchain first.
 
 ```
 python3 -m venv .venv
-.venv/bin/pip install rfdetr
+.venv/bin/pip install -r scripts/requirements.txt
 
 .venv/bin/python scripts/convert_rfdetr_to_gguf.py \
     --variant base --dtype f16 \

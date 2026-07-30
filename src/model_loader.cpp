@@ -264,6 +264,16 @@ Model* model_load(const std::string& path, rfdetr_status* out_status) {
         return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.preprocess.mean missing or wrong shape");
     if (!get_f32_array(gguf, "rfdetr.preprocess.std", c.preprocess_std, 3))
         return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.preprocess.std missing or wrong shape");
+    std::string resize_mode;
+    if (get_str(gguf, "rfdetr.preprocess.resize_mode", resize_mode)) {
+        if (resize_mode == "bilinear_no_antialias") {
+            c.preprocess_bilinear_no_antialias = true;
+        } else if (resize_mode == "legacy_stb") {
+            c.preprocess_bilinear_no_antialias = false;
+        } else {
+            return fail(RFDETR_ERR_MODEL_FORMAT, "unsupported rfdetr.preprocess.resize_mode");
+        }
+    }
 
     if (!get_u32(gguf, "rfdetr.backbone.dim",                   c.backbone.dim)         ||
         !get_u32(gguf, "rfdetr.backbone.depth",                 c.backbone.depth)       ||
