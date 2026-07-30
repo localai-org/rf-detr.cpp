@@ -165,6 +165,13 @@ target_link_libraries(test_parity_projector PRIVATE ggml)
 rfdetr_add_test(test_parity_two_stage)
 target_link_libraries(test_parity_two_stage PRIVATE ggml)
 
+# gen_encoder_output_proposals validity mask (transformer.py:127-143).
+# Pure-arithmetic + synthetic-graph test, no PyTorch baseline needed. Covers
+# grids 40/49 (mask must be a strict no-op) and 50/52/64 (mask fires on
+# exactly the one-cell border ring).
+rfdetr_add_test(test_two_stage_mask)
+target_link_libraries(test_two_stage_mask PRIVATE ggml)
+
 # Plan 11: C++ LWDETR decoder vs torch parity baseline.
 # Module-isolated: feeds baseline projector.output (as flattened memory) and
 # decoder.input.{tgt,reference_points} into C++ decoder_forward. Diffs every
