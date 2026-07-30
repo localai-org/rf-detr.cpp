@@ -693,6 +693,19 @@ rfdetr_status model_validate_tensors(const Model& m) {
      * the remedy. */
     if (m.config.has_segmentation_head) {
         const uint32_t have = count_segmentation_blocks(m);
+        if (have == 0 && m.config.decoder.layers > 0) {
+            /* No seg tensors at all. The stale-file diagnosis below would be a
+             * confident guess at the wrong cause, so say only what is known. */
+            rfdetr_logf(RFDETR_LOG_ERROR,
+                        "model_validate_tensors: the metadata declares a "
+                        "segmentation head, which needs %u head block(s) for %u "
+                        "decoder layers, but this file has 0 of them: no "
+                        "segmentation_head.blocks.* tensors are present at all. "
+                        "The conversion did not complete, or the metadata does "
+                        "not match the weights.",
+                        m.config.decoder.layers, m.config.decoder.layers);
+            return RFDETR_ERR_MODEL_LOAD;
+        }
         if (have < m.config.decoder.layers) {
             rfdetr_logf(RFDETR_LOG_ERROR,
                         "model_validate_tensors: this segmentation GGUF has %u "

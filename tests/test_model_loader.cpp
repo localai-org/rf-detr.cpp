@@ -6,6 +6,14 @@
 #include <string>
 #include <vector>
 
+/* Collects RFDETR_LOG_ERROR messages into the vector passed as user_data, so a
+ * test can assert on what an error path actually told the user. */
+static void capture_errors_cb(rfdetr_log_level lvl, const char* msg, void* ud) {
+    if (lvl == RFDETR_LOG_ERROR) {
+        static_cast<std::vector<std::string>*>(ud)->emplace_back(msg);
+    }
+}
+
 int main() {
     const std::string fixtures = RFDETR_TEST_FIXTURES;
     const std::string path = fixtures + "/model_base.gguf";
@@ -220,8 +228,44 @@ int main() {
         }
         RFDETR_ASSERT_EQ_INT((int)rfdetr::count_segmentation_blocks(fake), 4);
 
+        /* The status alone cannot distinguish the guard from the generic
+         * missing-tensor path: a short block count always implies missing
+         * expected names, so both return RFDETR_ERR_MODEL_LOAD. The message is
+         * the deliverable, so assert on the message. */
+        std::vector<std::string> errors;
+        rfdetr_set_log_callback(capture_errors_cb, &errors);
+
         rfdetr_status v = rfdetr::model_validate_tensors(fake);
         RFDETR_ASSERT_EQ_INT(v, RFDETR_ERR_MODEL_LOAD);
+
+        RFDETR_ASSERT_EQ_INT(errors.size(), 1);
+        const std::string& stale = errors[0];
+        // Names both counts: what the file has, and what the model needs.
+        RFDETR_ASSERT(stale.find("4 head block") != std::string::npos);
+        RFDETR_ASSERT(stale.find("5 decoder layers") != std::string::npos);
+        // Names the cause and the remedy.
+        RFDETR_ASSERT(stale.find("converted before") != std::string::npos);
+        RFDETR_ASSERT(stale.find("convert_rfdetr_to_gguf.py") != std::string::npos);
+        // And is not the generic missing-tensor message the guard replaces.
+        RFDETR_ASSERT(stale.find("missing tensor") == std::string::npos);
+
+        // Seg metadata but no seg tensors at all is a different fault, and the
+        // stale-file cause must not be asserted for it.
+        errors.clear();
+        rfdetr::Model empty_seg;
+        empty_seg.config.has_segmentation_head = true;
+        empty_seg.config.decoder.layers = 5;
+        RFDETR_ASSERT_EQ_INT((int)rfdetr::count_segmentation_blocks(empty_seg), 0);
+        RFDETR_ASSERT_EQ_INT(rfdetr::model_validate_tensors(empty_seg),
+                             RFDETR_ERR_MODEL_LOAD);
+        RFDETR_ASSERT_EQ_INT(errors.size(), 1);
+        const std::string& none = errors[0];
+        RFDETR_ASSERT(none.find("5 head block") != std::string::npos);
+        RFDETR_ASSERT(none.find("segmentation_head.blocks.* tensors") != std::string::npos);
+        RFDETR_ASSERT(none.find("converted before") == std::string::npos);
+
+        // Restore the default (no callback); nothing else in this file sets one.
+        rfdetr_set_log_callback(nullptr, nullptr);
 
         // A correctly-converted 5-block model gets past the block-count guard.
         // (It still fails on the other missing seg tensors, which is fine —
