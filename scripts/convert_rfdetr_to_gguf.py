@@ -691,6 +691,10 @@ def main() -> int:
             RFDETRSegNano, RFDETRSegSmall, RFDETRSegMedium, RFDETRSegLarge,
             RFDETRSegXLarge, RFDETRSeg2XLarge,
         )
+        # rfdetr >= 1.9 only. Imported here so a stale rfdetr hits the same
+        # friendly "missing dependency" path instead of a bare ImportError
+        # halfway through the run.
+        from rfdetr.utilities.io import _safe_torch_load
     except ImportError as e:
         print(f"error: missing dependency ({e}). pip install -r scripts/requirements.txt",
               file=sys.stderr)
@@ -723,8 +727,22 @@ def main() -> int:
         # the model's classification head to match BEFORE load_state_dict so
         # the shapes line up.
         print(f"[checkpoint] loading {args.checkpoint}", file=sys.stderr)
-        from rfdetr.utilities.io import _safe_torch_load
-        ckpt = _safe_torch_load(args.checkpoint, trust=args.trust_checkpoint)
+        try:
+            ckpt = _safe_torch_load(args.checkpoint, trust=args.trust_checkpoint)
+        except RuntimeError as e:
+            if args.trust_checkpoint:
+                # Already opted in, so the pickle fallback was tried and still
+                # failed. No flag left to suggest.
+                print(f"error: could not load checkpoint {args.checkpoint} ({e}).",
+                      file=sys.stderr)
+            else:
+                print(f"error: {args.checkpoint} cannot be loaded safely: it contains "
+                      "Python objects the restricted loader refuses to unpickle. "
+                      "Re-run with --trust-checkpoint if you produced this file or "
+                      "fully trust its source. That flag disables the safety check "
+                      "and lets the checkpoint execute arbitrary code while loading.",
+                      file=sys.stderr)
+            return 4
         if not isinstance(ckpt, dict) or "model" not in ckpt:
             print("error: checkpoint must be a dict with a 'model' state_dict key.",
                   file=sys.stderr)
