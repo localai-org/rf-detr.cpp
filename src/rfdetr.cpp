@@ -131,6 +131,7 @@ extern "C" rfdetr_status rfdetr_detect(rfdetr_context* ctx,
     int px_w = 0, px_h = 0;
     rfdetr_status pp_st = rfdetr_preprocess(img, img_size, img_size,
                                             cfg.preprocess_mean, cfg.preprocess_std,
+                                            cfg.preprocess_bilinear_no_antialias,
                                             &px_data, &px_w, &px_h);
     if (pp_st != RFDETR_OK) {
         rfdetr_logf(RFDETR_LOG_ERROR, "rfdetr_detect: preprocess failed");

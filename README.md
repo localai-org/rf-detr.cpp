@@ -7,16 +7,21 @@
 [![LocalAI](https://img.shields.io/badge/LocalAI-Run_Locally-orange)](https://github.com/mudler/LocalAI)
 
 A C++ inference engine for Roboflow [RF-DETR](https://github.com/roboflow/rf-detr), built on
-[ggml](https://github.com/ggml-org/ggml). Supports the full RF-DETR family: 5 detection
-variants (Nano/Small/Base/Medium/Large) and 3 segmentation variants
-(SegNano/SegSmall/SegMedium), with F32 / F16 / Q8_0 / Q4_K quantizations published as GGUFs
-on [HuggingFace](https://huggingface.co/mudler).
+[ggml](https://github.com/ggml-org/ggml). Supports 5 RF-DETR detection variants
+(Nano/Small/Base/Medium/Large) and 6 segmentation variants
+(SegNano/SegSmall/SegMedium/SegLarge/SegXLarge/Seg2XLarge), with F32 / F16 / Q8_0 /
+Q4_K quantizations published as GGUFs on [HuggingFace](https://huggingface.co/mudler).
+The keypoint-preview head is not yet supported.
 
 > Status: end-to-end detection and segmentation work on real model weights. C++ F16 is
 > about 9% faster than PyTorch CPU on every COCO image we tested, matches F32 accuracy
 > (max |Δscore| ≤ 0.006), and is 1.86x smaller. Detection match vs PyTorch is 54/55 at
 > IoU ≥ 0.95 across 7 COCO val2017 images. Mask IoU is 0.9924 mean across segmentation
 > variants.
+>
+> **RF-DETR 1.9:** Nano conversion and inference are validated against `rfdetr==1.9.0`.
+> New GGUFs record the antialias-free bilinear preprocessing introduced upstream, while
+> GGUFs without that metadata retain the prior resize path for output compatibility.
 
 ## Examples
 
@@ -38,7 +43,7 @@ segmentation models overlays the per-detection mask in the same class color.
 
 ## Quickstart: prebuilt models
 
-All 32 GGUF models (8 variants x 4 quantizations) are published on HuggingFace. Pull one
+All 44 GGUF models (11 variants x 4 quantizations) are published on HuggingFace. Pull one
 and run detection in three commands:
 
 ```bash
@@ -107,8 +112,9 @@ on Seg-Nano F32; the remaining differences are sub-pixel boundary FP rounding.
 To roll your own (different variant, custom checkpoint, different quant):
 
 ```bash
-# One-time: convert upstream RF-DETR .pth to GGUF (requires .venv with rfdetr).
-python3 -m venv .venv && .venv/bin/pip install rfdetr
+# One-time: install the pinned, conversion-tested RF-DETR toolchain.
+python3 -m venv .venv
+.venv/bin/pip install -r scripts/requirements.txt
 
 # F16: fastest on CPU, 1.86x smaller than F32, matches F32 accuracy.
 .venv/bin/python scripts/convert_rfdetr_to_gguf.py \
@@ -128,7 +134,7 @@ python3 -m venv .venv && .venv/bin/pip install rfdetr
 # Convert all detection variants in one shot
 scripts/convert_all_variants.sh
 
-# Build the full matrix (5 detection + 3 seg, 4 quants each, = 32 models)
+# Build the full matrix (5 detection + 6 seg, 4 quants each, = 44 models)
 scripts/build_all_quants.sh
 ```
 
@@ -147,7 +153,9 @@ resulting checkpoint to GGUF:
 
 The converter reads the head size directly from the checkpoint tensor and resizes the
 classification head before loading, so arbitrary `num_classes` values are handled
-automatically. See [`docs/finetuning.md`](docs/finetuning.md) for the end-to-end walkthrough
+automatically. Checkpoints use RF-DETR 1.9's restricted loader by default; pass
+`--trust-checkpoint` only for a legacy checkpoint whose source you fully trust. See
+[`docs/finetuning.md`](docs/finetuning.md) for the end-to-end walkthrough
 (dataset prep, train, convert, quantize, serve), plus a smoke test using a synthetic 5-class
 checkpoint at `scripts/build_custom_checkpoint.py`.
 

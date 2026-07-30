@@ -6,6 +6,7 @@
 
 #include <cmath>
 #include <string>
+#include <vector>
 
 namespace rfdetr {
 
@@ -179,13 +180,6 @@ ggml_tensor* segmentation_forward(
         rfdetr_logf(RFDETR_LOG_ERROR, "segmentation_forward: invalid args");
         return nullptr;
     }
-    if (n_layers != 4) {
-        rfdetr_logf(RFDETR_LOG_WARN,
-                    "segmentation_forward: n_layers=%d, but SegmentationHead "
-                    "has exactly 4 blocks. Will iterate min(n_layers, 4).",
-                    n_layers);
-    }
-
     const int target_h = image_h / mask_downsample_ratio;
     const int target_w = image_w / mask_downsample_ratio;
 
@@ -204,11 +198,13 @@ ggml_tensor* segmentation_forward(
     publish("seg.spatial_features.resized", spatial);
 
     /* 2. Fetch all per-block weights up-front so we fail fast if any are
-     *    missing. */
+     *    missing. SegmentationHead has one DepthwiseConvBlock per decoder
+     *    layer (n_layers), not a fixed count. */
     struct BlockW {
         ggml_tensor *dw_w, *dw_b, *n_w, *n_b, *pw_w, *pw_b;
-    } bw[4];
-    for (int b = 0; b < 4; ++b) {
+    };
+    std::vector<BlockW> bw((size_t)n_layers);
+    for (int b = 0; b < n_layers; ++b) {
         const std::string p = "segmentation_head.blocks." + std::to_string(b) + ".";
         bw[b].dw_w = fetch(m, p + "dwconv.weight");
         bw[b].dw_b = fetch(m, p + "dwconv.bias");
@@ -237,11 +233,10 @@ ggml_tensor* segmentation_forward(
         return nullptr;
     }
 
-    /* 3. Iterate 4 blocks. The number of query streams is N (always 4 in
-     *    practice). If fewer were provided we cap iteration. */
-    const int n_iter = (n_layers < 4) ? n_layers : 4;
+    /* 3. Iterate all n_layers blocks — one per decoder layer, matching
+     *    query_features_per_layer 1:1. */
     ggml_tensor* masks_final = nullptr;
-    for (int b = 0; b < n_iter; ++b) {
+    for (int b = 0; b < n_layers; ++b) {
         spatial = depthwise_conv_block(ctx, spatial,
                                        bw[b].dw_w, bw[b].dw_b,
                                        bw[b].n_w,  bw[b].n_b,
@@ -302,7 +297,7 @@ ggml_tensor* segmentation_forward(
         mask = ggml_reshape_4d(ctx, mask, W, H, qf_proj->ne[1], 1);
         publish("seg.masks." + std::to_string(b), mask);
 
-        if (b == n_iter - 1) {
+        if (b == n_layers - 1) {
             masks_final = mask;
         }
     }

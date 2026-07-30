@@ -1,8 +1,9 @@
-# Pinned at last known-good version at time of writing.
+# Pinned at the RF-DETR 1.9 Nano compatibility baseline.
 # Bump deliberately; re-run `python scripts/convert_rfdetr_to_gguf.py --dry-run`
 # to confirm the tensor name map still matches.
 torch==2.5.1
-rfdetr==1.7.0
+rfdetr==1.9.0
 gguf==0.10.0
 numpy==1.26.4
 pillow==10.4.0
+sentencepiece==0.2.2

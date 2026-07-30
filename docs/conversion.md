@@ -1,4 +1,4 @@
-# rf-detr.cpp GGUF Conversion (rfdetr-base, matching upstream 1.7.0)
+# rf-detr.cpp GGUF Conversion (matching upstream 1.9.0)
 
 This doc is the contract between `scripts/convert_rfdetr_to_gguf.py` and
 `src/model_loader.cpp`. Both sides reference the same keys and tensor names.
@@ -42,6 +42,7 @@ All keys live under the `rfdetr.` namespace.
 | `rfdetr.class_names`                         | string[91]  | One entry per logit index. Unused IDs are `""`; the 80 COCO names sit at their COCO-spec positions. |
 | `rfdetr.preprocess.mean`                     | float32[3]  | `[0.485, 0.456, 0.406]` (ImageNet) |
 | `rfdetr.preprocess.std`                      | float32[3]  | `[0.229, 0.224, 0.225]` (ImageNet) |
+| `rfdetr.preprocess.resize_mode`              | string      | Optional v2 key. New conversions use `"bilinear_no_antialias"` to match RF-DETR 1.9; absent means legacy stb resize for existing GGUF compatibility. |
 | `rfdetr.backbone.dim`                        | uint32      | `384` |
 | `rfdetr.backbone.depth`                      | uint32      | `12` |
 | `rfdetr.backbone.heads`                      | uint32      | `6` |
@@ -285,21 +286,21 @@ Total heads: 8.
 | Heads            | 8     |
 | **Total**        | **486** |
 
-Upstream `state_dict` has 487 tensors; the +1 is `mask_token` (training only,
-dropped by converter).
+Upstream 1.9 adds two non-GGUF entries beyond the table: `mask_token`
+(training only) and `_kp_active_mask` (a deterministic keypoint activity
+buffer unused by standard detection). Both are dropped by the converter.
 
 ## Per-variant notes
 
-Only `base` is supported for now. `nano`, `small`, `medium`, `large` are
-deferred. They reuse the same schema but with different `backbone.dim`,
-`backbone.depth`, `backbone.heads`, `projector.in_dim`, `projector.out_dim`,
-and (potentially) `decoder.layers`. Each variant must be introspected to
-confirm whether single-scale (P4 only) holds.
+The converter and runtime support the detection and segmentation variants
+listed by `--help`. They reuse the same core schema with per-variant backbone,
+projector, decoder, resolution, and optional segmentation-head metadata.
+Nano detection is the RF-DETR 1.9 compatibility baseline.
 
 ## Discovery workflow
 
-The PyTorch keys above are valid for the rfdetr-base release at the version
-pinned in `scripts/requirements.txt` (rfdetr 1.7.0). Upstream renames are
+The PyTorch keys above are valid for the version pinned in
+`scripts/requirements.txt` (`rfdetr==1.9.0`). Upstream renames are
 possible. The conversion script's first task is to enumerate
 `state_dict().keys()`, diff against the expected set, and refuse to convert
 on any missing or unmapped key. Bringing up a new variant or upstream

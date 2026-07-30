@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Full accuracy + mask-quality sweep across the 32-model matrix.
+"""Full accuracy + mask-quality sweep across the 44-model matrix.
 
 Compares C++ (rfdetr-cli detect) output against the PyTorch rfdetr reference
 for every (variant, quant) pair, over a fixed set of test images. Produces
@@ -60,6 +60,9 @@ VARIANTS: list[tuple[str, str, str, bool]] = [
     ("seg-nano",      "RFDETRSegNano",     "rfdetr-seg-nano",    True),
     ("seg-small",     "RFDETRSegSmall",    "rfdetr-seg-small",   True),
     ("seg-medium",    "RFDETRSegMedium",   "rfdetr-seg-medium",  True),
+    ("seg-large",     "RFDETRSegLarge",    "rfdetr-seg-large",   True),
+    ("seg-xlarge",    "RFDETRSegXLarge",   "rfdetr-seg-xlarge",  True),
+    ("seg-2xlarge",   "RFDETRSeg2XLarge",  "rfdetr-seg-2xlarge", True),
 ]
 
 QUANTS = ["f32", "f16", "q8_0", "q4_K"]

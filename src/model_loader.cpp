@@ -264,6 +264,16 @@ Model* model_load(const std::string& path, rfdetr_status* out_status) {
         return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.preprocess.mean missing or wrong shape");
     if (!get_f32_array(gguf, "rfdetr.preprocess.std", c.preprocess_std, 3))
         return fail(RFDETR_ERR_MODEL_FORMAT, "rfdetr.preprocess.std missing or wrong shape");
+    std::string resize_mode;
+    if (get_str(gguf, "rfdetr.preprocess.resize_mode", resize_mode)) {
+        if (resize_mode == "bilinear_no_antialias") {
+            c.preprocess_bilinear_no_antialias = true;
+        } else if (resize_mode == "legacy_stb") {
+            c.preprocess_bilinear_no_antialias = false;
+        } else {
+            return fail(RFDETR_ERR_MODEL_FORMAT, "unsupported rfdetr.preprocess.resize_mode");
+        }
+    }
 
     if (!get_u32(gguf, "rfdetr.backbone.dim",                   c.backbone.dim)         ||
         !get_u32(gguf, "rfdetr.backbone.depth",                 c.backbone.depth)       ||
@@ -646,7 +656,10 @@ std::vector<std::string> expected_tensor_names(const Config& cfg) {
 
     // --- Segmentation head (RFDETRSeg* variants only) ---
     if (cfg.has_segmentation_head) {
-        for (int b = 0; b < 4; ++b) {
+        // SegmentationHead chains one DepthwiseConvBlock per decoder layer
+        // (rfdetr.models.heads.segmentation.SegmentationHead): 4 for
+        // nano/small, 5 for medium/large, 6 for xlarge/2xlarge.
+        for (uint32_t b = 0; b < cfg.decoder.layers; ++b) {
             const std::string p = "segmentation_head.blocks." + std::to_string(b) + ".";
             names.emplace_back(p + "dwconv.weight");
             names.emplace_back(p + "dwconv.bias");
