@@ -26,9 +26,5 @@
   "seg-small/f32": {"median_ms": 155.22, "min_ms": 146.67},
   "seg-small/f16": {"median_ms": 150.21, "min_ms": 142.15},
   "seg-small/q8_0": {"median_ms": 148.76, "min_ms": 147.64},
-  "seg-small/q4_K": {"median_ms": 171.16, "min_ms": 168.40},
-  "seg-medium/f32": {"median_ms": 199.47, "min_ms": 198.21},
-  "seg-medium/f16": {"median_ms": 208.52, "min_ms": 197.38},
-  "seg-medium/q8_0": {"median_ms": 218.51, "min_ms": 203.68},
-  "seg-medium/q4_K": {"median_ms": 244.15, "min_ms": 236.60}
+  "seg-small/q4_K": {"median_ms": 171.16, "min_ms": 168.40}
 }
