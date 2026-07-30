@@ -6,21 +6,32 @@ containing the F32 / F16 / Q8_0 / Q4_K quantizations plus a data-driven
 model card backed by the Phase 2 accuracy sweep and the per-cell latency
 microbench.
 
+Every provenance claim on a card is derived, never hardcoded: the rfdetr
+version comes from the sweep cells themselves (falling back to the installed
+distribution, then the pin in scripts/requirements.txt), sizes and compression
+ratios come from the GGUFs on disk, and sentences about accuracy or latency are
+only emitted when that data actually exists for the variant.
+
+A variant whose local GGUF set is incomplete is never published silently:
+naming it via --only is a hard error, and an unfiltered run skips it with a
+warning and exits non-zero.
+
 Usage:
     .venv/bin/python scripts/publish_hf.py [--dry-run]
                                            [--only nano,base,...]
-                                           [--skip-uploads]
+                                           [--no-skip-existing]
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from huggingface_hub import HfApi
 from huggingface_hub.utils import HfHubHTTPError
@@ -30,6 +41,7 @@ MODELS_DIR = REPO_ROOT / "models"
 RESULTS_DIR = REPO_ROOT / "benchmarks" / "results"
 ACCURACY_JSON = RESULTS_DIR / "accuracy_sweep.json"
 LATENCY_JSON = RESULTS_DIR / "per_cell_latency.json"
+REQUIREMENTS_TXT = REPO_ROOT / "scripts" / "requirements.txt"
 
 HF_USER = "mudler"
 QUANTS = ["f32", "f16", "q8_0", "q4_K"]
@@ -50,8 +62,9 @@ VARIANTS = [
 ]
 
 # Static per-variant architecture facts (resolution, decoder layers, queries,
-# patch size). These come from the upstream rfdetr 1.7.0 model registry —
-# they're not changing per quant so we keep them as a small lookup.
+# patch size). These mirror the upstream rfdetr model registry (see
+# scripts/requirements.txt for the pinned version this table was checked
+# against) — they don't change per quant, so we keep them as a small lookup.
 ARCH = {
     "nano":        {"resolution": 384, "patch": 14, "decoder_layers": 2, "queries": 300, "backbone": "DINOv2-small"},
     "small":       {"resolution": 512, "patch": 14, "decoder_layers": 3, "queries": 300, "backbone": "DINOv2-small"},
@@ -84,6 +97,40 @@ DISPLAY = {
 UPSTREAM = "https://github.com/roboflow/rf-detr"
 
 
+def env_rfdetr_version() -> Optional[str]:
+    """Best-effort rfdetr version for *this* checkout, never a literal.
+
+    Order of preference:
+      1. the installed distribution's metadata (what a sweep run here would use)
+      2. the ``rfdetr==X.Y.Z`` pin in scripts/requirements.txt
+
+    Returns None if neither source can answer, so callers can refuse to emit a
+    provenance sentence rather than guess. This exists so that bumping rfdetr
+    cannot silently leave a stale version string baked into a model card.
+    """
+    try:
+        from importlib.metadata import version as _dist_version
+        return _dist_version("rfdetr")
+    except Exception:
+        pass
+    try:
+        for line in REQUIREMENTS_TXT.read_text().splitlines():
+            line = line.split("#", 1)[0].strip()
+            m = re.match(r"^rfdetr\s*==\s*([A-Za-z0-9_.+!-]+)$", line)
+            if m:
+                return m.group(1)
+    except OSError:
+        pass
+    return None
+
+
+def format_versions(versions: List[str]) -> str:
+    """Render one or more rfdetr versions for the provenance sentence."""
+    if len(versions) == 1:
+        return f"`rfdetr {versions[0]}`"
+    return " / ".join(f"`rfdetr {v}`" for v in versions)
+
+
 @dataclass
 class CellMetrics:
     variant: str
@@ -101,6 +148,8 @@ class CellMetrics:
     # latency (ms @ T=8)
     median_ms: Optional[float] = None
     min_ms: Optional[float] = None
+    # rfdetr version the PyTorch ground truth for this cell was produced with
+    rfdetr_version: Optional[str] = None
 
 
 def load_metrics() -> Dict[str, Dict[str, CellMetrics]]:
@@ -108,11 +157,19 @@ def load_metrics() -> Dict[str, Dict[str, CellMetrics]]:
 
     Note: accuracy_sweep.json uses quant names matching our QUANTS list,
     but the variant/quant key in latency.json is "{variant}/{quant}".
+
+    Each cell carries the rfdetr version its ground truth was measured against.
+    Re-swept cells record their own ``rfdetr_version``; older cells inherit
+    ``meta.rfdetr_version``. The sweep file is the authority here, because a
+    card must state the version the numbers were *measured* with, which is not
+    necessarily the version installed today.
     """
     with open(ACCURACY_JSON) as f:
         sweep = json.load(f)
     with open(LATENCY_JSON) as f:
         latency = json.load(f)
+
+    meta_version = (sweep.get("meta") or {}).get("rfdetr_version")
 
     out: Dict[str, Dict[str, CellMetrics]] = {}
     for cell in sweep["cells"]:
@@ -124,6 +181,7 @@ def load_metrics() -> Dict[str, Dict[str, CellMetrics]]:
         cm = CellMetrics(
             variant=v,
             quant=q,
+            rfdetr_version=cell.get("rfdetr_version") or meta_version,
             file_size_mb=cell["file_size_mb"],
             recall_05=m["recall_iou_0.5"],
             recall_095=m["recall_iou_0.95"],
@@ -153,6 +211,22 @@ def build_model_card(variant: str, cells: Dict[str, CellMetrics]) -> str:
     pipeline_tag = "image-segmentation" if is_seg else "object-detection"
     seg_tag = "image-segmentation" if is_seg else "object-detection"
     has_metrics = bool(cells)
+    # Only claim a latency measurement if one actually exists for this variant.
+    has_latency = any(c.median_ms is not None for c in cells.values())
+    # Provenance is derived, never hardcoded: prefer what the sweep recorded for
+    # these exact cells, and fall back to the version this checkout resolves to.
+    sweep_versions = sorted({c.rfdetr_version for c in cells.values() if c.rfdetr_version})
+    card_versions = sweep_versions or [v for v in [env_rfdetr_version()] if v]
+
+    # On-disk sizes, used for the size claims below so they cannot go stale.
+    disk_sizes: Dict[str, float] = {}
+    for q in QUANTS:
+        if q in cells:
+            disk_sizes[q] = cells[q].file_size_mb
+        else:
+            p = MODELS_DIR / f"rfdetr-{variant}-{q}.gguf"
+            if p.is_file():
+                disk_sizes[q] = p.stat().st_size / 1e6
 
     # YAML frontmatter
     tags = [
@@ -187,10 +261,15 @@ def build_model_card(variant: str, cells: Dict[str, CellMetrics]) -> str:
         f"a C++/ggml implementation that matches the upstream PyTorch model on CPU."
     )
     lines.append("")
+    if "f32" in disk_sizes and "f16" in disk_sizes and disk_sizes["f16"] > 0:
+        shrink = f"{disk_sizes['f32'] / disk_sizes['f16']:.2f}× smaller than F32"
+    else:
+        shrink = "substantially smaller than F32"
+    accuracy_clause = ("near-identical accuracy to F32 (see the table below)"
+                       if has_metrics else "near-identical accuracy to F32")
     lines.append("This repo contains all four standard quantizations of this variant. "
-                 "**F16 is the recommended default** — same accuracy as F32, "
-                 "1.85× smaller, and typically the fastest on modern CPUs thanks to "
-                 "ggml's F32×F16 matmul fast path.")
+                 f"**F16 is the recommended default** — {accuracy_clause}, {shrink}, "
+                 f"and it takes ggml's F32×F16 matmul fast path.")
     lines.append("")
 
     # File table
@@ -254,12 +333,21 @@ def build_model_card(variant: str, cells: Dict[str, CellMetrics]) -> str:
                      "for parity numbers.")
     lines.append("")
 
-    # Methodology note
-    lines.append("All accuracy numbers are computed against the upstream PyTorch "
-                 "reference (`rfdetr 1.7.0`) on 7 COCO val2017 images at threshold "
-                 "0.5. Latency is measured with `rfdetr-cli bench` (8 iters + 3 "
-                 "warmup) at T=8 threads on a single AMD Ryzen 9 9950X3D image "
-                 "(`coco_kitchen.jpg`, 640x427).")
+    # Methodology note. Every sentence here is gated on the data actually
+    # existing for this variant, so the card can never claim a measurement
+    # that was not taken.
+    if has_metrics and card_versions:
+        lines.append(f"All accuracy numbers are computed against the upstream PyTorch "
+                     f"reference ({format_versions(card_versions)}) on 7 COCO val2017 "
+                     f"images at threshold 0.5.")
+    if has_latency:
+        lines.append("Latency is measured with `rfdetr-cli bench` (8 iters + 3 "
+                     "warmup) at T=8 threads on a single AMD Ryzen 9 9950X3D image "
+                     "(`coco_kitchen.jpg`, 640x427).")
+    elif has_metrics:
+        lines.append("No latency benchmark has been recorded for this variant yet, so "
+                     "the latency column is left empty. Run `scripts/quick_bench.sh` "
+                     "locally for timings on your own hardware.")
     lines.append("")
 
     # Architecture
@@ -278,17 +366,27 @@ def build_model_card(variant: str, cells: Dict[str, CellMetrics]) -> str:
     # Quant notes
     lines.append("## Quantization notes")
     lines.append("")
-    lines.append("- **F32** — full-precision reference, ~120 MB. Bit-exact PyTorch parity.")
+    f32_size = disk_sizes.get("f32")
+    f32_note = f", {f32_size:.0f} MB" if f32_size else ""
+    lines.append(f"- **F32** — the full-precision conversion{f32_note}, and the closest "
+                 f"match to the PyTorch reference"
+                 + (" (see the table above for measured agreement)." if has_metrics else "."))
     lines.append("- **F16** — matmul-multiplicand weights only; LayerNorms, conv kernels, "
-                 "embeddings, biases, and layer-scale gammas stay F32. Lossless on this "
-                 "model and consistently the fastest variant on CPU.")
-    lines.append("- **Q8_0** — best size/accuracy tradeoff under F16; ~3× smaller than F32 "
-                 "with effectively identical detections.")
-    lines.append("- **Q4_K** — smallest practical quant. Rows with `ne[0] % 256 != 0` (the "
-                 "decoder's 128-dim MLP halves, 60 tensors) silently fall back to Q8_0 per "
-                 "ggml's quantizer logic — net compression is still ~3.8× over F32. "
-                 "Use only when the size budget is tight; expect a measurable Recall@0.95 "
-                 "drop relative to F16/Q8_0 (see file table above).")
+                 "embeddings, biases, and layer-scale gammas stay F32. Accuracy tracks "
+                 "F32 closely on this model, and it takes ggml's F32×F16 matmul fast "
+                 "path.")
+    q8_ratio = (f"~{f32_size / disk_sizes['q8_0']:.1f}× smaller than F32"
+                if f32_size and disk_sizes.get("q8_0") else "substantially smaller than F32")
+    lines.append(f"- **Q8_0** — best size/accuracy tradeoff under F16; {q8_ratio} "
+                 f"with effectively identical detections.")
+    q4_ratio = (f"~{f32_size / disk_sizes['q4_K']:.1f}× over F32"
+                if f32_size and disk_sizes.get("q4_K") else "still large")
+    lines.append(f"- **Q4_K** — smallest practical quant. Rows with `ne[0] % 256 != 0` (the "
+                 f"decoder's 128-dim MLP halves) silently fall back to Q8_0 per ggml's "
+                 f"quantizer logic — net compression is still {q4_ratio}. "
+                 f"Use only when the size budget is tight; expect a measurable "
+                 f"Recall@0.95 drop relative to F16/Q8_0"
+                 + (" (see file table above)." if has_metrics else "."))
     lines.append("")
 
     # Usage
@@ -297,7 +395,7 @@ def build_model_card(variant: str, cells: Dict[str, CellMetrics]) -> str:
     lines.append("```bash")
     lines.append("# 1. Clone + build rfdetr.cpp")
     lines.append("git clone https://github.com/mudler/rf-detr.cpp")
-    lines.append("cd rt-detr.cpp")
+    lines.append("cd rf-detr.cpp")
     lines.append("cmake -B build -DRFDETR_BUILD_CLI=ON && cmake --build build -j")
     lines.append("")
     lines.append("# 2. Download a quant (F16 recommended)")
@@ -324,14 +422,15 @@ def build_model_card(variant: str, cells: Dict[str, CellMetrics]) -> str:
     # Accuracy methodology
     lines.append("## Accuracy methodology")
     lines.append("")
-    lines.append(
-        "All accuracy metrics are computed against the upstream PyTorch reference "
-        "(rfdetr 1.7.0) on 7 COCO val2017 images at threshold 0.5. Each detection "
-        "match uses greedy Hungarian-style assignment by IoU (≥ 0.5 lenient, "
-        "≥ 0.95 strict) with class equality required."
-    )
-    lines.append("")
-    if is_seg:
+    if has_metrics and card_versions:
+        lines.append(
+            f"All accuracy metrics are computed against the upstream PyTorch reference "
+            f"({format_versions(card_versions)}) on 7 COCO val2017 images at threshold "
+            f"0.5. Each detection match uses greedy Hungarian-style assignment by IoU "
+            f"(≥ 0.5 lenient, ≥ 0.95 strict) with class equality required."
+        )
+        lines.append("")
+    if is_seg and has_metrics:
         lines.append(
             "Mask metrics are pixel-wise IoU between binary masks at the **original** "
             "image resolution (not the network's working resolution), after sigmoid + "
@@ -355,15 +454,23 @@ def build_model_card(variant: str, cells: Dict[str, CellMetrics]) -> str:
     return "\n".join(lines)
 
 
-def list_local_files(variant: str) -> List[Path]:
-    """Return the 4 GGUF files for this variant, in QUANTS order."""
-    out: List[Path] = []
+def expected_local_files(variant: str) -> Tuple[List[Path], List[Path]]:
+    """Split this variant's expected GGUFs into (present, missing), QUANTS order."""
+    present: List[Path] = []
+    missing: List[Path] = []
     for q in QUANTS:
         p = MODELS_DIR / f"rfdetr-{variant}-{q}.gguf"
-        if not p.is_file():
-            raise FileNotFoundError(f"missing model file: {p}")
-        out.append(p)
-    return out
+        (present if p.is_file() else missing).append(p)
+    return present, missing
+
+
+def list_local_files(variant: str) -> List[Path]:
+    """Return the full set of GGUF files for this variant, in QUANTS order."""
+    present, missing = expected_local_files(variant)
+    if missing:
+        names = ", ".join(p.name for p in missing)
+        raise FileNotFoundError(f"missing model file(s) for {variant}: {names}")
+    return present
 
 
 def upload_with_retry(api: HfApi, local_path: Path, remote_name: str, repo_id: str, max_retries: int = 3) -> None:
@@ -403,7 +510,7 @@ def publish_variant(api: HfApi, variant: str, cells: Dict[str, CellMetrics], *,
     card = build_model_card(variant, cells)
 
     total_bytes = sum(p.stat().st_size for p in local_files)
-    print(f"  4 GGUF files, total {total_bytes / 1e6:.1f} MB")
+    print(f"  {len(local_files)} GGUF files, total {total_bytes / 1e6:.1f} MB")
 
     if dry_run:
         print(f"  [dry-run] would create repo {repo_id} (public)")
@@ -458,7 +565,8 @@ def publish_variant(api: HfApi, variant: str, cells: Dict[str, CellMetrics], *,
                 delay *= 2
             else:
                 raise
-    # README upload doesn't count in the 32 GGUF count, but we track bytes
+    # README isn't a GGUF so it doesn't count toward this variant's quant set,
+    # but we still track its bytes.
     bytes_up += len(card)
     uploaded += 1
 
@@ -500,11 +608,60 @@ def main() -> int:
     metrics = load_metrics()
 
     variants = VARIANTS
+    explicit = False
     if args.only:
+        explicit = True
         wanted = {v.strip() for v in args.only.split(",") if v.strip()}
         variants = [v for v in VARIANTS if v in wanted]
         if not variants:
             print(f"error: --only={args.only} matched no known variants", file=sys.stderr)
+            return 2
+        unknown = sorted(wanted - set(VARIANTS))
+        if unknown:
+            print(f"error: --only names unknown variant(s): {', '.join(unknown)}",
+                  file=sys.stderr)
+            return 2
+
+    # Preflight: a variant with no local GGUFs must never turn into a confusing
+    # mid-run crash. Naming an incomplete variant explicitly is an error; an
+    # unfiltered run skips it loudly and exits non-zero so it can't look clean.
+    incomplete: Dict[str, List[Path]] = {}
+    for v in variants:
+        _, missing = expected_local_files(v)
+        if missing:
+            incomplete[v] = missing
+    if incomplete:
+        for v, missing in incomplete.items():
+            print(f"warning: variant {v} has {len(missing)} missing GGUF file(s):",
+                  file=sys.stderr)
+            for p in missing:
+                print(f"    {p}", file=sys.stderr)
+        if explicit:
+            print("error: refusing to publish — the variant(s) above were requested "
+                  "explicitly via --only but are not fully built locally. Build them "
+                  "(scripts/build_all_quants.sh) or drop them from --only.",
+                  file=sys.stderr)
+            return 2
+        skipped = sorted(incomplete)
+        variants = [v for v in variants if v not in incomplete]
+        print(f"warning: skipping {', '.join(skipped)} — no complete local GGUF set. "
+              f"Pass --only to publish a specific subset.", file=sys.stderr)
+        if not variants:
+            print("error: no variant has a complete local GGUF set; nothing to publish.",
+                  file=sys.stderr)
+            return 2
+    else:
+        skipped = []
+
+    # Preflight: never emit a card that states accuracy numbers without being
+    # able to say which rfdetr reference produced them.
+    if env_rfdetr_version() is None:
+        undated = [v for v in variants
+                   if metrics.get(v) and not any(c.rfdetr_version for c in metrics[v].values())]
+        if undated:
+            print(f"error: cannot determine the rfdetr version for {', '.join(undated)}: "
+                  f"the sweep records none and neither the installed rfdetr "
+                  f"distribution nor {REQUIREMENTS_TXT} could be read.", file=sys.stderr)
             return 2
 
     # Auth check
@@ -555,12 +712,18 @@ def main() -> int:
             print(f"  {url}")
         if err:
             print(f"  {err}")
+    for v in skipped:
+        names = ", ".join(p.name for p in incomplete[v])
+        print(f"{HF_USER + '/rfdetr-cpp-' + v:45s} {'-':>5} {'-':>11}  SKIPPED")
+        print(f"  missing locally: {names}")
     print()
     print(f"Total uploaded: {total_files} files, {total_bytes / 1e6:.1f} MB")
+    if skipped:
+        print(f"Skipped (incomplete local GGUF set): {', '.join(skipped)}")
     print(f"Elapsed: {elapsed:.1f}s")
 
     failed = sum(1 for r in results if r.get("error"))
-    return 1 if failed else 0
+    return 1 if (failed or skipped) else 0
 
 
 if __name__ == "__main__":
