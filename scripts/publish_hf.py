@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
 """Publish rfdetr.cpp GGUF models to HuggingFace Hub.
 
-Creates one repo per variant under ``mudler/rfdetr-cpp-<variant>``, each
+Creates one repo per variant under ``<hf-user>/rfdetr-cpp-<variant>``, each
 containing the F32 / F16 / Q8_0 / Q4_K quantizations plus a data-driven
 model card backed by the Phase 2 accuracy sweep and the per-cell latency
 microbench.
 
 Usage:
-    .venv/bin/python scripts/publish_hf.py [--dry-run]
+    .venv/bin/python scripts/publish_hf.py --hf-user <you> [--dry-run]
+                                           [--github-repo <you>/rf-detr.cpp]
                                            [--only nano,base,...]
                                            [--skip-uploads]
+
+--hf-user is required (no hardcoded default) so this can never accidentally
+publish to someone else's namespace.
 """
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import sys
@@ -31,10 +36,28 @@ RESULTS_DIR = REPO_ROOT / "benchmarks" / "results"
 ACCURACY_JSON = RESULTS_DIR / "accuracy_sweep.json"
 LATENCY_JSON = RESULTS_DIR / "per_cell_latency.json"
 
-HF_USER = "mudler"
 QUANTS = ["f32", "f16", "q8_0", "q4_K"]
 
-# All 11 variants, in publish order.
+# Default GitHub org/repo used for links when --github-repo isn't given.
+# This must point at a repo the reader can actually clone; pass
+# --github-repo <user>/rf-detr.cpp to point at a personal fork.
+DEFAULT_GITHUB_REPO = "localai-org/rf-detr.cpp"
+
+
+def _load_converter_module():
+    """Import scripts/convert_rfdetr_to_gguf.py as a module to reuse its
+    VARIANTS config instead of duplicating architecture constants here."""
+    spec = importlib.util.spec_from_file_location(
+        "convert_rfdetr_to_gguf", REPO_ROOT / "scripts" / "convert_rfdetr_to_gguf.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_CONV = _load_converter_module()
+
+# All 11 variants, in publish order (converter VARIANTS dict is unordered
+# w.r.t. our desired publish order, so keep an explicit list here).
 VARIANTS = [
     "nano",
     "small",
@@ -49,21 +72,19 @@ VARIANTS = [
     "seg-2xlarge",
 ]
 
-# Static per-variant architecture facts (resolution, decoder layers, queries,
-# patch size). These come from the upstream rfdetr 1.7.0 model registry —
-# they're not changing per quant so we keep them as a small lookup.
+# Per-variant architecture facts, derived from the converter's VARIANTS
+# config (scripts/convert_rfdetr_to_gguf.py) rather than duplicated here, so
+# the two can never drift. All variants use a DINOv2-small backbone
+# (dim=384, heads=6) per that config.
 ARCH = {
-    "nano":        {"resolution": 384, "patch": 14, "decoder_layers": 2, "queries": 300, "backbone": "DINOv2-small"},
-    "small":       {"resolution": 512, "patch": 14, "decoder_layers": 3, "queries": 300, "backbone": "DINOv2-small"},
-    "base":        {"resolution": 560, "patch": 14, "decoder_layers": 3, "queries": 300, "backbone": "DINOv2-small"},
-    "medium":      {"resolution": 576, "patch": 14, "decoder_layers": 4, "queries": 300, "backbone": "DINOv2-small"},
-    "large":       {"resolution": 704, "patch": 14, "decoder_layers": 4, "queries": 300, "backbone": "DINOv2-small"},
-    "seg-nano":    {"resolution": 312, "patch": 12, "decoder_layers": 4, "queries": 100, "backbone": "DINOv2-small"},
-    "seg-small":   {"resolution": 384, "patch": 12, "decoder_layers": 4, "queries": 100, "backbone": "DINOv2-small"},
-    "seg-medium":  {"resolution": 432, "patch": 12, "decoder_layers": 5, "queries": 200, "backbone": "DINOv2-small"},
-    "seg-large":   {"resolution": 504, "patch": 12, "decoder_layers": 5, "queries": 200, "backbone": "DINOv2-small"},
-    "seg-xlarge":  {"resolution": 624, "patch": 12, "decoder_layers": 6, "queries": 300, "backbone": "DINOv2-small"},
-    "seg-2xlarge": {"resolution": 768, "patch": 12, "decoder_layers": 6, "queries": 300, "backbone": "DINOv2-small"},
+    v: {
+        "resolution": cfg["image_size"],
+        "patch": cfg["patch_size"],
+        "decoder_layers": cfg["decoder"]["layers"],
+        "queries": cfg["num_queries"],
+        "backbone": "DINOv2-small",
+    }
+    for v, cfg in _CONV.VARIANTS.items()
 }
 
 # Pretty display names.
@@ -140,7 +161,8 @@ def load_metrics() -> Dict[str, Dict[str, CellMetrics]]:
     return out
 
 
-def build_model_card(variant: str, cells: Dict[str, CellMetrics]) -> str:
+def build_model_card(variant: str, cells: Dict[str, CellMetrics], *,
+                     hf_user: str, github_repo: str) -> str:
     """Generate a Markdown model card for one variant repo.
 
     If `cells` is empty, the per-quant metrics table is replaced with a
@@ -183,7 +205,7 @@ def build_model_card(variant: str, cells: Dict[str, CellMetrics]) -> str:
     lines.append("")
     lines.append(
         f"GGUF-format weights of [Roboflow RF-DETR {pretty}]({UPSTREAM}) "
-        f"({kind} variant) for use with [rfdetr.cpp](https://github.com/mudler/rf-detr.cpp), "
+        f"({kind} variant) for use with [rfdetr.cpp](https://github.com/{github_repo}), "
         f"a C++/ggml implementation that matches the upstream PyTorch model on CPU."
     )
     lines.append("")
@@ -247,7 +269,7 @@ def build_model_card(variant: str, cells: Dict[str, CellMetrics]) -> str:
             lines.append(f"| `{fname}`{rec_marker} | {quant_label[q]} | {size_mb:.1f} |")
         lines.append("")
         lines.append("> Accuracy + latency for this variant haven't been added to the "
-                     "[BENCHMARK.md](https://github.com/mudler/rf-detr.cpp/blob/main/BENCHMARK.md) "
+                     f"[BENCHMARK.md](https://github.com/{github_repo}/blob/main/BENCHMARK.md) "
                      "sweep yet; the C++ implementation is verified to load and run "
                      "`rfdetr-cli detect` end-to-end on every quant. Run "
                      "`scripts/sweep_accuracy.py --variant " + variant + "` locally "
@@ -256,7 +278,7 @@ def build_model_card(variant: str, cells: Dict[str, CellMetrics]) -> str:
 
     # Methodology note
     lines.append("All accuracy numbers are computed against the upstream PyTorch "
-                 "reference (`rfdetr 1.7.0`) on 7 COCO val2017 images at threshold "
+                 "reference (`rfdetr 1.9.0`) on 7 COCO val2017 images at threshold "
                  "0.5. Latency is measured with `rfdetr-cli bench` (8 iters + 3 "
                  "warmup) at T=8 threads on a single AMD Ryzen 9 9950X3D image "
                  "(`coco_kitchen.jpg`, 640x427).")
@@ -296,12 +318,12 @@ def build_model_card(variant: str, cells: Dict[str, CellMetrics]) -> str:
     lines.append("")
     lines.append("```bash")
     lines.append("# 1. Clone + build rfdetr.cpp")
-    lines.append("git clone https://github.com/mudler/rf-detr.cpp")
-    lines.append("cd rt-detr.cpp")
+    lines.append(f"git clone https://github.com/{github_repo}")
+    lines.append("cd rf-detr.cpp")
     lines.append("cmake -B build -DRFDETR_BUILD_CLI=ON && cmake --build build -j")
     lines.append("")
     lines.append("# 2. Download a quant (F16 recommended)")
-    lines.append(f"hf download {HF_USER}/rfdetr-cpp-{variant} rfdetr-{variant}-f16.gguf --local-dir models/")
+    lines.append(f"hf download {hf_user}/rfdetr-cpp-{variant} rfdetr-{variant}-f16.gguf --local-dir models/")
     lines.append("")
     if is_seg:
         lines.append(f"# 3. Run segmentation (writes per-detection PNG masks to /tmp/seg_masks/)")
@@ -326,7 +348,7 @@ def build_model_card(variant: str, cells: Dict[str, CellMetrics]) -> str:
     lines.append("")
     lines.append(
         "All accuracy metrics are computed against the upstream PyTorch reference "
-        "(rfdetr 1.7.0) on 7 COCO val2017 images at threshold 0.5. Each detection "
+        "(rfdetr 1.9.0) on 7 COCO val2017 images at threshold 0.5. Each detection "
         "match uses greedy Hungarian-style assignment by IoU (≥ 0.5 lenient, "
         "≥ 0.95 strict) with class equality required."
     )
@@ -340,8 +362,8 @@ def build_model_card(variant: str, cells: Dict[str, CellMetrics]) -> str:
         )
         lines.append("")
     lines.append(
-        "See [BENCHMARK.md](https://github.com/mudler/rf-detr.cpp/blob/main/BENCHMARK.md) "
-        "and [`benchmarks/results/accuracy_sweep.json`](https://github.com/mudler/rf-detr.cpp/blob/main/benchmarks/results/accuracy_sweep.json) "
+        f"See [BENCHMARK.md](https://github.com/{github_repo}/blob/main/BENCHMARK.md) "
+        f"and [`benchmarks/results/accuracy_sweep.json`](https://github.com/{github_repo}/blob/main/benchmarks/results/accuracy_sweep.json) "
         "for the full sweep across the (variant × quant) cells."
     )
     lines.append("")
@@ -395,12 +417,13 @@ def upload_with_retry(api: HfApi, local_path: Path, remote_name: str, repo_id: s
 
 
 def publish_variant(api: HfApi, variant: str, cells: Dict[str, CellMetrics], *,
+                    hf_user: str, github_repo: str,
                     dry_run: bool, skip_existing: bool) -> Dict[str, object]:
     """Publish one variant. Returns a status dict for the summary table."""
-    repo_id = f"{HF_USER}/rfdetr-cpp-{variant}"
+    repo_id = f"{hf_user}/rfdetr-cpp-{variant}"
     print(f"\n=== {repo_id} ===")
     local_files = list_local_files(variant)
-    card = build_model_card(variant, cells)
+    card = build_model_card(variant, cells, hf_user=hf_user, github_repo=github_repo)
 
     total_bytes = sum(p.stat().st_size for p in local_files)
     print(f"  4 GGUF files, total {total_bytes / 1e6:.1f} MB")
@@ -458,7 +481,7 @@ def publish_variant(api: HfApi, variant: str, cells: Dict[str, CellMetrics], *,
                 delay *= 2
             else:
                 raise
-    # README upload doesn't count in the 32 GGUF count, but we track bytes
+    # README upload doesn't count in the 44 GGUF count, but we track bytes
     bytes_up += len(card)
     uploaded += 1
 
@@ -482,6 +505,13 @@ def publish_variant(api: HfApi, variant: str, cells: Dict[str, CellMetrics], *,
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--hf-user", type=str, default=None,
+                        help="HF namespace to publish under (e.g. your HF username). "
+                             "If omitted, discovered from the authenticated HF identity "
+                             "(hf whoami) and confirmed against a --dry-run pass.")
+    parser.add_argument("--github-repo", type=str, default=DEFAULT_GITHUB_REPO,
+                        help=f"GitHub '<owner>/<repo>' used for links in the model card "
+                             f"(default: {DEFAULT_GITHUB_REPO}; pass your fork once merged).")
     parser.add_argument("--dry-run", action="store_true",
                         help="show what would happen without uploading")
     parser.add_argument("--only", type=str, default="",
@@ -507,15 +537,20 @@ def main() -> int:
             print(f"error: --only={args.only} matched no known variants", file=sys.stderr)
             return 2
 
-    # Auth check
+    # Auth check + hf-user resolution. Always authenticate (even in
+    # --dry-run) so a missing/expired token is caught before any upload.
     api = HfApi()
-    if not args.dry_run:
-        try:
-            me = api.whoami()
-            print(f"authenticated as: {me['name']}")
-        except Exception as e:
-            print(f"error: HF auth failed: {e}", file=sys.stderr)
-            return 2
+    try:
+        me = api.whoami()
+        print(f"authenticated as: {me['name']}")
+    except Exception as e:
+        print(f"error: HF auth failed: {e}", file=sys.stderr)
+        return 2
+
+    hf_user = args.hf_user or me["name"]
+    if not args.hf_user:
+        print(f"--hf-user not given; using authenticated identity: {hf_user}")
+    print(f"publishing to namespace: {hf_user}/  (github links -> {args.github_repo})")
 
     results: List[Dict[str, object]] = []
     t_start = time.time()
@@ -526,12 +561,13 @@ def main() -> int:
                   f"placeholder model card", file=sys.stderr)
         try:
             r = publish_variant(api, v, cells,
+                                hf_user=hf_user, github_repo=args.github_repo,
                                 dry_run=args.dry_run,
                                 skip_existing=not args.no_skip_existing)
             results.append(r)
         except Exception as e:
             print(f"\n!!! variant {v} failed: {type(e).__name__}: {e}", file=sys.stderr)
-            results.append({"repo_id": f"{HF_USER}/rfdetr-cpp-{v}", "url": "", "uploaded_files": 0, "bytes": 0, "error": str(e)})
+            results.append({"repo_id": f"{hf_user}/rfdetr-cpp-{v}", "url": "", "uploaded_files": 0, "bytes": 0, "error": str(e)})
 
     elapsed = time.time() - t_start
 
