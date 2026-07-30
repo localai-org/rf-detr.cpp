@@ -295,6 +295,27 @@ Recommendation (numbers are for rfdetr-base):
 See [`BENCHMARK.md`](BENCHMARK.md) for mask quality across all 12 seg cells (mask IoU stays
 ≥ 0.99 across F32/F16/Q8_0 on every segmentation variant).
 
+### 1.7.0 vs 1.9.0 (rfdetr-base)
+
+The only apples-to-apples overlap between the two sweeps is `rfdetr-base`, the one variant
+the pre-1.9 sweep covered per-quant. **Methodology differs** — the 1.7.0 numbers are
+median-of-7-COCO-images with **max** |Δscore|; the 1.9.0 numbers (this branch, converted
+with the 1.9-aware pipeline) are a single-image regression check with **mean** |Δscore| — so
+treat this as directional, not a strict regression comparison:
+
+| Quant | 1.7.0 R@0.5 | 1.9.0 R@0.5 | 1.7.0 R@0.95 | 1.9.0 R@0.95 | 1.7.0 Max \|Δscore\| | 1.9.0 Mean \|Δscore\| |
+|---|---:|---:|---:|---:|---:|---:|
+| F32  | 1.000 | 1.000 | 0.989 | 1.000 | 0.008 | 0.0025 |
+| F16  | 1.000 | 1.000 | 0.989 | 1.000 | 0.008 | 0.0024 |
+| Q8_0 | 1.000 | 1.000 | 0.989 | 1.000 | 0.009 | 0.0041 |
+| Q4_K | 0.953 | 0.833 | 0.879 | 0.750 | 0.020 | 0.0082 |
+
+F32/F16/Q8_0 hold up or improve at IoU 0.95 on this image; Q4_K is directionally consistent
+(real accuracy loss vs the other three quants in both sweeps) but the single-image 1.9.0
+check is more sensitive to exactly which detections sit near the threshold — see the full
+44-model table above for Q4_K's actual per-variant spread before reading too much into one
+image's Q4_K number.
+
 ## Embedding via the C API
 
 rf-detr.cpp exposes a flat C ABI in [`include/rfdetr.h`](include/rfdetr.h) for `dlopen` and
